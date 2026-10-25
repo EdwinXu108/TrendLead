@@ -43,8 +43,10 @@
 ```powershell
 $PY = 'D:\Tools\miniconda3\python.exe'
 
-# 测试
+# 测试：默认跳过 4 个标记为 slow 的用例（需要真实开发数据、会建缓存），约 12 秒，应为 273 通过、5 跳过
 & $PY -X utf8 -m pytest -q -o addopts= tests_v05 --basetemp work/pytest_tmp -o cache_dir=work/pytest_cache
+# 改动信号、评分或缓存代码时，加 --runslow 再跑一次，约 160 秒，应为 278 通过
+& $PY -X utf8 -m pytest -q -o addopts= tests_v05 --runslow --basetemp work/pytest_tmp -o cache_dir=work/pytest_cache
 
 # 第一阶段模拟数据演示
 & $PY -X utf8 -m leadtrend_v05 demo --config config/v05_bootstrap.json --output work/runs/demo

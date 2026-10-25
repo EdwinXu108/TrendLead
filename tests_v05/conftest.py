@@ -176,8 +176,20 @@ LOCAL_ONLY = [
 ]
 
 
+def pytest_addoption(parser):
+    parser.addoption("--runslow", action="store_true", default=False,
+                     help="also run tests marked slow (real development data, cache builds)")
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "slow: needs real development data or builds a cache; run with --runslow")
+
+
 def pytest_collection_modifyitems(config, items):
+    run_slow = config.getoption("--runslow")
     for item in items:
+        if item.get_closest_marker("slow") and not run_slow:
+            item.add_marker(pytest.mark.skip(reason="slow: run with --runslow"))
         for key, missing, reason in LOCAL_ONLY:
             if key in item.nodeid and missing():
                 item.add_marker(pytest.mark.skip(reason=reason))

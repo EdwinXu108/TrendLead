@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parent.parent
 WINDOWS = [10, 20, 40, 60, 90, 126]
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not (ROOT / 'research/v05/registry/stage4_registry.json').exists(),
                     reason='real development data not present')
 def test_fast_path_equals_score_engine_on_real_development_data():

@@ -356,13 +356,15 @@ def ensure_signal_tables(root,doc,signals,cache_root=None):
 
 CACHE_KEEP=3
 
-def prune_cache(root,keep=CACHE_KEEP):
-    """Keep the newest `keep` cache folders under work/cache (by folder modification time); delete the rest.
+def prune_cache(root,base,keep=CACHE_KEEP):
+    """Keep the newest `keep` directories directly under base (by modification time); delete the rest.
 
-    Only direct child directories of work/cache are candidates. Every removal, and every kept folder, is appended
-    to work/logs/cache_prune.log as one JSON line.
+    base is work/cache (children are cache folders) or work/cache_cold (children are cold namespaces). Nothing else
+    is touched. Every removal, and every kept folder, is appended to work/logs/cache_prune.log as one JSON line.
     """
-    root=Path(root);base=root/paths.CACHE
+    root=Path(root);base=Path(base)
+    if base.resolve() not in {(root/paths.CACHE).resolve(),(root/paths.COLD_CACHE).resolve()}:
+        raise ValueError('pruning is limited to work/cache and work/cache_cold')
     if not base.is_dir():return []
     dirs=[p for p in base.iterdir() if p.is_dir() and not p.is_symlink()]
     dirs.sort(key=lambda p:(p.stat().st_mtime,p.name),reverse=True)
@@ -372,7 +374,7 @@ def prune_cache(root,keep=CACHE_KEEP):
         try:
             shutil.rmtree(p);removed.append(dict(path=p.relative_to(root).as_posix(),bytes=size))
         except OSError as err:failed.append(dict(path=p.relative_to(root).as_posix(),error=str(err)))
-    entry=dict(time=datetime.now(timezone.utc).isoformat(timespec='seconds'),keep=keep,
+    entry=dict(time=datetime.now(timezone.utc).isoformat(timespec='seconds'),base=base.relative_to(root).as_posix(),keep=keep,
         kept=[p.relative_to(root).as_posix() for p in dirs[:keep]],removed=removed,failed=failed)
     logs=root/paths.LOGS;logs.mkdir(parents=True,exist_ok=True)
     with (logs/'cache_prune.log').open('a',encoding='utf-8') as f:f.write(json.dumps(entry,ensure_ascii=False)+'\n')
@@ -401,7 +403,10 @@ def build_cache(root,doc,cache_root=None):
     files={p.name:sha(p) for p in folder.iterdir() if p.is_file() and p.name!='cache.json'}
     dump(folder/'cache.json',dict(identity=doc,files=files,build_seconds=time.perf_counter()-start,immutable=True,
         cell_stats=ctx.cell_stats))
-    if cache_root is None:prune_cache(root)  # the default namespace only; a cold namespace keeps all its caches
+    # After a successful build: the default namespace keeps its newest three cache folders; a cold namespace keeps
+    # its newest three namespaces. Any other location is left alone.
+    if cache_root is None:prune_cache(root,root/paths.CACHE)
+    elif Path(cache_root).resolve().parent==(root/paths.COLD_CACHE).resolve():prune_cache(root,root/paths.COLD_CACHE)
     return attach(ctx,folder)
 
 def load_cache(root,doc=None,scope='uniform',cache_root=None):

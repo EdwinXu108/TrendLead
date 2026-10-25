@@ -11,6 +11,7 @@ from leadtrend_v05.perf_cache import build_context
 from leadtrend_v05.signals import composite_cells, momentum_cell
 
 ROOT = Path(__file__).resolve().parent.parent
+pytestmark = pytest.mark.slow  # real development data and a cache build in the fixture
 
 
 @pytest.fixture(scope='module')

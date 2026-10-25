@@ -106,6 +106,7 @@ def test_outer_exception_preserves_partial_artifacts():
     assert result.failure_context is not None
 
 
+@pytest.mark.slow
 def test_scale_500_securities_750_sessions():
     """A4: ~500 names × ~750 sessions end-to-end must finish in minutes, not hours."""
     n_stocks = 500

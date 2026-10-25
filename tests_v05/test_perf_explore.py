@@ -269,6 +269,7 @@ def test_summarize_grid_cli_refuses_explore_without_flag(tmp_path, monkeypatch):
     assert not (tmp_path / 'o' / 'd.json').exists()
 
 
+@pytest.mark.slow
 def test_heatmaps_mark_exploration_outputs(tmp_path, monkeypatch):
     # Same vendored matplotlib the production path uses; the base env has none.
     vendor = Path(stage4_summary.__file__).resolve().parent.parent / 'vendor/stage4_plot_deps'

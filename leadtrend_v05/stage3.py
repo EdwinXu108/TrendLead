@@ -13,7 +13,8 @@ from .config import load_config
 from .dataio import load_inputs, SecurityRow, PriceRow, sha256_file
 from .calendar import Calendar
 from .eligibility import ClassSelector, build_price_index, eligibility_index
-from .selection import Candidate, select_portfolio
+from .selection import Candidate, SELECTION_RULES, select_portfolio
+from .signals import is_default_momentum, normalize as normalize_signal, signal_key
 from .execution import plan_equal_weight_trades
 from .ledger import AccountState
 from .benchmark import build_benchmark
@@ -139,6 +140,13 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
     if _stage4_context is not None:book.fractional_settlements=getattr(_stage4_context,'fractional_settlements',{})
     coverage={r['signal_session_date']:r for r in read_csv(root/paths.WEEKLY_COVERAGE)}
     pending=None;first_trade=None;first_open_value=None;contributions=defaultdict(float);previous_assets={};last_marks={};stop=None
+    # Strategy signal: absent means the existing momentum rule on cfg.L, so grid outputs are unchanged.
+    signal=normalize_signal(raw['signal']) if raw.get('signal') is not None else {'kind':'momentum','L':cfg.L,'skip':0}
+    if raw.get('signal') is not None and _performance is None:raise ValueError('signals need the cached score tables')
+    table_key=None
+    if _performance is not None:
+        table_key=signal['L'] if is_default_momentum(signal) and signal['L'] in _performance.shared else signal_key(signal)
+        if table_key not in _performance.shared:raise ValueError('score table not built for signal '+str(table_key))
     manifest={'stage':3,'scope':'development_only','start_date':start.isoformat(),'end_date':end.isoformat(),
         'registered_development':registry['development'],'registry_sha256':sha256_file(registry_path),
         'normalized_file_hashes':registry['data_version'],'auxiliary_raw_hashes':raw_hashes,
@@ -147,6 +155,8 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
         'execution_assumption':'next-session raw open is observable allocation quote; whole shares, sell before buy; only swap weeks; no extra settlement delay',
         'fractional_right_assumption':'unverified fractional cash-in-lieu stays a restricted security entitlement at observed child mark; no invented payment',
         'limitations':['survivorship bias from missing historical member quotes','current industry classification','unvalidated engineering defaults']}
+    if raw.get('signal') is not None or raw.get('experiment') is not None:
+        manifest.update(signal=signal,signal_key=signal_key(signal),experiment=raw.get('experiment'))
     if _stage4_context is not None:
         manifest.update(stage=4,scope=_stage4_context.scope,stage4_registry_sha256=_stage4_context.registry_hash,
                         rebalance=raw['rebalance'],no_holdout_computed=_stage4_context.scope=='development_only')
@@ -230,7 +240,7 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
                 book.require_resolved_partial_delivery()
                 week_score_start=len(tables['scores'])
                 if _performance is not None:
-                    frame=_performance.frames[d];window=frame['windows'][cfg.L]
+                    frame=_performance.frames[d];window=frame['windows'][table_key]
                     chosen=frame['chosen'];candidates=window['candidates'];unscored=window['unscored']
                     # Universe rows reach the output only through full artifacts; lean and explore read the shared file.
                     if getattr(_performance,'artifact_mode','lean')=='full':tables['universe'].extend(frame['universe'])
@@ -266,7 +276,8 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
                         raise ValueError('held eligible security cannot be scored: '+sid+' '+unscored[sid]+' '+iso)
                 frozen_candidates=[Candidate(sid,sec[sid].issuer_id,sec[sid].industry,0.) for sid in sorted(frozen_ids)]
                 held=[sid for sid in book.account.positions if sid not in frozen_ids]
-                selected=select_portfolio(candidates,held,cfg.N,cfg.k,cfg.b,frozen=frozen_candidates)
+                rule=raw.get('selection','default')
+                selected=(select_portfolio if rule=='default' else SELECTION_RULES[rule])(candidates,held,cfg.N,cfg.k,cfg.b,frozen=frozen_candidates)
                 ranked={c.security_id:i+1 for i,c in enumerate(sorted(candidates,key=lambda c:c.sort_key))}
                 if _performance is None:
                     for row in tables['scores'][week_score_start:]:row['rank']=ranked.get(row['security_id'])
@@ -333,6 +344,6 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
             # No decision projection is written, so the score lookup is not built.
             write_artifacts(output,tables,summary,manifest,stop,artifact_mode='explore')
         else:
-            shared={'universe':_performance.shared['universe'],'scores':_performance.shared[cfg.L],'score_lookup':_performance.score_lookup(cfg.L)}
+            shared={'universe':_performance.shared['universe'],'scores':_performance.shared[table_key],'score_lookup':_performance.score_lookup(table_key)}
             write_artifacts(output,tables,summary,manifest,stop,artifact_mode=_performance.artifact_mode,shared=shared)
     print(json.dumps(summary,ensure_ascii=False,indent=2));return 0 if summary['status']=='completed' else 2

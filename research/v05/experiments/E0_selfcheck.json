@@ -1,0 +1,31 @@
+{
+  "id": "E0_selfcheck",
+  "created_date": "2026-10-26",
+  "hypothesis": "自检：框架在第四阶段已有的 6 个动量配置上，复现第四阶段正式结果（与第四阶段重复，不是新的策略假设）",
+  "baseline": {"id": "L090_N08_b2_R2", "L": 90, "N": 8, "k": 2, "b": 2, "rebalance": "R2"},
+  "grid": [
+    {
+      "signal": [
+        {"kind": "momentum", "L": 60, "skip": 0},
+        {"kind": "momentum", "L": 90, "skip": 0},
+        {"kind": "momentum", "L": 126, "skip": 0}
+      ],
+      "N": [8],
+      "b": [2],
+      "rebalance": ["R2"]
+    },
+    {
+      "signal": [
+        {"kind": "momentum", "L": 60, "skip": 0},
+        {"kind": "momentum", "L": 90, "skip": 0}
+      ],
+      "N": [10],
+      "b": [2],
+      "rebalance": ["R2"]
+    }
+  ],
+  "costs_bps": [5, 10],
+  "confirm_top": 2,
+  "null_runs": 20,
+  "results_seen_before_registration": ["第四阶段 72 配置的正式结果（本自检配置与之重复）"]
+}

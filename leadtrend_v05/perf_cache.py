@@ -241,7 +241,7 @@ class SharedFrames:
             table={}
             for r in csv_rows(self.shared[L]['path']):
                 row=dict(signal_session_date=r['signal_session_date'],security_id=r['security_id'],issuer_id=r['issuer_id'],industry=r['industry'],
-                    L=int(r['L']),window_sessions=int(r['window_sessions']),tri_start=_num(r['tri_start']),tri_end=_num(r['tri_end']),
+                    L=int(r['L']),window_sessions=_int(r['window_sessions']),tri_start=_num(r['tri_start']),tri_end=_num(r['tri_end']),
                     score=_num(r['score']),unscorable_reason=r['unscorable_reason'],rank=_int(r['rank']))
                 w=table.setdefault(row['signal_session_date'],dict(scores=[],candidates=[],unscored={},ranked={}))
                 w['scores'].append(row)
@@ -281,8 +281,90 @@ def attach(ctx,folder):
     quotes=QuoteView(ctx.axes,np.load(folder/'px_open.npy',mmap_mode='r'),np.load(folder/'px_close.npy',mmap_mode='r'),
         np.load(folder/'px_present.npy',mmap_mode='r'))
     ctx.prepared=(sec,quotes,children,raw_hashes,MarkView(quotes),None)
-    ctx.frames=SharedFrames(ctx.shared)
+    # Experiment signal tables are recorded in cache.json after the build; they join the shared map here.
+    shared=dict(ctx.shared)
+    info=json.loads((folder/'cache.json').read_text(encoding='utf-8')) if (folder/'cache.json').exists() else {}
+    for key,rec in info.get('signal_tables',{}).items():
+        shared[key]=dict(path=folder/rec['path'],physical_sha256=rec['physical_sha256'],logical_sha256=rec['logical_sha256'])
+    ctx.shared=shared
+    ctx.frames=SharedFrames(shared)
     return ctx
+
+def _table_by_week(path):
+    per=defaultdict(dict)
+    for r in csv_rows(path):per[r['signal_session_date']][r['security_id']]=r
+    return per
+
+def _cell(row):
+    return (_num(row['score']),_num(row['tri_end']),_num(row['tri_start']),_int(row['window_sessions']),row['unscorable_reason'])
+
+def ensure_signal_tables(root,doc,signals,cache_root=None):
+    """Write the score table of every signal not yet in this cache, and record it in cache.json.
+
+    Momentum with skip 0 on a cached window uses the existing table. Composite and random tables are derived from
+    their component or base tables. Momentum with a skip, or on a window the cache does not hold, needs the engine
+    and is built with the full context once.
+    """
+    from datetime import date
+    from .eligibility import eligibility_index
+    from .signals import SCORE_FIELDS,canonical,composite_cells,momentum_cell,normalize,random_cells,signal_key,week_rows
+    root=Path(root);folder=(Path(cache_root) if cache_root else root/paths.CACHE)/doc['key']
+    info=json.loads((folder/'cache.json').read_text(encoding='utf-8'))
+    if info['identity']!=doc:raise ValueError('cache identity mismatch')
+    tables=info.setdefault('signal_tables',{});files=info.setdefault('files',{})
+    weeks=defaultdict(dict)
+    for r in csv_rows(folder/'universe.csv.gz'):
+        day=weeks[r['signal_session_date']]
+        if r['class_selected']=='1':day[r['security_id']]=r['issuer_id']
+    state={}
+    def momentum_rows(n,key):
+        if 'engine' not in state:
+            built=build_context(root,doc['scope'])
+            state['engine']=built.prepared[-1];state['elig']=eligibility_index(built.full)
+        engine,elig=state['engine'],state['elig']
+        rows=[]
+        for iso in sorted(weeks):
+            d=date.fromisoformat(iso);sids=sorted(weeks[iso])
+            cells={s:momentum_cell(engine,s,d,n['L'],n['skip']) for s in sids}
+            rowinfo={s:(elig[s].issuer_id,elig[s].industry) for s in sids}
+            rows.extend(week_rows(iso,sids,cells,rowinfo,n['L'],key))
+        return rows
+    def ensure(sig):
+        n=normalize(sig)
+        if n['kind']=='momentum' and n['skip']==0 and n['L'] in doc['windows']:
+            return folder/f"scores_L{n['L']}.csv.gz"
+        key=signal_key(n);name=f'scores_{key}.csv.gz'
+        if key in tables:return folder/tables[key]['path']
+        if n['kind']=='momentum':
+            rows=momentum_rows(n,key);L=n['L']
+        elif n['kind']=='composite':
+            parts=[_table_by_week(ensure(c)) for c in n['components']];L=n['components'][0]['L']
+            rows=[]
+            for iso in sorted(weeks):
+                sids=sorted(weeks[iso])
+                cells=[{s:_cell(p[iso][s]) for s in sids} for p in parts]
+                out=composite_cells(sids,cells,n['weights'])
+                rowinfo={s:(parts[0][iso][s]['issuer_id'],parts[0][iso][s]['industry']) for s in sids}
+                rows.extend(week_rows(iso,sids,out,rowinfo,L,key))
+        else:
+            base=normalize(n['base']);path=ensure(base);per=_table_by_week(path);L=main_L_of(base)
+            rows=[]
+            for iso in sorted(weeks):
+                sids=sorted(weeks[iso])
+                cells={s:_cell(per[iso][s]) for s in sids}
+                out=random_cells(sids,n['seed'],iso,cells)
+                rowinfo={s:(per[iso][s]['issuer_id'],per[iso][s]['industry']) for s in sids}
+                rows.extend(week_rows(iso,sids,out,rowinfo,L,key))
+        p=folder/name;write_gzip_csv(p,rows,SCORE_FIELDS+['signal_key'])
+        files[name]=sha(p);tables[key]=dict(path=name,physical_sha256=sha(p),logical_sha256=logical_sha(p),signal=n,canonical=canonical(n))
+        return p
+    paths_out=[ensure(s) for s in signals]
+    dump(folder/'cache.json',info)
+    return paths_out
+
+def main_L_of(sig):
+    from .signals import main_L
+    return main_L(sig)
 
 def build_cache(root,doc,cache_root=None):
     root=Path(root);folder=(Path(cache_root) if cache_root else root/paths.CACHE)/doc['key'];folder.mkdir(parents=True,exist_ok=True)

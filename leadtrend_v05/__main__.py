@@ -185,6 +185,27 @@ def _workers_arg(text: str):
     return 'auto' if text == 'auto' else int(text)
 
 
+def cmd_run_experiment(args):
+    import os
+    from .experiments import run_experiment
+    from .perf_runner import WORKER_PEAK_BYTES, auto_workers
+    from .perf_bench import available_physical
+    root = _project_root()
+    spec = Path(args.spec)
+    if not spec.is_absolute():
+        spec = root / spec
+    workers = args.workers
+    if workers == 'auto':
+        workers = auto_workers(available_physical(), WORKER_PEAK_BYTES['explore'], os.cpu_count() or 1)
+    try:
+        out = run_experiment(root, spec, workers=workers, null_runs=args.null)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    print(out)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="leadtrend_v05")
     sub = p.add_subparsers(dest="command", required=True)
@@ -220,6 +241,11 @@ def build_parser() -> argparse.ArgumentParser:
     summary_grid.add_argument('--decision',default=paths.RUNS+'/grid_summary/holdout_decision.json')
     summary_grid.add_argument('--exploration',action='store_true',help='Allow explore-level runs; outputs are marked as screening only and no holdout decision is written')
     summary_grid.set_defaults(func=cmd_summarize_grid)
+    exp=sub.add_parser('run-experiment',help='Run a committed development-only strategy experiment spec; never the holdout')
+    exp.add_argument('--spec',required=True,help='research/v05/experiments/<ID>.json, committed with a clean tree')
+    exp.add_argument('--workers',type=_workers_arg,default=1,help='worker processes 1..8, or auto')
+    exp.add_argument('--null',type=int,default=None,help='override null_runs in the spec')
+    exp.set_defaults(func=cmd_run_experiment)
     hold=sub.add_parser('run-holdout',help='One-shot, rule-selected Stage4 holdout; refuses without authorization')
     hold.set_defaults(func=cmd_run_holdout)
     repair=sub.add_parser('stage2-repair',help='Claude A1--A3 identity, child quote and official dividend repairs')

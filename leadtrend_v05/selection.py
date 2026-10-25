@@ -296,3 +296,6 @@ def score_rows_to_candidates(
             )
         )
     return out
+
+# Selection rules by name; only the reviewed default exists. New rules are added here as new functions.
+SELECTION_RULES = {"default": select_portfolio}

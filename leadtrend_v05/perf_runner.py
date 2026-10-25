@@ -77,6 +77,8 @@ def one_job(job):
     raw.update({k:p[k] for k in ('L','N','k','b','rebalance')})
     raw.update(configuration_id=p['id'],slippage_bps=cost,start_date=ctx.segment['start'],end_date=ctx.segment['end'],
         authorization='Stage4 sealed grid / conditional one-shot holdout',engineering_defaults_unvalidated=True)
+    for field in ('signal','selection','experiment'):
+        if field in p:raw[field]=p[field]
     dump(folder/'config.json',raw);ctx.artifact_mode=mode;ctx.data_scope='legacy' if legacy else 'uniform'
     before=dict(timer.seconds);start=time.perf_counter()
     with (folder/'command.log').open('w',encoding='utf-8') as log,contextlib.redirect_stdout(log):

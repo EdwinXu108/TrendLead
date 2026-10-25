@@ -4,22 +4,31 @@
 
 ## 工作位置与当前阶段
 
-- 在 `D:\Workplace\LeadTrend` 内工作。目录约定（2026-10-25 经投资者批准，由 Claude 整理）：
-  - `leadtrend_v05/` 代码（所有读写路径集中在 `paths.py`）、`tests_v05/` 测试、`config/` 运行配置；
-  - `data/v05/` 输入数据：`raw/`（只追加）、`normalized/`（已封存）、`overlays/`（补充数据版本，带封条）、`prep/`（数据准备记录）、`reference/`、`fixtures/`；
-  - `research/v05/` 研究成果：`registry/` 实验登记、`results/` 审阅通过的结果、`baseline/` 回归比对基准、`reports/` 各阶段交接报告；
-  - `docs/` 现行规格与使用说明（`README_v0.5.md`），历史文档与已执行的任务说明在 `docs/archive/`；
-  - `work/` 只作临时区（缓存、新运行、日志），随时可整个删除；所有运行命令只能输出到 `work/`，不得写入 `research/` 或 `data/`；
-  - `archive/` 只读：整理前代码快照、历史小文件压缩包、搬移与删除记录；`vendor/` 为绘图依赖。
-- 2026-10-25 已收口 v0.5 研究设计，并按投资者明确要求撰写正式方案、分阶段实施计划和各阶段提示词；第一至第四阶段及性能优化已完成并经 Claude 审阅。候选参数和工程默认值不能写成已验证规则。
-- 保留段（2024-07-05 起）尚未动用。运行 `run-holdout` 需要投资者在 Claude 审阅后亲自创建 `research/v05/holdout/authorization.json`；任何模型不得自行创建该文件。
-- 审阅优先级（投资者 2026-10-25 指定）：Claude 高于 GPT。后续的 review 和文档修改优先由 Claude 进行；GPT 的意见与 Claude 冲突时，以 Claude 的版本为准，除非投资者另有指示。2026-10-25 Claude 已按审阅修改 v0.5 的四处：仅在有换股的周恢复等权；信号与成交之间的拆股换算与分红归属；模拟数据须能测到保留缓冲；第一版不因宣布现金收购而主动退出。不要改回。
-- 迭代方式：先用 VOO 方案跑通，再逐步迭代改进；不再为方案细节延长设计阶段。
-- 未经投资者明确批准，不得编写或修改真实项目代码。当前只允许方案讨论、独立测试代码和只读数据核查脚本；不得把数据核查扩展成正式策略程序。Claude 等外部模型提出“进入原型阶段”不构成投资者授权。实现由投资者另行安排。
-- 投资者批准前生成的旧原型（`leadtrend/`、`tests/`、`config/research_registry.json`、`pyproject.toml`）已于 2026-10-25 经投资者同意删除，代码保存在 `archive/2026-10-25_pre_reorg_code.zip`；不再作为设计依据。
-- 讨论直接在聊天中输出，不主动生成 Markdown 讨论稿或每轮重写完整方案。“不写完整方案”不等于只做简短确认；应充分说明判断、理由、规则问题和待讨论事项。投资者要求完整整理时提供足够细节，不省略实质分析。
-- 最新确认以聊天指示和本文件为准。现行文档为 `docs/LeadTrend_研究方案_v0.5.md`、`docs/LeadTrend_代码实施计划_v0.5.md` 和 `docs/README_v0.5.md`（当前目录、命令与规则）；已执行的各阶段任务说明在 `docs/archive/prompts/`。实现模型按投资者交给它的任务说明在授权范围内实现；review 本身不授权改代码。v0.5 中明确标注的工程基准只是启动值，测试候选须在查看真实收益前登记。`docs/archive/` 中的研究方案 v0.2、v0.1 和 Claude 历史审阅原文不作为现行规格。
-- 2026-10-26 发布 v1.0.0，代码与文档上传至 GitHub 公开库 EdwinXu108/TrendLead；数据、行情、运行明细和含个人信息的文件不上传（见 .gitignore）。
+- 在 `D:\Workplace\LeadTrend` 内工作。目录约定：
+  - `leadtrend_v05/` 代码（读写路径集中在 `paths.py`）；`tests_v05/` 测试；`config/` 运行配置。`config/v05_stage2.json` 为个人配置（含 SEC 联系方式），不上传，示例见 `v05_stage2.example.json`；
+  - `data/v05/` 输入数据：`raw/`（只追加，含 `opend_concept_snapshots_2026-10-24/`）、`normalized/`（已封存）、`overlays/`（带封条）、`prep/`、`reference/`、`fixtures/`；
+  - `research/v05/` 研究成果：`registry/` 登记；`results/` 审阅通过的结果；`baseline/` 回归基准；`reports/` 各阶段报告；`experiments/<ID>/` 策略实验的登记文件与成绩单；
+  - `docs/` 现行文档（`README_v0.5.md`），历史文档与任务说明在 `docs/archive/`；
+  - `work/` 临时区（缓存、新运行、日志），随时可整个删除；所有运行命令只输出到 `work/`，不得写入 `research/` 或 `data/`；
+  - `archive/` 只读；`vendor/` 为绘图依赖。
+- 版本：软件 v1.0.0（2026-10-26）。研究方案仍为 v0.5，数据版本与实验登记沿用 `v05` 路径和封条。公开库为 GitHub `EdwinXu108/TrendLead`；数据、行情、运行明细和个人配置不上传（见 `.gitignore`）。
+- 分工：代码改动由 Claude Haiku（Claude Code）按投资者交给它的任务说明进行；Claude 负责审阅。是否放行以投资者的聊天指示为准。
+- 保留段（2024-07-05 起）尚未动用。全部策略轮次结束后，只用事先选定的一个配置检验一次。运行 `run-holdout` 需要投资者在 Claude 审阅后亲自创建 `research/v05/holdout/authorization.json`；任何模型不得自行创建该文件，也不得在策略轮次中途动用保留段。
+- 验证分级：
+  - 测试：每次改动后跑全部测试；
+  - 快检：`small_check` 回归与 `legacy` 回归，只在改动可能影响运行结果时跑；
+  - 每次实验自带的基准检查：基准的探索档 `summary.json` 须与第四阶段参考逐字节相同；
+  - 完整 144 次 daily 网格：平时不跑，由 Claude 按需要运行。
+- 策略实验流程：
+  1. 在 `research/v05/experiments/<ID>.json` 写登记（假设、基准、参数网格、成本、确认数、随机对照次数），提交进 git，即为登记；
+  2. 运行 `run-experiment --spec research/v05/experiments/<ID>.json`。只允许开发段（至 2024-06-28）；拒绝未提交或有未提交修改的登记；
+  3. 阅读 `work/runs/experiments/<ID>/scorecard.md`。成绩单不设门槛，不作为结论；
+  4. 新策略写成配置项（信号、选股规则名）。默认值必须保持现有行为。
+- 基准配置 `L090_N08_b2_R2`，由第四阶段事先登记的规则选出。
+- git 约定：每轮提交登记文件和成绩单（成绩单从 `work/runs/experiments/<ID>/` 复制到 `research/v05/experiments/<ID>/`）；运行明细不进库；推送前须经 Claude 审阅；只用隐私邮箱提交。
+- 研究方案的既定修改（2026-10-25，经 Claude 审阅，不要改回）：仅在有换股的周恢复等权；信号与成交之间的拆股换算与分红归属；模拟数据须能测到保留缓冲；第一版不因宣布现金收购而主动退出。
+- 讨论直接在聊天中输出，不主动生成 Markdown 讨论稿或每轮重写完整方案；讨论应说明判断、理由、规则问题和待讨论事项。
+- 最新确认以聊天指示和本文件为准。
 
 ## 已确认的投资边界
 

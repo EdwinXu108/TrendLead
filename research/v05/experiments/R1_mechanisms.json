@@ -1,0 +1,198 @@
+{
+  "id": "R1_mechanisms",
+  "created_date": "2026-10-26",
+  "hypothesis": "第一轮机制筛选：在 N=10、b=2、R2、细分行业 k=3 的主测试设定下，检验入场与出场规则、短期动量分层、板块约束、板块同伴与波动调整等机制，是否相对各自锚点稳定改善10 bp 年化超额；只决定机制是否晋级，不更换默认策略。",
+  "baseline": {
+    "id": "L090_N08_b2_R2",
+    "L": 90,
+    "N": 8,
+    "k": 2,
+    "b": 2,
+    "rebalance": "R2"
+  },
+  "costs_bps": [
+    5,
+    10
+  ],
+  "null_runs": 100,
+  "grid": [
+    {
+      "points": [
+        {
+          "signal": {
+            "kind": "momentum",
+            "L": 90,
+            "skip": 0
+          },
+          "N": 10,
+          "b": 2,
+          "rebalance": "R2",
+          "selection": "ent_pos",
+          "selection_params": {
+            "short_window": 20,
+            "short_weight": 0.25
+          },
+          "anchor": "L090_N10_b2_R2",
+          "name": "ENT_POS"
+        },
+        {
+          "signal": {
+            "kind": "momentum",
+            "L": 90,
+            "skip": 0
+          },
+          "N": 10,
+          "b": 2,
+          "rebalance": "R2",
+          "selection": "ent_neg",
+          "selection_params": {
+            "short_window": 20,
+            "max_short_pct": 0.8
+          },
+          "anchor": "L090_N10_b2_R2",
+          "name": "ENT_NEG"
+        },
+        {
+          "signal": {
+            "kind": "momentum",
+            "L": 90,
+            "skip": 0
+          },
+          "N": 10,
+          "b": 2,
+          "rebalance": "R2",
+          "selection": "sector_cap",
+          "selection_params": {
+            "sector_k": 3
+          },
+          "anchor": "L090_N10_b2_R2",
+          "name": "SEC3"
+        },
+        {
+          "signal": {
+            "kind": "momentum",
+            "L": 90,
+            "skip": 0
+          },
+          "N": 10,
+          "b": 2,
+          "rebalance": "R2",
+          "selection": "sector_cap",
+          "selection_params": {
+            "sector_k": 2
+          },
+          "anchor": "L090_N10_b2_R2_sector_cap_dcda083d",
+          "name": "SEC2"
+        },
+        {
+          "signal": {
+            "kind": "momentum",
+            "L": 85,
+            "skip": 5
+          },
+          "N": 10,
+          "b": 2,
+          "rebalance": "R2",
+          "anchor": "L090_N10_b2_R2",
+          "name": "SKP90"
+        },
+        {
+          "signal": {
+            "kind": "momentum",
+            "L": 55,
+            "skip": 5
+          },
+          "N": 10,
+          "b": 2,
+          "rebalance": "R2",
+          "anchor": "L060_N10_b2_R2",
+          "name": "SKP60"
+        },
+        {
+          "signal": {
+            "kind": "momentum",
+            "L": 90,
+            "skip": 0
+          },
+          "N": 10,
+          "b": 2,
+          "rebalance": "R2",
+          "selection": "exit_cap",
+          "selection_params": {
+            "max_rank_exits": 2
+          },
+          "anchor": "L090_N10_b2_R2",
+          "name": "CAP2"
+        },
+        {
+          "signal": {
+            "kind": "peer",
+            "L": 90,
+            "L2": 60,
+            "weight": 0.25,
+            "min_peers": 3
+          },
+          "N": 10,
+          "b": 2,
+          "rebalance": "R2",
+          "anchor": "L090_N10_b2_R2",
+          "name": "PEER"
+        },
+        {
+          "signal": {
+            "kind": "sector_demeaned",
+            "L": 90
+          },
+          "N": 10,
+          "b": 2,
+          "rebalance": "R2",
+          "anchor": "L090_N10_b2_R2",
+          "name": "G"
+        },
+        {
+          "signal": {
+            "kind": "vol_adjusted",
+            "L": 90,
+            "vol_L": 60
+          },
+          "N": 10,
+          "b": 2,
+          "rebalance": "R2",
+          "anchor": "L090_N10_b2_R2",
+          "name": "VOLA"
+        },
+        {
+          "signal": {
+            "kind": "size_tilt",
+            "L": 90,
+            "weight": 0.1
+          },
+          "N": 10,
+          "b": 2,
+          "rebalance": "R2",
+          "anchor": "L090_N10_b2_R2",
+          "name": "SIZE"
+        },
+        {
+          "signal": {
+            "kind": "voo_weight",
+            "L": 90
+          },
+          "N": 10,
+          "b": 2,
+          "rebalance": "R2",
+          "anchor": "L090_N10_b2_R2",
+          "name": "WGT"
+        }
+      ]
+    }
+  ],
+  "results_seen_before_registration": [
+    "第四阶段 72 个配置的正式结果（research/v05/results/stage4_unified/）",
+    "E0 自检成绩单（research/v05/experiments/E0_selfcheck/）",
+    "诊断 D0（research/v05/diagnostics/D0/）",
+    "诊断 D1R（research/v05/diagnostics/D1R/，本轮工程准备中运行）",
+    "12 个配置在 docs/LeadTrend_策略优化方案_v1.md 中确定，早于 D1R 结果；看到 D1R 之后未改动清单"
+  ],
+  "confirm_top": 12
+}

@@ -216,7 +216,8 @@ def cmd_diagnose(args):
     if workers == 'auto':
         workers = auto_workers(available_physical(), WORKER_PEAK_BYTES['explore'], os.cpu_count() or 1)
     try:
-        out = run_diagnostics(root, args.output, workers=workers)
+        only = [x.strip() for x in args.only.split(',')] if args.only else None
+        out = run_diagnostics(root, args.output, workers=workers, only=only)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -267,6 +268,7 @@ def build_parser() -> argparse.ArgumentParser:
     diag = sub.add_parser('diagnose', help='Diagnostics D0 on the development segment only; never the holdout; not an attempt')
     diag.add_argument('--output', required=True, help='directory under work/runs, e.g. work/runs/diagnostics/D0')
     diag.add_argument('--workers', type=_workers_arg, default=1, help='worker processes 1..8, or auto')
+    diag.add_argument('--only', default=None, help='recompute only these items, comma-separated, e.g. D3 (default: all)')
     diag.set_defaults(func=cmd_diagnose)
     hold=sub.add_parser('run-holdout',help='One-shot, rule-selected Stage4 holdout; refuses without authorization')
     hold.set_defaults(func=cmd_run_holdout)

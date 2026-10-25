@@ -1,4 +1,5 @@
 """Diagnostics D0 on synthetic inputs: statistics, reference books, forward returns, authorisation and date limits."""
+import json
 import math
 import re
 from datetime import date
@@ -161,7 +162,9 @@ def test_sector_map_covers_every_listed_industry_and_marks_unknown_and_bench():
     mapping = D.load_sector_map(ROOT / 'config/sector_map_v1.csv')
     assert mapping['US_LIST2015'] == '信息技术' and mapping['住宅施工'] == '可选消费'
     assert D.sector_of('UNKNOWN:LEI:abc', mapping) == 'UNKNOWN'
-    assert D.sector_of('BENCH', mapping) == 'UNMAPPED'
+    with pytest.raises(ValueError, match='without a sector mapping'):
+        D.sector_of('BENCH', mapping)  # the benchmark marker is not an industry and must never be labelled
+    assert D.sector_of('', mapping) == 'UNKNOWN'
     assert set(mapping.values()) <= set(D.SECTORS)
     assert len(D.SECTORS) == 11
 
@@ -241,3 +244,56 @@ def test_every_date_in_the_published_diagnostics_is_no_later_than_the_segment_en
         seen += 1
         assert m.group(1) <= D.DEV_END, m.group(1)
     assert seen > 0
+
+
+# ---------------------------------------------------------------- D3 sector attribution of CW-only names
+
+def test_cw_only_names_take_their_sector_from_the_security_industry_and_missing_ones_are_unknown():
+    mapping = D.load_sector_map(ROOT / 'config/sector_map_v1.csv')
+    tri = tri_from({'A': {date(2024, 1, 5): 100.0, date(2024, 1, 12): 110.0},
+                    'B': {date(2024, 1, 5): 100.0, date(2024, 1, 12): 90.0}})
+    rec = week('2024-01-05', ['A', 'B'], '2024-01-08', weight={'A': 0.5, 'B': 0.5})
+    nxt = week('2024-01-12', ['A', 'B'], None)
+    # A is held (0.4) and in CW (0.5); B is CW-only (0.5) with no industry in either source.
+    weights = {'2024-01-08': {'A': 0.4}}
+    industry = {'A': 'US_LIST2015', 'B': ''}
+    top, sector_rows, summary = D.active_rows('T', [rec, nxt], weights, industry, tri, mapping, {})
+    assert summary['total_active_pp'] == pytest.approx(4.0)  # (0.4 - 0.5) * 0.10 + (0 - 0.5) * (-0.10)
+    by = {r['sector']: r['contribution_pp'] for r in sector_rows}
+    assert by['信息技术'] == pytest.approx(-1.0)
+    assert by['UNKNOWN'] == pytest.approx(5.0)
+    assert 'UNMAPPED' not in by
+    assert summary['industry_not_found'] == 1
+
+
+# ---------------------------------------------------------------- D5 stop reasons (existing runs only)
+
+def _stop_folder(base, config, name, message, attempted, status='incomplete'):
+    folder = base / 'null' / config / name / 'cost_10bps'
+    folder.mkdir(parents=True)
+    (folder / 'completion.json').write_text(json.dumps(dict(status=status)), encoding='utf-8')
+    (folder / 'last_explainable_state.json').write_text(
+        json.dumps(dict(message=message, attempted_session=attempted)), encoding='utf-8')
+
+
+def test_stop_reasons_are_classified_from_the_engine_message_and_completed_runs_are_ignored(tmp_path):
+    _stop_folder(tmp_path, 'L010_N08_b2_R2', 'DIAG_L010_N08_b2_R2_s001',
+                 'partially delivered security requires verified fractional settlement before weekly allocation: CHILD:PHIN',
+                 '2022-02-04')
+    _stop_folder(tmp_path, 'L010_N08_b2_R2', 'DIAG_L010_N08_b2_R2_s002',
+                 'held asset price interrupted without verified disposition: CUSIP:09062X103 2020-11-06', '2020-11-06')
+    _stop_folder(tmp_path, 'L010_N08_b2_R2', 'DIAG_L010_N08_b2_R2_s003', 'unused', '2020-01-01', status='completed')
+    rows = {r['configuration_id']: r for r in D.stop_rows(tmp_path)}
+    assert set(rows) == {'DIAG_L010_N08_b2_R2_s001', 'DIAG_L010_N08_b2_R2_s002'}
+    first = rows['DIAG_L010_N08_b2_R2_s001']
+    assert first['stop_type'] == 'fractional_cash_unverified' and first['security_kind'] == 'spinoff_child'
+    assert first['security_id'] == 'CHILD:PHIN' and first['date'] == '2022-02-04' and first['seed'] == 1
+    second = rows['DIAG_L010_N08_b2_R2_s002']
+    assert second['stop_type'] == 'held_price_interrupted' and second['security_kind'] == 'cusip'
+    assert second['security_id'] == 'CUSIP:09062X103' and second['date'] == '2020-11-06'
+
+
+def test_only_rejects_unknown_items_before_any_output_is_written():
+    with pytest.raises(ValueError, match='unknown diagnostic item'):
+        D.run_diagnostics(ROOT, 'work/runs/diagnostics/never', only=['D9'])
+    assert not (ROOT / 'work/runs/diagnostics/never').exists()

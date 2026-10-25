@@ -6,10 +6,10 @@ built by perf_cache.build_context, read finished stage 4 runs, and (D5) run rand
 DiagnosticContext, which admits only registered stage 4 configurations. None of this counts as an attempt.
 """
 import csv
+import json
 import math
 import multiprocessing
-import os
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date
 from pathlib import Path
 from statistics import mean, median
@@ -103,9 +103,12 @@ def load_sector_map(path):
 
 
 def sector_of(industry, mapping):
-    if industry.startswith('UNKNOWN'):
+    """Sector of an industry value. No industry at all, or an UNKNOWN value, is UNKNOWN; a value without a mapping is an error."""
+    if not industry or industry.startswith('UNKNOWN'):
         return 'UNKNOWN'
-    return mapping.get(industry, 'UNMAPPED')
+    if industry not in mapping:
+        raise ValueError('industry without a sector mapping: ' + industry)
+    return mapping[industry]
 
 
 # ---------------------------------------------------------------- weekly records (development context)
@@ -411,7 +414,7 @@ def concentration_rows(config, weights, industry, mapping):
         dict(config=config, metric='share_days_any_sector_over_50pct', value=days_over_half / days if days else None),
     ]
     sector_rows = []
-    for sec in SECTORS + ['UNKNOWN', 'UNMAPPED']:
+    for sec in SECTORS + ['UNKNOWN']:
         vals = sector_day.get(sec, [])
         sector_rows.append(dict(config=config, sector=sec,
                                 mean_weight=(sum(vals) / days) if days and vals else 0.0,
@@ -420,7 +423,10 @@ def concentration_rows(config, weights, industry, mapping):
 
 
 def active_rows(config, records, weights, industry, tri_fn, mapping, tickers):
-    """Sum over weeks of (strategy weight at execution close - CW weight at signal) x security return, in points."""
+    """Sum over weeks of (strategy weight at execution close - CW weight at signal) x security return, in points.
+
+    industry maps each security to its industry: holdings from the run's positions, the others from securities.csv.
+    """
     contrib = defaultdict(float)
     missing_return = 0
     for i in range(len(records) - 1):
@@ -431,23 +437,27 @@ def active_rows(config, records, weights, industry, tri_fn, mapping, tickers):
         ret, weight, _, _ = week_returns(rec, nxt, tri_fn)
         cw = reference_weights(ret, weight)['CW']
         held = weights.get(e.isoformat(), {})
-        for sid in set(held) | set(cw):
+        for sid in sorted(set(held) | set(cw)):
             a, b = tri_fn(sid, rec['t']), tri_fn(sid, nxt)
             if a is None or b is None:
                 if held.get(sid, 0) > 0:
                     missing_return += 1
                 continue
             contrib[sid] += (held.get(sid, 0.0) - cw.get(sid, 0.0)) * (b / a - 1)
-    total = sum(contrib.values()) * 100
+    ordered = sorted(contrib)
+    total = sum(contrib[sid] for sid in ordered) * 100
     by_sector = defaultdict(float)
-    for sid, v in contrib.items():
-        by_sector[sector_of(industry.get(sid, ''), mapping)] += v * 100
-    ranked = sorted(contrib.items(), key=lambda kv: (-kv[1], kv[0]))
-    top = [dict(config=config, rank='top', security_id=s, ticker=tickers.get(s, ''), contribution_pp=v * 100) for s, v in ranked[:10]]
-    bottom = [dict(config=config, rank='bottom', security_id=s, ticker=tickers.get(s, ''), contribution_pp=v * 100)
-              for s, v in ranked[-5:]]
-    sector_rows = [dict(config=config, sector=sec, contribution_pp=by_sector.get(sec, 0.0)) for sec in SECTORS + ['UNKNOWN', 'UNMAPPED']]
-    summary = dict(config=config, total_active_pp=total, missing_return_position_weeks=missing_return)
+    for sid in ordered:
+        by_sector[sector_of(industry.get(sid, ''), mapping)] += contrib[sid] * 100
+    not_found = sum(1 for sid in ordered if not industry.get(sid))
+    ranked = sorted(ordered, key=lambda sid: (-contrib[sid], sid))
+    top = [dict(config=config, rank='top', security_id=sid, ticker=tickers.get(sid, ''), contribution_pp=contrib[sid] * 100)
+           for sid in ranked[:10]]
+    bottom = [dict(config=config, rank='bottom', security_id=sid, ticker=tickers.get(sid, ''), contribution_pp=contrib[sid] * 100)
+              for sid in ranked[-5:]]
+    sector_rows = [dict(config=config, sector=sec, contribution_pp=by_sector.get(sec, 0.0)) for sec in SECTORS + ['UNKNOWN']]
+    summary = dict(config=config, total_active_pp=total, missing_return_position_weeks=missing_return,
+                   industry_not_found=not_found)
     return top + bottom, sector_rows, summary
 
 
@@ -530,7 +540,7 @@ def missing_price_rows(records, engine_tri, historical, mapping, tri_fn, coverag
                               mean_weight_share_pct=100 * mean(v['shares']), distinct_securities=len(v['sids'])))
     sector_rows = []
     weeks = len(records)
-    for sec in SECTORS + ['UNKNOWN', 'UNMAPPED']:
+    for sec in SECTORS + ['UNKNOWN']:
         v = by_sector.get(sec, {'shares': [], 'sids': set()})
         sector_rows.append(dict(sector=sec, distinct_securities=len(v['sids']),
                                 mean_weight_share_pct=100 * sum(v['shares']) / weeks if weeks else 0.0))
@@ -668,9 +678,9 @@ def _table(headers, rows):
     return lines
 
 
-def _tickers(root):
-    rows = csv.DictReader(open(root / 'data/v05/normalized/securities.csv', encoding='utf-8', newline=''))
-    return {r['security_id']: r['ticker'] for r in rows}
+def _securities(root):
+    rows = list(csv.DictReader(open(root / 'data/v05/normalized/securities.csv', encoding='utf-8', newline='')))
+    return {r['security_id']: r['ticker'] for r in rows}, {r['security_id']: r['industry'] for r in rows}
 
 
 def _historical_set(root):
@@ -681,7 +691,119 @@ def _historical_set(root):
         return {r['security_id'] for r in csv.DictReader(handle) if r.get('classification') == 'historical_member_no_price'}
 
 
-def run_diagnostics(root, output, workers=1):
+ITEMS = ['D1', 'D2', 'D3', 'D4', 'D5', 'D5STOP', 'D6']
+STOP_TYPES = (('fractional settlement', 'fractional_cash_unverified'), ('price interrupted', 'held_price_interrupted'))
+
+
+def classify_stop(message):
+    for needle, kind in STOP_TYPES:
+        if needle in message:
+            return kind
+    return 'other'
+
+
+def stop_rows(base):
+    """Every D5 control that did not complete, read from its own folder: type, security, date and engine message.
+
+    Reads existing runs only; nothing is executed.
+    """
+    rows = []
+    for rid_dir in sorted((Path(base) / 'null').glob('*')):
+        for run in sorted(rid_dir.glob('*')):
+            folder = run / 'cost_10bps'
+            comp = folder / 'completion.json'
+            if not comp.exists() or json.loads(comp.read_text(encoding='utf-8')).get('status') == 'completed':
+                continue
+            state = json.loads((folder / 'last_explainable_state.json').read_text(encoding='utf-8'))
+            message = state.get('message', '')
+            tail = message.rsplit(': ', 1)[-1].split()
+            sid = tail[0] if tail else ''
+            attempted = state.get('attempted_session', '')
+            rows.append(dict(
+                config=rid_dir.name, configuration_id=run.name, seed=int(run.name.rsplit('_s', 1)[1]),
+                stop_type=classify_stop(message),
+                security_kind='spinoff_child' if sid.startswith('CHILD:') else ('cusip' if sid.startswith('CUSIP:') else 'other'),
+                security_id=sid, date=tail[1] if len(tail) > 1 else attempted, attempted_session=attempted,
+                message=message))
+    return rows
+
+
+def _num(v):
+    return None if v in (None, '') else float(v)
+
+
+def d3_section_lines(conc, active_sum, active_sector):
+    """The D3 block of summary.md; values may be numbers or CSV strings."""
+    by = defaultdict(dict)
+    for r in conc:
+        by[r['config']][r['metric']] = _num(r['value'])
+    lines = ['## D3 集中度与主动贡献（第四阶段 10 bp 运行）', '']
+    rows = [[c, _fmt(m['single_max_weight_median'], True), _fmt(m['single_max_weight_p90'], True),
+             _fmt(m['single_max_weight_max'], True), _fmt(m['top3_share_median'], True), _fmt(m['top3_share_max'], True),
+             _fmt(m['effective_n_median'], nd=1), _fmt(m['share_days_any_sector_over_50pct'], True)]
+            for c, m in by.items()]
+    lines += _table(['配置', '单股最大权重 中位', 'p90', '最大', '前三大 中位', '前三大 最大', '有效持股数 中位', '任一板块>50%天数'], rows)
+    lines += ['', '主动贡献（百分点，累计）。板块归属：持仓行业优先，其余证券取 securities.csv，经 sector_map_v1 映射；'
+              '两处都查不到的证券归 UNKNOWN。']
+    for r in active_sum:
+        lines.append(f"- {r['config']}：总计 {_num(r['total_active_pp']):.2f} pp；无收益的持仓周 {r['missing_return_position_weeks']}；"
+                     f"行业两处都查不到的证券 {r['industry_not_found']} 只（归 UNKNOWN）。")
+    lines += ['', *_table(['配置', '板块', '主动贡献(pp)'],
+                          [[r['config'], r['sector'], f"{_num(r['contribution_pp']):.2f}"] for r in active_sector
+                           if abs(_num(r['contribution_pp'])) > 0]), '']
+    return lines
+
+
+def stop_section_lines(stops):
+    lines = ['## 随机运行停止原因（D5 已有运行，未重跑）', '']
+    total = len(stops)
+    counts = Counter((r['stop_type'], r['security_kind']) for r in stops)
+    rows = [[t, k, n] for (t, k), n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+    lines += _table(['停止类型', '证券类别', '次数'], rows)
+    per_config = Counter(r['config'] for r in stops)
+    lines += ['', f'停止运行共 {total} 次（{", ".join(f"{c} {n}" for c, n in sorted(per_config.items()))}）；'
+              f'涉及证券 {len({r["security_id"] for r in stops})} 只，明细见 D5_stop_reasons.csv。', '']
+    events = Counter((r['stop_type'], r['security_id'], r['date']) for r in stops)
+    ev_rows = [[t, sid, d, n] for (t, sid, d), n in sorted(events.items(), key=lambda kv: (kv[0][2], kv[0][1]))]
+    lines += _table(['停止类型', '证券', '日期', '停止的运行数'], ev_rows)
+    lines += ['']
+    return lines
+
+
+def splice_section(text, start, end, block):
+    """Replace the block from the heading starting with start up to the heading starting with end."""
+    lines = text.split('\n')
+    i = next(k for k, line in enumerate(lines) if line.startswith(start))
+    j = next((k for k in range(i + 1, len(lines)) if lines[k].startswith(end)), len(lines))
+    return '\n'.join(lines[:i] + block + lines[j:])
+
+
+def insert_before(text, heading, block):
+    lines = text.split('\n')
+    i = next(k for k, line in enumerate(lines) if line.startswith(heading))
+    return '\n'.join(lines[:i] + block + lines[i:])
+
+
+def refresh_summary(out, wanted):
+    """Refresh only the sections whose items were recomputed; the rest of summary.md is left as it is."""
+    path = out / 'summary.md'
+    text = path.read_text(encoding='utf-8')
+    if 'D3' in wanted:
+        conc = read_table(out / 'D3_concentration.csv')
+        active_sum = read_table(out / 'D3_active_totals.csv')
+        active_sector = read_table(out / 'D3_active_contribution_sectors.csv')
+        text = splice_section(text, '## D3 ', '## D4 ', d3_section_lines(conc, active_sum, active_sector))
+    if 'D5STOP' in wanted or 'D5' in wanted:
+        stops = read_table(out / 'D5_stop_reasons.csv')
+        block = stop_section_lines(stops)
+        if any(line.startswith('## 随机运行停止原因') for line in text.split('\n')):
+            text = splice_section(text, '## 随机运行停止原因', '## D6 ', block)
+        else:
+            text = insert_before(text, '## D6 ', block)
+    path.write_text(text, encoding='utf-8')
+
+
+def run_diagnostics(root, output, workers=1, only=None):
     import time
     from .perf_cache import build_context, load_cache
     from .perf_bench import sha
@@ -689,71 +811,99 @@ def run_diagnostics(root, output, workers=1):
     out = Path(output) if Path(output).is_absolute() else root / output
     if (root / paths.RUNS).resolve() not in out.resolve().parents:
         raise ValueError('diagnostic output must be inside work/runs')
+    wanted = set(only) if only else set(ITEMS)
+    if not wanted <= set(ITEMS):
+        raise ValueError('unknown diagnostic item: ' + ','.join(sorted(wanted - set(ITEMS))))
+    partial = bool(only)
     out.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
     mapping = load_sector_map(root / 'config/sector_map_v1.csv')
-    tickers = _tickers(root)
+    tickers, sec_industry = _securities(root)
     historical = _historical_set(root)
-    ctx = build_context(root, 'uniform')
-    records = weekly_records(ctx)
-    voo = benchmark_tri(ctx)
-    tri_fn = make_tri_fn(ctx, voo)
-    engine_tri = ctx.prepared[-1].tri
-    # D1
-    weekly, counts = d1_portfolios(records, tri_fn, voo)
-    names = ['CW', 'EW', 'TOPW8', 'TOPW10', 'voo']
-    d1 = [dict(portfolio=n, **period_summary(weekly, n)) for n in names]
-    write_csv(out / 'D1_portfolio_summary.csv', d1)
-    write_csv(out / 'D1_weekly_returns.csv', weekly)
-    write_csv(out / 'D1_weekly_missing_tri.csv', counts)
-    # D2
-    weeks, d2stats = d2_forward(records, ctx, tri_fn)
-    ic_rows, quint_rows, top_rows = d2_tables(weeks)
-    write_csv(out / 'D2_ic.csv', ic_rows)
-    write_csv(out / 'D2_quintiles.csv', quint_rows)
-    write_csv(out / 'D2_top8.csv', top_rows)
-    # D6 (before the context is released)
-    coverage = {r['signal_session_date']: r for r in read_table(root / paths.STAGE4_RUNS / 'L090_N08_b2_R2/cost_10bps/weekly_coverage.csv')}
-    d6_year, d6_sector, d6_mismatch = missing_price_rows(records, engine_tri, historical, mapping, tri_fn, coverage)
-    write_csv(out / 'D6_missing_by_year.csv', d6_year)
-    write_csv(out / 'D6_missing_by_sector.csv', d6_sector)
-    # D3 and D4 from the finished stage 4 runs
-    conc_rows, sector_rows, active_all, active_sector, active_sum, d4_rows, d4_sum = [], [], [], [], [], [], []
-    for config in D3_CONFIGS:
-        run = root / paths.STAGE4_RUNS / config / 'cost_10bps'
-        weights, industry = run_positions(run)
-        c, s = concentration_rows(config, weights, industry, mapping)
-        conc_rows += c
-        sector_rows += s
-        a, asec, asum = active_rows(config, records, weights, industry, tri_fn, mapping, tickers)
-        active_all += a
-        active_sector += asec
-        active_sum.append(asum)
-        t4, t4sum = turnover_rows(config, run)
-        d4_rows += t4
-        d4_sum.append(t4sum)
-    write_csv(out / 'D3_concentration.csv', conc_rows)
-    write_csv(out / 'D3_sector_weights.csv', sector_rows)
-    write_csv(out / 'D3_active_contribution_securities.csv', active_all)
-    write_csv(out / 'D3_active_contribution_sectors.csv', active_sector)
-    write_csv(out / 'D3_active_totals.csv', active_sum)
-    write_csv(out / 'D4_exit_reasons.csv', d4_rows)
-    write_csv(out / 'D4_summary.csv', d4_sum)
+    res = {}
+    ctx = None
+    if wanted & {'D1', 'D2', 'D3', 'D6'}:
+        ctx = build_context(root, 'uniform')
+        records = weekly_records(ctx)
+        voo = benchmark_tri(ctx)
+        tri_fn = make_tri_fn(ctx, voo)
+        engine_tri = ctx.prepared[-1].tri
+    if 'D1' in wanted:
+        weekly, counts = d1_portfolios(records, tri_fn, voo)
+        names = ['CW', 'EW', 'TOPW8', 'TOPW10', 'voo']
+        res['d1'] = [dict(portfolio=n, **period_summary(weekly, n)) for n in names]
+        res['weekly'], res['counts'] = weekly, counts
+        write_csv(out / 'D1_portfolio_summary.csv', res['d1'])
+        write_csv(out / 'D1_weekly_returns.csv', weekly)
+        write_csv(out / 'D1_weekly_missing_tri.csv', counts)
+    if 'D2' in wanted:
+        weeks, d2stats = d2_forward(records, ctx, tri_fn)
+        res['ic'], res['quint'], res['top'] = d2_tables(weeks)
+        res['d2stats'] = d2stats
+        write_csv(out / 'D2_ic.csv', res['ic'])
+        write_csv(out / 'D2_quintiles.csv', res['quint'])
+        write_csv(out / 'D2_top8.csv', res['top'])
+    if 'D6' in wanted:
+        coverage = {r['signal_session_date']: r
+                    for r in read_table(root / paths.STAGE4_RUNS / 'L090_N08_b2_R2/cost_10bps/weekly_coverage.csv')}
+        res['d6_year'], res['d6_sector'], res['d6_mismatch'] = missing_price_rows(
+            records, engine_tri, historical, mapping, tri_fn, coverage)
+        write_csv(out / 'D6_missing_by_year.csv', res['d6_year'])
+        write_csv(out / 'D6_missing_by_sector.csv', res['d6_sector'])
+    if wanted & {'D3', 'D4'}:
+        conc_rows, sector_rows, active_all, active_sector, active_sum, d4_rows, d4_sum = [], [], [], [], [], [], []
+        for config in D3_CONFIGS:
+            run = root / paths.STAGE4_RUNS / config / 'cost_10bps'
+            if 'D3' in wanted:
+                weights, held_industry = run_positions(run)
+                industry = {**sec_industry, **held_industry}
+                c, s = concentration_rows(config, weights, industry, mapping)
+                conc_rows += c
+                sector_rows += s
+                a, asec, asum = active_rows(config, records, weights, industry, tri_fn, mapping, tickers)
+                active_all += a
+                active_sector += asec
+                active_sum.append(asum)
+            if 'D4' in wanted:
+                t4, t4sum = turnover_rows(config, run)
+                d4_rows += t4
+                d4_sum.append(t4sum)
+        if 'D3' in wanted:
+            res.update(conc=conc_rows, sector=sector_rows, active=active_all, active_sector=active_sector,
+                       active_sum=active_sum)
+            write_csv(out / 'D3_concentration.csv', conc_rows)
+            write_csv(out / 'D3_sector_weights.csv', sector_rows)
+            write_csv(out / 'D3_active_contribution_securities.csv', active_all)
+            write_csv(out / 'D3_active_contribution_sectors.csv', active_sector)
+            write_csv(out / 'D3_active_totals.csv', active_sum)
+        if 'D4' in wanted:
+            res.update(d4=d4_rows, d4_sum=d4_sum)
+            write_csv(out / 'D4_exit_reasons.csv', d4_rows)
+            write_csv(out / 'D4_summary.csv', d4_sum)
     del ctx
-    # D5 (heaviest; runs last)
-    d5_rows, executed = d5_controls(root, out, workers, lambda r, doc: _diag_context(r, doc, load_cache))
-    write_csv(out / 'D5_random_null.csv', d5_rows)
+    if 'D5' in wanted:
+        res['d5'], executed = d5_controls(root, out, workers, lambda r, doc: _diag_context(r, doc, load_cache))
+        write_csv(out / 'D5_random_null.csv', res['d5'])
+    if wanted & {'D5', 'D5STOP'}:
+        res['stops'] = stop_rows(out)
+        write_csv(out / 'D5_stop_reasons.csv', res['stops'])
+    seconds = time.perf_counter() - started
+    if partial:
+        dump(out / ('rerun_' + '_'.join(sorted(wanted)) + '.json'), dict(items=sorted(wanted), seconds=seconds))
+        if (out / 'summary.md').exists():
+            refresh_summary(out, wanted)
+        return out
     manifest = dict(
         end=DEV_END, windows=WINDOWS, horizons=HORIZONS, min_pool=MIN_POOL, top_n=TOP_N,
-        signal_weeks=len(records), ic_excluded_corporate=d2stats['excluded_corporate'],
-        ic_excluded_price=d2stats['excluded_price'], d6_coverage_mismatch_weeks=d6_mismatch,
-        d5_jobs_executed=executed, sector_map_sha256=sha(root / 'config/sector_map_v1.csv'),
-        seconds=time.perf_counter() - started)
+        signal_weeks=len(records), ic_excluded_corporate=res['d2stats']['excluded_corporate'],
+        ic_excluded_price=res['d2stats']['excluded_price'], d6_coverage_mismatch_weeks=res['d6_mismatch'],
+        d5_jobs_executed=executed, sector_map_sha256=sha(root / 'config/sector_map_v1.csv'), seconds=seconds)
     dump(out / 'diagnostics_manifest.json', manifest)
-    write_summary(out, root, dict(d1=d1, weekly=weekly, counts=counts, ic=ic_rows, quint=quint_rows, top=top_rows,
-                                  conc=conc_rows, sector=sector_rows, active_sum=active_sum, active=active_all,
-                                  active_sector=active_sector, d4=d4_rows, d4_sum=d4_sum, d5=d5_rows,
-                                  d6_year=d6_year, d6_sector=d6_sector, manifest=manifest, tickers=tickers))
+    write_summary(out, root, dict(d1=res['d1'], weekly=res['weekly'], counts=res['counts'], ic=res['ic'],
+                                  quint=res['quint'], top=res['top'], conc=res['conc'], sector=res['sector'],
+                                  active_sum=res['active_sum'], active=res['active'], active_sector=res['active_sector'],
+                                  d4=res['d4'], d4_sum=res['d4_sum'], d5=res['d5'], stops=res['stops'],
+                                  d6_year=res['d6_year'], d6_sector=res['d6_sector'], manifest=manifest, tickers=tickers))
     return out
 
 
@@ -789,21 +939,7 @@ def write_summary(out, root, t):
                       _fmt(q['spread_Q5_minus_Q1'], True), _fmt(tp['top8_excess_fwd_open'], True),
                       _fmt(tp['top8_gap_minus_pool'], True)])
     lines += ['', *_table(['L', 'h', 'Q1 平均前向开盘收益', 'Q5 平均', 'Q5−Q1', '前8名超额', '前8名跳空差'], qrows), '']
-    lines += ['## D3 集中度与主动贡献（第四阶段 10 bp 运行）', '']
-    by = defaultdict(dict)
-    for r in t['conc']:
-        by[r['config']][r['metric']] = r['value']
-    rows = [[c, _fmt(m['single_max_weight_median'], True), _fmt(m['single_max_weight_p90'], True),
-             _fmt(m['single_max_weight_max'], True), _fmt(m['top3_share_median'], True), _fmt(m['top3_share_max'], True),
-             _fmt(m['effective_n_median'], nd=1), _fmt(m['share_days_any_sector_over_50pct'], True)]
-            for c, m in by.items()]
-    lines += _table(['配置', '单股最大权重 中位', 'p90', '最大', '前三大 中位', '前三大 最大', '有效持股数 中位', '任一板块>50%天数'], rows)
-    lines += ['', '主动贡献（百分点，累计）与板块：']
-    for r in t['active_sum']:
-        lines.append(f"- {r['config']}：总计 {r['total_active_pp']:.2f} pp；未计入的持仓周（无收益）{r['missing_return_position_weeks']}。")
-    lines += ['', *_table(['配置', '板块', '主动贡献(pp)'],
-                          [[r['config'], r['sector'], f"{r['contribution_pp']:.2f}"] for r in t['active_sector']
-                           if abs(r['contribution_pp']) > 0]), '']
+    lines += d3_section_lines(t['conc'], t['active_sum'], t['active_sector'])
     lines += ['## D4 退出原因与卖出金额占比', '']
     reasons = sorted({r['reason'] for r in t['d4']})
     cfgs = list(dict.fromkeys(r['config'] for r in t['d4']))
@@ -824,7 +960,9 @@ def write_summary(out, root, t):
             for r in t['d5']]
     lines += _table(['配置', '原策略超额', '随机均值', '随机中位', 'p10', 'p90', '原策略百分位（点估计及界）',
                      '完成数', '原策略换手', '随机换手中位'], rows)
-    lines += ['', '## D6 缺价成员（weekly_coverage 的 n_historical_no_price 口径）', '']
+    lines += ['']
+    lines += stop_section_lines(t['stops'])
+    lines += ['## D6 缺价成员（weekly_coverage 的 n_historical_no_price 口径）', '']
     lines += _table(['年份', '周数', '平均每周缺价成员数', '其快照权重平均占比', '涉及证券数'],
                     [[r['year'], r['weeks'], _fmt(r['mean_missing_members'], nd=2), _fmt(r['mean_weight_share_pct'] / 100, True),
                       r['distinct_securities']] for r in t['d6_year']])
@@ -837,7 +975,8 @@ def write_summary(out, root, t):
               '- 股票池：每周 eligible=1 且 class_selected=1 的证券。CW 权重为快照中同一发行人各类别权重之和，记在被选中的类别上，再在有 TRI 的池内归一化。',
               '- 缺价剔除：入组时无 TRI 或持有到下一周时无 TRI 的证券不计入该周组合（分别计数）；这会使组合收益偏乐观，是已知偏差。',
               '- D2：执行日 e 有拆股、分红或分拆的证券不计入；gap = 开盘(e)/收盘(t)−1；fwd_open = (1+fwd_close)/(1+gap)−1；IC 需至少 10 只；NW 滞后取 h。',
-              '- D3：权重为持仓市值/当日总权益（不含现金与应收）；有效持股数 = 1/Σ(w/Σw)²；主动贡献按执行日收盘权重减周初 CW 权重，乘以该周收益。',
-              '- D4：decisions.csv 的退出行与卖出按（信号日，证券）对应；卖出金额取现金变动。',
+              '- D3：权重为持仓市值/当日总权益（不含现金与应收）；有效持股数 = 1/Σ(w/Σw)²；主动贡献按执行日收盘权重减周初 CW 权重，乘以该周收益。板块：持仓行业优先，其余取 securities.csv，经 sector_map_v1 映射，查不到归 UNKNOWN。',
+              '- D4：decisions.csv 的退出行与卖出按（信号日，证券）对应；卖出金额取现金变动。无对应退出行的卖出为部分减持（R1 的再平衡修剪）。',
+              '- D5 停止原因：读取已有运行的 last_explainable_state.json，未重跑；停止的运行不计入随机分布。',
               '- D6：缺价口径与 weekly_coverage 一致（无价格序列，且在 stage2_unpriced_members.csv 中分类为 historical_member_no_price）。']
     (out / 'summary.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')

@@ -692,7 +692,7 @@ def _historical_set(root):
         return {r['security_id'] for r in csv.DictReader(handle) if r.get('classification') == 'historical_member_no_price'}
 
 
-ITEMS = ['D1', 'D2', 'D3', 'D4', 'D5', 'D5STOP', 'D6', 'D3R', 'D5R', 'D7', 'D8']  # D3R..D8: round 1 (leadtrend_v05/diagnostics_r1.py)
+ITEMS = ['D1', 'D2', 'D3', 'D4', 'D5', 'D5STOP', 'D6', 'D5R', 'D7', 'D8']  # D5R..D8: round 1 (leadtrend_v05/diagnostics_r1.py)
 STOP_TYPES = (('fractional settlement', 'fractional_cash_unverified'), ('price interrupted', 'held_price_interrupted'))
 
 
@@ -789,11 +789,6 @@ def refresh_summary(out, wanted):
     """Refresh only the sections whose items were recomputed; the rest of summary.md is left as it is."""
     path = out / 'summary.md'
     text = path.read_text(encoding='utf-8')
-    if 'D3' in wanted:
-        conc = read_table(out / 'D3_concentration.csv')
-        active_sum = read_table(out / 'D3_active_totals.csv')
-        active_sector = read_table(out / 'D3_active_contribution_sectors.csv')
-        text = splice_section(text, '## D3 ', '## D4 ', d3_section_lines(conc, active_sum, active_sector))
     if 'D5STOP' in wanted or 'D5' in wanted:
         stops = read_table(out / 'D5_stop_reasons.csv')
         block = stop_section_lines(stops)
@@ -823,7 +818,7 @@ def run_diagnostics(root, output, workers=1, only=None):
     historical = _historical_set(root)
     res = {}
     ctx = None
-    if wanted & {'D1', 'D2', 'D3', 'D6', 'D3R', 'D7', 'D8'}:
+    if wanted & {'D1', 'D2', 'D3', 'D6', 'D7', 'D8'}:
         ctx = build_context(root, 'uniform')
         records = weekly_records(ctx)
         voo = benchmark_tri(ctx)
@@ -852,31 +847,28 @@ def run_diagnostics(root, output, workers=1, only=None):
         write_csv(out / 'D6_missing_by_year.csv', res['d6_year'])
         write_csv(out / 'D6_missing_by_sector.csv', res['d6_sector'])
     if wanted & {'D3', 'D4'}:
-        conc_rows, sector_rows, active_all, active_sector, active_sum, d4_rows, d4_sum = [], [], [], [], [], [], []
+        d4_rows, d4_sum = [], []
+        res.update(conc=[], sector=[], active=[], active_sector=[], active_sum=[])
         for config in D3_CONFIGS:
             run = root / paths.STAGE4_RUNS / config / 'cost_10bps'
-            if 'D3' in wanted:
-                weights, held_industry = run_positions(run)
-                industry = {**sec_industry, **held_industry}
-                c, s = concentration_rows(config, weights, industry, mapping)
-                conc_rows += c
-                sector_rows += s
-                a, asec, asum = active_rows(config, records, weights, industry, tri_fn, mapping, tickers)
-                active_all += a
-                active_sector += asec
-                active_sum.append(asum)
             if 'D4' in wanted:
                 t4, t4sum = turnover_rows(config, run)
                 d4_rows += t4
                 d4_sum.append(t4sum)
         if 'D3' in wanted:
-            res.update(conc=conc_rows, sector=sector_rows, active=active_all, active_sector=active_sector,
-                       active_sum=active_sum)
-            write_csv(out / 'D3_concentration.csv', conc_rows)
-            write_csv(out / 'D3_sector_weights.csv', sector_rows)
-            write_csv(out / 'D3_active_contribution_securities.csv', active_all)
-            write_csv(out / 'D3_active_contribution_sectors.csv', active_sector)
-            write_csv(out / 'D3_active_totals.csv', active_sum)
+            # Ledger-based D3 (6 configurations). The earlier weight-based D3 and D3R are void; see the D1R summary.
+            from .diagnostics_r1 import D3_CONFIGS6 as D3_LEDGER_CONFIGS, d3_ledger
+            totals, secs, sectors = [], [], []
+            for config in D3_LEDGER_CONFIGS:
+                run = root / paths.STAGE4_RUNS / config / 'cost_10bps'
+                _, held_industry = run_positions(run)
+                t_, s_, c_ = d3_ledger(config, run, records, tri_fn, {**sec_industry, **held_industry}, mapping)
+                totals.append(t_)
+                secs += s_
+                sectors += c_
+            write_csv(out / 'D3_ledger_totals.csv', totals)
+            write_csv(out / 'D3_ledger_securities.csv', secs)
+            write_csv(out / 'D3_ledger_sectors.csv', sectors)
         if 'D4' in wanted:
             res.update(d4=d4_rows, d4_sum=d4_sum)
             write_csv(out / 'D4_exit_reasons.csv', d4_rows)
@@ -889,18 +881,6 @@ def run_diagnostics(root, output, workers=1, only=None):
             seg_rows += d7_segments(weeks7, records, ctx.prepared[-1], mapping, L)
         write_csv(out / 'D7_rank_segments.csv', seg_rows)
     del ctx
-    if 'D3R' in wanted:
-        from .diagnostics_r1 import D3R_CONFIGS, d3r_active
-        act_rows, sec_rows, act_sum = [], [], []
-        for config in D3R_CONFIGS:
-            weights, held_industry = run_positions(root / paths.STAGE4_RUNS / config / 'cost_10bps')
-            a, s, t = d3r_active(config, records, weights, {**sec_industry, **held_industry}, tri_fn, mapping)
-            act_rows += a
-            sec_rows += s
-            act_sum.append(t)
-        write_csv(out / 'D3R_active_contribution_securities.csv', act_rows)
-        write_csv(out / 'D3R_sector_side_by_side.csv', sec_rows)
-        write_csv(out / 'D3R_active_totals.csv', act_sum)
     if 'D5R' in wanted:
         from .diagnostics_r1 import D5R_CONFIGS
         res['d5r'], executed_r = d5_controls(root, out, workers, lambda r, doc: _diag_context(r, doc, load_cache),

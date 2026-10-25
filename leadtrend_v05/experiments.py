@@ -31,6 +31,9 @@ from .perf_cache import OptimizedContext
 EXPERIMENTS = 'research/v05/experiments'
 BASELINE = {'id': 'L090_N08_b2_R2', 'L': 90, 'N': 8, 'k': 2, 'b': 2, 'rebalance': 'R2'}
 BASELINE_SIGNAL = {'kind': 'momentum', 'L': 90, 'skip': 0}
+A90_ID = 'L090_N10_b2_R2'  # the paired-difference reference of every configuration in a round-1 style experiment
+PAIRS = [('ENT_NEG', 'ENT_POS'), ('SEC2', 'SEC3'), ('PEER', 'G'), ('SKP90', 'A90'), ('SKP60', 'A60')]
+PAIR_ALIASES = {'A90': 'L090_N10_b2_R2', 'A60': 'L060_N10_b2_R2'}
 COSTS = [5, 10]
 DEV_START, DEV_END = '2019-11-29', '2024-06-28'
 DEFAULT_NULL_RUNS = 200
@@ -66,11 +69,14 @@ def make_point(signal, N, b, rebalance, selection='default', selection_params=No
 
 
 def _point_from_item(item):
-    unknown = set(item) - {'signal', 'N', 'b', 'rebalance', 'selection', 'selection_params', 'anchor'}
+    unknown = set(item) - {'signal', 'N', 'b', 'rebalance', 'selection', 'selection_params', 'anchor', 'name'}
     if unknown:
         raise ValueError('grid point has unknown keys: ' + ','.join(sorted(unknown)))
-    return make_point(item['signal'], item['N'], item['b'], item['rebalance'], item.get('selection', 'default'),
-                      item.get('selection_params'), item.get('anchor'))
+    p = make_point(item['signal'], item['N'], item['b'], item['rebalance'], item.get('selection', 'default'),
+                   item.get('selection_params'), item.get('anchor'))
+    if item.get('name') is not None:
+        p['name'] = item['name']  # a label for reports only; not part of the identity
+    return p
 
 
 def expand_grid(blocks):
@@ -123,7 +129,10 @@ def load_spec(root, spec_path):
     if isinstance(null_runs, bool) or not isinstance(null_runs, int) or null_runs < 0:
         raise ValueError('null_runs must be a non-negative integer')
     grid = expand_grid(spec['grid'])
-    return dict(spec=spec, path=path, id=spec['id'], grid=grid, null_runs=null_runs, sha256=digest(path))
+    confirm_top = spec.get('confirm_top', len(grid))
+    if isinstance(confirm_top, bool) or not isinstance(confirm_top, int) or confirm_top < len(grid):
+        raise ValueError('confirm_top must cover every configuration of the grid: daily confirmation for all')
+    return dict(spec=spec, path=path, id=spec['id'], grid=grid, null_runs=null_runs, confirm_top=confirm_top, sha256=digest(path))
 
 
 def registration_commit(root, spec_path):
@@ -423,7 +432,8 @@ SCORECARD_COLUMNS = [
     ('再平衡', 'rebalance', str), ('锚点', 'anchor', str),
     ('10bp年化收益', 'annualized_return_10bps', _pct), ('10bp年化超额', 'annualized_excess_10bps', _pct),
     ('5bp年化超额', 'annualized_excess_5bps', _pct), ('相对锚点超额差(10bp)', 'paired_vs_anchor_10bps', _pct),
-    ('相对锚点超额差(5bp)', 'paired_vs_anchor_5bps', _pct), ('时段A配对差', 'paired_period_a', _pct),
+    ('相对锚点超额差(5bp)', 'paired_vs_anchor_5bps', _pct), ('相对A90超额差(10bp)', 'paired_vs_A90_10bps', _pct),
+    ('相对A90超额差(5bp)', 'paired_vs_A90_5bps', _pct), ('时段A配对差', 'paired_period_a', _pct),
     ('时段B配对差', 'paired_period_b', _pct), ('逐年剔除一年后超额最小值', 'leave_one_year_out_min', _pct),
     ('剔除后仍为正的次数(/4)', 'leave_one_year_out_positive', str), ('最大回撤', 'max_drawdown', _pct),
     ('年单边换手(x)', 'turnover_one_way', _ratio), ('2020超额', 'excess_2020', _pct), ('2021超额', 'excess_2021', _pct),
@@ -471,6 +481,45 @@ def _anchor_point(root, anchor, points):
         if p['id'] == anchor:
             return make_point({'kind': 'momentum', 'L': p['L'], 'skip': 0}, p['N'], p['b'], p['rebalance'])
     raise ValueError('anchor is not a configuration of this experiment or of stage 4: ' + str(anchor))
+
+
+def write_csv_rows(path, rows):
+    if not rows:
+        path.write_text('', encoding='utf-8')
+        return
+    with path.open('w', encoding='utf-8', newline='') as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        w.writeheader()
+        w.writerows(rows)
+
+
+def pair_rows(points, metrics10, metrics5):
+    """Named paired differences (a minus b): annualised 10 bp and 5 bp excess, and the two sub-periods at 10 bp."""
+    ids = {p['name']: p['id'] for p in points if p.get('name')}
+    ids.update(PAIR_ALIASES)
+    rows = []
+    for a, b in PAIRS:
+        ia, ib = ids.get(a), ids.get(b)
+        ma, mb = (metrics10.get(ia) if ia else None), (metrics10.get(ib) if ib else None)
+        fa, fb = (metrics5.get(ia) if ia else None), (metrics5.get(ib) if ib else None)
+        ok = bool(ma and mb and fa and fb)
+        rows.append(dict(pair=f'{a}-{b}', a=a, b=b, a_id=ia or '', b_id=ib or '',
+                         diff_10bps=(ma['annualized_excess'] - mb['annualized_excess']) if ok else '',
+                         diff_5bps=(fa['annualized_excess'] - fb['annualized_excess']) if ok else '',
+                         diff_period_a=(ma['high_missing_excess'] - mb['high_missing_excess']) if ok else '',
+                         diff_period_b=(ma['lower_missing_excess'] - mb['lower_missing_excess']) if ok else ''))
+    return rows
+
+
+def write_pairs_md(scorecard_path, pairs):
+    lines = ['', '## 配对表（a 减 b，年化超额之差；探索档）', '',
+             '| 配对 | 10bp 差 | 5bp 差 | 时段A差(10bp) | 时段B差(10bp) |', '|---|---|---|---|---|']
+    for r in pairs:
+        def cell(v):
+            return '' if v in ('', None) else f'{100 * v:.1f}%'
+        lines.append(f"| {r['pair']} | {cell(r['diff_10bps'])} | {cell(r['diff_5bps'])} | {cell(r['diff_period_a'])} | {cell(r['diff_period_b'])} |")
+    with scorecard_path.open('a', encoding='utf-8') as f:
+        f.write('\n'.join(lines) + '\n')
 
 
 def run_experiment(root, spec_path, workers=1, null_runs=None):
@@ -585,6 +634,8 @@ def run_experiment(root, spec_path, workers=1, null_runs=None):
             annualized_excess_5bps=m5['annualized_excess'] if m5 else '',
             paired_vs_anchor_10bps=(m10['annualized_excess'] - a10['annualized_excess']) if (m10 and a10) else '',
             paired_vs_anchor_5bps=(m5['annualized_excess'] - a5['annualized_excess']) if (m5 and a5) else '',
+            paired_vs_A90_10bps=(m10['annualized_excess'] - base_metrics[A90_ID]['annualized_excess']) if (m10 and base_metrics.get(A90_ID)) else '',
+            paired_vs_A90_5bps=(m5['annualized_excess'] - base_metrics5[A90_ID]['annualized_excess']) if (m5 and base_metrics5.get(A90_ID)) else '',
             paired_period_a=(m10['high_missing_excess'] - a10['high_missing_excess']) if (m10 and a10) else '',
             paired_period_b=(m10['lower_missing_excess'] - a10['lower_missing_excess']) if (m10 and a10) else '',
             leave_one_year_out_min=min(loyo_values) if loyo_values else '',
@@ -605,8 +656,12 @@ def run_experiment(root, spec_path, workers=1, null_runs=None):
                   hypothesis=loaded['spec']['hypothesis'],
                   baseline_check=', '.join(f'{k} {v}' for k, v in check.items()), null_counts=by_id)
     _write_scorecard(base, rows, header)
+    pairs = pair_rows(points, base_metrics, base_metrics5)
+    write_csv_rows(base / 'pairs.csv', pairs)
+    write_pairs_md(base / 'scorecard.md', pairs)
     dump(base / 'experiment_manifest.json', dict(
         experiment=experiment, spec=loaded['spec'], attempts=header['attempts'], baseline_check=check,
         grid_points=len(grid), points=len(points), anchors_added=[p['id'] for p in extra], null_runs=n_null,
+        confirm_top=loaded['confirm_top'], daily_confirmed_points=len(points),
         null_points=len(null_points), null_counts=by_id))
     return base

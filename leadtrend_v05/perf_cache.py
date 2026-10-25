@@ -356,14 +356,14 @@ def ensure_signal_tables(root,doc,signals,cache_root=None):
             issuer_of={r['security_id']:r['issuer_id'] for r in members_by_week[iso]}
             by_security={s:issuer_w.get(issuer_of.get(s),0.0) for s in sids}
             if n['kind']=='peer':
-                out=peer(cells90,{s:_cell(second[iso][s]) for s in sids if s in second.get(iso,{})},sectors)
+                out=peer(cells90,{s:_cell(second[iso][s]) for s in sids if s in second.get(iso,{})},sectors,n['weight'],n['min_peers'])
             elif n['kind']=='sector_demeaned':
                 out=sector_demeaned(cells90,sectors)
             elif n['kind']=='vol_adjusted':
                 sigma={s:daily_log_volatility(engine.tri[s].tri,engine.sessions,engine.pos[d],n['vol_L']) for s in sids if s in engine.tri and cells90[s][0] is not None}
                 out=vol_adjusted(cells90,sigma)
             elif n['kind']=='size_tilt':
-                out=size_tilt(cells90,by_security)
+                out=size_tilt(cells90,by_security,n['weight'])
             else:
                 out=voo_weight(cells90,by_security)
             rowinfo={s:(elig[s].issuer_id,elig[s].industry) for s in sids}

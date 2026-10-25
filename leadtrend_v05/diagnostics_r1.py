@@ -4,6 +4,8 @@ Development segment only: inputs are the reviewed stage 4 runs, the cached signa
 END_DATE. Nothing after END_DATE is read or written.
 """
 import math
+from datetime import date
+from pathlib import Path
 from collections import Counter, defaultdict
 
 import numpy as np
@@ -13,7 +15,7 @@ from .diagnostics import END_DATE, SECTORS, reference_weights, run_positions
 from .perf_artifacts import read_table
 from .sectors import sector_key
 
-D3R_CONFIGS = ['L090_N08_b2_R2', 'L090_N08_b2_R1', 'L010_N08_b2_R2', 'L040_N08_b2_R2', 'L090_N10_b2_R2', 'L090_N10_b2_R1']
+D3_CONFIGS6 = ['L090_N08_b2_R2', 'L090_N08_b2_R1', 'L010_N08_b2_R2', 'L040_N08_b2_R2', 'L090_N10_b2_R2', 'L090_N10_b2_R1']
 D5R_CONFIGS = ['L010_N08_b2_R2', 'L020_N08_b2_R2', 'L040_N08_b2_R2', 'L060_N08_b2_R2', 'L090_N08_b2_R2', 'L126_N08_b2_R2',
                'L090_N10_b2_R2', 'L126_N10_b2_R2', 'L060_N10_b2_R2']
 A90 = 'L090_N10_b2_R2'
@@ -241,3 +243,67 @@ def random_exposure(folder_list, records):
                 if q > 0:
                     holds.append((exec_week[day], sid))
     return buys, holds
+
+
+D3_LEDGER_CHECK = 1e-6
+
+
+def d3_ledger(config, run, records, tri_fn, industry, mapping, initial=100000.0):
+    """Active contribution from the ledger (v1 of the D3 method, replacing the aligned weight method of D3R).
+
+    Strategy side: daily_contributions, each security's dollar profit on each day.
+    CW side: on each session, the CW weights set at the latest signal close before the previous session, times the
+    previous session's total equity, times the session's TRI return (total return, dividends reinvested).
+    Active = strategy minus CW, by security and by large sector. Reconciliation: the strategy side must sum to the
+    final equity minus the initial capital, within D3_LEDGER_CHECK dollars.
+    """
+    equity = {r['session_date']: float(r['total_equity']) for r in read_table(Path(run) / 'daily_equity.csv')}
+    dates = sorted(equity)
+    strat = defaultdict(float)
+    for r in read_table(Path(run) / 'daily_contributions.csv'):
+        strat[r['security_id']] += float(r['profit_dollars'])
+    strat_sum = sum(strat.values())
+    recon = strat_sum - (equity[dates[-1]] - initial)
+    cw_weeks = []
+    for rec in sorted(records, key=lambda r: r['t']):
+        names = {sid: 0.0 for sid in rec['pool'] if tri_fn(sid, rec['t']) is not None}
+        if names:
+            weight = {sid: rec['issuer_weight'][sid] for sid in names}
+            cw_weeks.append((rec['t'].isoformat(), reference_weights(names, weight)['CW']))
+    cw = defaultdict(float)
+    cw_profit = 0.0
+    missing = 0
+    latest = -1
+    for j in range(1, len(dates)):
+        today, prev = dates[j], dates[j - 1]
+        while latest + 1 < len(cw_weeks) and cw_weeks[latest + 1][0] <= prev:
+            latest += 1
+        if latest < 0:
+            continue
+        base = equity[prev]
+        d0, d1 = date.fromisoformat(prev), date.fromisoformat(today)
+        for sid, w in cw_weeks[latest][1].items():
+            a, b = tri_fn(sid, d0), tri_fn(sid, d1)
+            if a is None or b is None:
+                missing += 1
+                continue
+            profit = w * base * (b / a - 1)
+            cw[sid] += profit
+            cw_profit += profit
+    active = {sid: strat[sid] - cw[sid] for sid in set(strat) | set(cw)}
+    total = strat_sum - cw_profit
+    totals = dict(config=config, strategy_profit_dollars=strat_sum, equity_end_minus_initial=equity[dates[-1]] - initial,
+                  reconciliation_error=recon, cw_profit_dollars=cw_profit, total_active_pp=total / initial * 100,
+                  strategy_pp=strat_sum / initial * 100, cw_pp=cw_profit / initial * 100, missing_tri_name_days=missing,
+                  status='PASS' if abs(recon) < D3_LEDGER_CHECK else 'FAILED_RECONCILIATION')
+    by_sector = defaultdict(lambda: [0.0, 0.0])
+    securities = []
+    for sid in sorted(active, key=lambda s: (-active[s], s)):
+        sector = sector_label(industry, sid, mapping)
+        by_sector[sector][0] += strat[sid]
+        by_sector[sector][1] += cw[sid]
+        securities.append(dict(config=config, security_id=sid, sector=sector, strategy_pp=strat[sid] / initial * 100,
+                               cw_pp=cw[sid] / initial * 100, active_pp=active[sid] / initial * 100))
+    sectors = [dict(config=config, sector=s, strategy_pp=by_sector[s][0] / initial * 100, cw_pp=by_sector[s][1] / initial * 100,
+                    active_pp=(by_sector[s][0] - by_sector[s][1]) / initial * 100) for s in SECTORS + ['UNKNOWN']]
+    return totals, securities, sectors

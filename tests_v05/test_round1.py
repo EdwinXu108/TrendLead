@@ -194,3 +194,26 @@ def test_new_signal_kinds_normalize_and_keep_their_main_window():
         assert main_L(sig) == expect
         assert normalize(sig)['kind'] == sig['kind']
     assert signal_key({'kind': 'peer', 'L': 90}) != signal_key({'kind': 'size_tilt', 'L': 90})
+
+
+def test_overlay_weights_are_explicit_signal_parameters_with_the_reviewed_defaults():
+    peer_default = normalize({'kind': 'peer', 'L': 90})
+    assert peer_default['weight'] == 0.25 and peer_default['min_peers'] == 3 and peer_default['L2'] == 60
+    assert normalize({'kind': 'size_tilt', 'L': 90})['weight'] == 0.1
+    assert signal_key({'kind': 'size_tilt', 'L': 90}) == signal_key({'kind': 'size_tilt', 'L': 90, 'weight': 0.1})
+    assert signal_key({'kind': 'size_tilt', 'L': 90}) != signal_key({'kind': 'size_tilt', 'L': 90, 'weight': 0.2})
+    with pytest.raises(ValueError):
+        normalize({'kind': 'size_tilt', 'L': 90, 'weight': 1.0})
+    with pytest.raises(ValueError):
+        normalize({'kind': 'peer', 'L': 90, 'min_peers': 0})
+
+
+def test_pair_table_reports_a_minus_b_and_marks_missing_pairs():
+    from leadtrend_v05.experiments import pair_rows
+    points = [{'id': 'X1', 'name': 'ENT_NEG'}, {'id': 'X2', 'name': 'ENT_POS'}]
+    m10 = {'X1': dict(annualized_excess=0.05, high_missing_excess=0.02, lower_missing_excess=0.01),
+           'X2': dict(annualized_excess=0.03, high_missing_excess=0.01, lower_missing_excess=0.02)}
+    m5 = {'X1': dict(annualized_excess=0.04), 'X2': dict(annualized_excess=0.01)}
+    rows = {r['pair']: r for r in pair_rows(points, m10, m5)}
+    assert abs(rows['ENT_NEG-ENT_POS']['diff_10bps'] - 0.02) < 1e-12 and abs(rows['ENT_NEG-ENT_POS']['diff_5bps'] - 0.03) < 1e-12
+    assert rows['SEC2-SEC3']['diff_10bps'] == ''

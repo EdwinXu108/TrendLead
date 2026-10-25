@@ -10,11 +10,9 @@ from statistics import median
 from .selection_structured import percentile_by_rank
 from .selection import Candidate
 
-MIN_PEERS = 3
-PEER_OWN_WEIGHT = 0.75
-PEER_PEER_WEIGHT = 0.25
-SIZE_OWN_WEIGHT = 0.9
-SIZE_TILT_WEIGHT = 0.1
+MIN_PEERS = 3          # default minimum number of peers; the signal dict carries min_peers
+PEER_WEIGHT = 0.25     # default weight of the peer median; the signal dict carries weight
+SIZE_WEIGHT = 0.1      # default weight of the issuer-size percentile; the signal dict carries weight
 
 
 def _candidates(cells):
@@ -39,10 +37,10 @@ def _out(cells, scores, base_reason):
     return out
 
 
-def peer(cells90, cells60, sectors):
-    """PEER: S = 0.75 * P90 + 0.25 * median P60 of same-sector peers that are scored at both 90 and 60.
+def peer(cells90, cells60, sectors, weight=PEER_WEIGHT, min_peers=MIN_PEERS):
+    """PEER: S = (1 - weight) * P90 + weight * median P60 of same-sector peers that are scored at both 90 and 60.
 
-    Peers are the other names of the same mapped sector in U90 and U60. With fewer than three peers, or an unmapped
+    Peers are the other names of the same mapped sector in U90 and U60. With fewer than min_peers peers, or an unmapped
     sector, S = P90.
     """
     p90 = scored_percentiles(cells90)
@@ -50,10 +48,10 @@ def peer(cells90, cells60, sectors):
     scores = {}
     for sid in p90:
         peers = [t for t in p90 if t != sid and t in p60 and sectors[t][1] and sectors[t][0] == sectors[sid][0]]
-        if not sectors[sid][1] or len(peers) < MIN_PEERS:
+        if not sectors[sid][1] or len(peers) < min_peers:
             scores[sid] = p90[sid]
         else:
-            scores[sid] = PEER_OWN_WEIGHT * p90[sid] + PEER_PEER_WEIGHT * median(p60[t] for t in peers)
+            scores[sid] = (1 - weight) * p90[sid] + weight * median(p60[t] for t in peers)
     return _out(cells90, scores, 'insufficient_history')
 
 
@@ -82,13 +80,13 @@ def vol_adjusted(cells90, volatility):
     return _out(cells90, scores, 'vol_unavailable')
 
 
-def size_tilt(cells90, issuer_weight):
-    """SIZE: 0.9 * P90 + 0.1 * Q, Q the percentile of the issuer's VOO weight over U90 (ties by issuer id)."""
+def size_tilt(cells90, issuer_weight, weight=SIZE_WEIGHT):
+    """SIZE: (1 - weight) * P90 + weight * Q, Q the percentile of the issuer's VOO weight over U90 (ties by security id)."""
     p90 = scored_percentiles(cells90)
     order = sorted(p90, key=lambda sid: (-issuer_weight.get(sid, 0.0), sid))
     n = len(order)
     q = {sid: ((n - i) / (n - 1) if n > 1 else 1.0) for i, sid in enumerate(order, 1)}
-    scores = {sid: SIZE_OWN_WEIGHT * p90[sid] + SIZE_TILT_WEIGHT * q[sid] for sid in p90}
+    scores = {sid: (1 - weight) * p90[sid] + weight * q[sid] for sid in p90}
     return _out(cells90, scores, 'insufficient_history')
 
 

@@ -75,3 +75,26 @@ def test_engine_splits_fraction_of_held_name_without_stopping(tmp_path, monkeypa
     assert float(recv[0]['amount']) == pytest.approx(.5 * close)
     manifest = json.loads((out / 'run_manifest.json').read_text(encoding='utf-8'))
     assert manifest['accounting_rules_version'] == 'v2'
+
+
+def test_window_gap_forces_exit_at_the_next_execution_and_keeps_out_of_exit_cap(tmp_path, monkeypatch):
+    # S0 is held from the 12-02 execution. Its only missing session, 12-05, lies inside the 20-session window of the
+    # 12-06 signal, so S0 is an unscorable held name that week: it leaves at the 12-09 open with its own reason.
+    code, out = _bounded_run_fixture(tmp_path, monkeypatch, gaps=[('S0', date(2019, 12, 5))])
+    assert code == 0
+    decision = [r for r in _rows(out / 'decisions.csv') if r['signal_session_date'] == '2019-12-06' and r['security_id'] == 'S0']
+    assert decision and decision[0]['action'] == 'exit' and decision[0]['reason'] == 'unscorable_price_gap_exit'
+    sells = [r for r in _rows(out / 'trades.csv') if r['security_id'] == 'S0' and r['session_date'] == '2019-12-09']
+    assert sells and all(r['side'] == 'sell' for r in sells)
+    assert float(sells[-1]['shares_after']) == 0
+    summary = json.loads((out / 'summary.json').read_text(encoding='utf-8'))
+    assert summary['unscorable_price_gap_exits'] >= 1
+
+
+def test_no_rebuy_while_the_scoring_window_still_contains_the_gap(tmp_path, monkeypatch):
+    code, out = _bounded_run_fixture(tmp_path, monkeypatch, gaps=[('S0', date(2019, 12, 5))])
+    assert code == 0
+    buys = [r for r in _rows(out / 'trades.csv') if r['security_id'] == 'S0' and r['side'] == 'buy']
+    assert all(r['signal_session_date'] < '2019-12-06' for r in buys)  # only the purchase before the gap
+    decisions = [r for r in _rows(out / 'decisions.csv') if r['security_id'] == 'S0' and r['signal_session_date'] == '2019-12-13']
+    assert all(r['action'] != 'fill' for r in decisions)

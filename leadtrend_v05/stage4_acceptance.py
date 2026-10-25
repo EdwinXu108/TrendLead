@@ -157,6 +157,36 @@ def audit(folder,root=None,ctx=None,end=None):
                 freeze_observations+=1
                 if sid in previous_positions and previous_positions[sid]['frozen']=='1':frozen_share_changes+=int(abs(f(p,'shares')-f(previous_positions[sid],'shares'))>1e-8)
         previous_positions=actual
+    # Rule v2 scoring-window gaps, replayed from raw quotes with this module's own window arithmetic.
+    # A held name with a gap inside its scoring window is sold at the next execution; a gap on the signal date
+    # keeps a chosen name for that week; no name is bought while its window has a gap.
+    signal_spec=manifest.get('signal') or {'kind':'momentum','L':manifest['parameters']['L'],'skip':0}
+    if signal_spec['kind']=='momentum':window_len=signal_spec['L']+signal_spec.get('skip',0)
+    elif signal_spec['kind'] in {'peer','sector_demeaned','vol_adjusted','size_tilt','voo_weight'}:window_len=signal_spec['L']
+    else:window_len=None
+    chosen_by_week=defaultdict(set)
+    for r in tables['universe']:
+        if r['class_selected']=='1':chosen_by_week[r['signal_session_date']].add(r['security_id'])
+    def window_complete(sid,signal_day):
+        if signal_day not in day_index:return False
+        k=day_index[signal_day]
+        if k-window_len<0:return False
+        return all((sid,x) in quotes for x in calendar_days[k-window_len:k+1])
+    if window_len is not None:
+        for w in tables['weekly_checks']:
+            d=w['signal_session_date'];e=w['execution_session']
+            if not e or d not in day_index:continue
+            held={r['security_id'] for r in positions[d] if r['asset_type']=='actual_shares'}
+            for sid in held:
+                if (sid,d) not in quotes:
+                    if sid in chosen_by_week.get(d,set()) and (sid,e) in quotes and any(t['security_id']==sid and t['side']=='sell' for t in by_day.get(e,[])):
+                        failures.append('signal-day price gap sold at execution '+sid+' '+d)
+                elif not window_complete(sid,d) and (sid,e) in quotes:
+                    if any(r['security_id']==sid for r in positions[e] if r['asset_type']=='actual_shares'):
+                        failures.append('price gap in scoring window not exited '+sid+' '+d)
+        for t in tables['trades']:
+            if t['side']=='buy' and t['signal_session_date'] in day_index and not window_complete(t['security_id'],t['signal_session_date']):
+                failures.append('buy of a name with a price gap in its scoring window '+t['security_id']+' '+t['signal_session_date'])
     if max(max_cash_error,max_qty_error,max_mark_error,max_entitlement_error,max_trade_error)>TOLERANCE:failures.append('independent ledger/quote replay discrepancy')
     if fractional_max_error>TOLERANCE:failures.append('fractional cash amount mismatch')
     if any(eid not in fractional_paid and due<=END for eid,due in fractional_due.items()):failures.append('fractional cash never paid')

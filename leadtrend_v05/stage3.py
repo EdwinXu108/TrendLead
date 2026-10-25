@@ -158,7 +158,7 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
     if _stage4_context is not None:book.fractional_settlements=getattr(_stage4_context,'fractional_settlements',{})
     coverage={r['signal_session_date']:r for r in read_csv(root/paths.WEEKLY_COVERAGE)}
     # Sector keys are needed only by the structured selection rules; the reviewed default path does not read the map.
-    sector_by_sid=None;selection_counts=Counter()
+    sector_by_sid=None;selection_counts=Counter();gap_exit_count=0
     if raw.get('selection','default')!='default':
         sector_map=load_sector_map(root);sector_by_sid={sid:sector_key(r.industry,sector_map)[0] for sid,r in sec.items()}
     pending=None;first_trade=None;first_open_value=None;contributions=defaultdict(float);previous_assets={};last_marks={};stop=None
@@ -311,19 +311,24 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
                         if score is not None:candidates.append(Candidate(sid,item.issuer_id,item.industry,score))
                         else:unscored[sid]=reason
                 frozen_ids=book.frozen_ids()
-                gap_ids=set()
+                gap_ids=set();forced_ids=set()
                 for sid in book.account.positions:
                     # Ineligible spin-off child is an ordinary eligibility exit;
                     # input defects of an otherwise eligible held name must stop.
                     new_child=sid in book.spinoff_children
                     short_child=new_child and unscored.get(sid)=='insufficient_history'
                     if sid in chosen and sid in unscored and sid not in frozen_ids and not short_child:
-                        # Rule v2: a held name that cannot be scored only because of a price gap is kept and holds a slot.
-                        # Gaps inside the scoring window count too: the window rule is not relaxed in this round.
-                        if unscored[sid] in {'missing_price_at_signal','price_gap_in_window'}:
+                        # Rule v2: a missing price on the signal date keeps the held name this week (it holds a slot).
+                        if unscored[sid]=='missing_price_at_signal':
                             gap_ids.add(sid);continue
+                        # A gap inside the scoring window forces an exit at this week's execution. The name is not a
+                        # candidate, so no selection rule can keep it, and the exit does not count against exit_cap.
+                        if unscored[sid]=='price_gap_in_window':
+                            forced_ids.add(sid);continue
                         raise ValueError('held eligible security cannot be scored: '+sid+' '+unscored[sid]+' '+iso)
                 gap_retained=frozenset(gap_ids)
+                forced_exits=frozenset(forced_ids)
+                gap_exit_count+=len(forced_exits)
                 frozen_ids=frozen_ids|gap_retained
                 frozen_candidates=[Candidate(sid,sec[sid].issuer_id,sec[sid].industry,0.) for sid in sorted(frozen_ids)]
                 held=[sid for sid in book.account.positions if sid not in frozen_ids]
@@ -346,6 +351,7 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
                     dec=decisions.get(sid)
                     action=dec.action if dec else 'retain_frozen' if sid in frozen_ids else 'exit'
                     reason=dec.reason if dec else 'price_gap_retained_held' if sid in gap_retained else book.frozen.get(sid,'restricted_entitlement_occupies_slot') if sid in frozen_ids else 'lost_eligibility_or_unscorable_child'
+                    if sid in forced_exits:action,reason='exit','unscorable_price_gap_exit'
                     tables['decisions'].append(dict(signal_session_date=iso,security_id=sid,issuer_id=sec[sid].issuer_id,industry=sec[sid].industry,
                         score=dec.score if dec else None,rank=ranked.get(sid),action=action,reason=reason,
                         buffer_score=selected.buffer_score,buffer_security_id=selected.buffer_security_id,
@@ -403,6 +409,7 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
         if _stage4_context.scope!='development_only':
             summary['experiment_label']='真实数据近似实验：唯一预先选定配置的保留段一次性检验；不再调参'
     if raw.get('selection','default')!='default':manifest['selection_counts']=dict(sorted(selection_counts.items()))
+    if gap_exit_count:summary.update(unscorable_price_gap_exits=gap_exit_count)
     if v2_counts:
         # Rule v2 events are reported only when they occur, so runs without them keep their reviewed bytes.
         summary.update(accounting_rules_version=ACCOUNTING_RULES_VERSION,single_session_stale_marks=v2_counts.get('stale_mark',0),

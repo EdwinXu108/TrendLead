@@ -100,11 +100,11 @@ $PY = 'D:\Tools\miniconda3\python.exe'
 依据 `docs/LeadTrend_策略优化方案_v1.md`。以下都是可选项，默认行为不变；第四阶段结果与基准逐字节检查均按原样通过。
 
 - **选股规则**（`selection`，只在策略实验登记中使用）：`ent_pos`（`short_window`, `short_weight`；入场分 E = (1−w)·P_L + w·P_短，先在保留线内按 E 补位，再按可行顺序 F 补位）、`ent_neg`（`short_window`, `max_short_pct`；保留线内跳过短窗口百分位高于门槛者，第二遍不设门槛）、`sector_cap`（`sector_k`；每个大板块的上限，板块见 `config/sector_map_v1.csv`，不明行业以自身标签为板块）、`exit_cap`（`max_rank_exits`；每周因排名掉出保留线的退出最多执行这么多只，其余顺延一周）。`random_matched` 新增可选的 `sector_k`，随机组合遵守同一大板块上限。
-- **信号**（`signal.kind`）：`peer`（`L`, `L2`；同板块同伴的 P_L2 中位数）、`sector_demeaned`（`L`；减去同板块 M_L 中位数，成员少于三只时减去 U_L 中位数）、`vol_adjusted`（`L`, `vol_L`；M_L ÷ 最近 vol_L 个日对数收益的样本标准差）、`size_tilt`（`L`；0.9·P_L + 0.1·发行人 VOO 权重百分位）、`voo_weight`（`L`；发行人合计 VOO 权重，只作参照）。
+- **信号**（`signal.kind`）：`peer`（`L`, `L2`, `weight`=0.25, `min_peers`=3；同板块同伴的 P_L2 中位数，权重 weight，不足 min_peers 时取 P_L）、`sector_demeaned`（`L`；减去同板块 M_L 中位数，成员少于三只时减去 U_L 中位数）、`vol_adjusted`（`L`, `vol_L`；M_L ÷ 最近 vol_L 个日对数收益的样本标准差）、`size_tilt`（`L`, `weight`=0.1；(1−weight)·P_L + weight·发行人 VOO 权重百分位）。peer 与 size_tilt 的权重写在信号参数中，默认值即上述数值，默认值变化须经审阅、`voo_weight`（`L`；发行人合计 VOO 权重，只作参照）。
 - **登记网格**：每个块可写 `selection`、`selection_params`；也可写 `{"points": [...]}` 的显式列表，每个配置带 `anchor`（锚点配置 ID）。配置 ID 由信号、选股规则、参数、N、b、R 确定；去重计数把选股规则和参数纳入，第四阶段 72 个配置视为默认规则。成绩单另报告与锚点的配对差、两个时段、逐年剔除一年、随机对照（每个配置一组，退出只数取自自己的 10 bp 探索档运行）、换手、最大单股权重、单一板块超过 40%/50% 的天数占比，以及 ENT 两遍买入数、CAP 的触发与顺延次数。
 - **数据规则 v2**（`accounting_rules_version = "v2"`，写入 `run_manifest.json`）：
   - 规则 A：分拆、拆股等产生的不足一股权益，若没有已核实的结算记录，先记为应收证券；价格出现当日按该收盘价转为现金应收，在事件生效交易日之后第 10 个交易日到账，不收手续费，每笔标记为近似并计入 `fractional_cash`。已核实的 GE、MMM、BBWI 结算记录不变。
-  - 规则 B：持仓单日缺价（且当天无公司行动）按前一交易日收盘价估值，记为 `stale_mark`；执行日缺价的指令作废、不顺延（`void_order`）；信号日或窗口内缺价的持仓当周保留并占用名额（`price_gap_retained_held`），不再因此停止；连续两个交易日缺价仍然停止。
+  - 规则 B：持仓单日缺价（且当天无公司行动）按前一交易日收盘价估值，记为 `stale_mark`；执行日缺价的指令作废、不顺延（`void_order`）；信号日缺价的持仓当周保留并占用名额（`price_gap_retained_held`）；窗口内有缺价的持仓在当周执行日开盘强制退出（`unscorable_price_gap_exit`），不受 `exit_cap` 限制，也不计入排名退出，之后窗口内仍有缺价时不再买入；连续两个交易日缺价仍然停止。`summary.json` 在发生强制退出时新增 `unscorable_price_gap_exits`。
   - 只有在发生上述事件时，`summary.json` 才新增 `accounting_rules_version`、`single_session_stale_marks`、`voided_orders` 三项；未发生时字节不变。
 - **命令**：
 

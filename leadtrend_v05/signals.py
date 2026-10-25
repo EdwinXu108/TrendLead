@@ -24,6 +24,12 @@ def _int(value, name, minimum):
     return value
 
 
+def _unit(value, name):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value < 1:
+        raise ValueError(f'{name} must be a number strictly between 0 and 1')
+    return float(value)
+
+
 def normalize(sig):
     """Canonical form: integers and floats only, lists in their given order, defaults filled in."""
     kind = sig.get('kind')
@@ -46,7 +52,10 @@ def normalize(sig):
             raise ValueError('only rank_mean is implemented')
         return {'kind': 'composite', 'components': parts, 'weights': values, 'combine': 'rank_mean'}
     if kind == 'peer':
-        return {'kind': 'peer', 'L': _int(sig['L'], 'L', 1), 'L2': _int(sig.get('L2', 60), 'L2', 1)}
+        return {'kind': 'peer', 'L': _int(sig['L'], 'L', 1), 'L2': _int(sig.get('L2', 60), 'L2', 1),
+                'weight': _unit(sig.get('weight', 0.25), 'weight'), 'min_peers': _int(sig.get('min_peers', 3), 'min_peers', 1)}
+    if kind == 'size_tilt':
+        return {'kind': 'size_tilt', 'L': _int(sig['L'], 'L', 1), 'weight': _unit(sig.get('weight', 0.1), 'weight')}
     if kind == 'vol_adjusted':
         return {'kind': 'vol_adjusted', 'L': _int(sig['L'], 'L', 1), 'vol_L': _int(sig.get('vol_L', 60), 'vol_L', 2)}
     if kind in OVERLAY_KINDS:

@@ -8,7 +8,7 @@
   - `leadtrend_v05/` 代码（读写路径集中在 `paths.py`）；`tests_v05/` 测试；`config/` 运行配置。`config/v05_stage2.json` 为个人配置（含 SEC 联系方式），不上传，示例见 `v05_stage2.example.json`；
   - `data/v05/` 输入数据：`raw/`（只追加，含 `opend_concept_snapshots_2026-10-24/`）、`normalized/`（已封存）、`overlays/`（带封条）、`prep/`、`reference/`、`fixtures/`；
   - `research/v05/` 研究成果：`registry/` 登记；`results/` 审阅通过的结果；`baseline/` 回归基准；`reports/` 各阶段报告；`experiments/<ID>/` 策略实验的登记文件与成绩单；
-  - `docs/` 现行文档（`README_v0.5.md`），历史文档与任务说明在 `docs/archive/`；
+  - `docs/` 现行文档（`README_v0.5.md`、`LeadTrend_策略优化方案_v1.md`），历史文档与任务说明在 `docs/archive/`；
   - `work/` 临时区（缓存、新运行、日志），随时可整个删除；所有运行命令只输出到 `work/`，不得写入 `research/` 或 `data/`；
   - `archive/` 只读；`vendor/` 为绘图依赖。
 - 版本：软件 v1.0.0（2026-10-26）。研究方案仍为 v0.5，数据版本与实验登记沿用 `v05` 路径和封条。公开库为 GitHub `EdwinXu108/TrendLead`；数据、行情、运行明细和个人配置不上传（见 `.gitignore`）。

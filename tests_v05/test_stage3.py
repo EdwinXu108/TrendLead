@@ -152,7 +152,8 @@ def test_drawdown_duration_starts_at_peak_and_reports_trough_recovery():
     assert result['longest_underwater_calendar_days']==4
     assert result['maximum_drawdown_recovery_from_trough_days']==2
 
-def _bounded_run_fixture(tmp_path,monkeypatch,missing_held=False):
+def _bounded_run_fixture(tmp_path,monkeypatch,missing_held=False,gaps=(),events=()):
+    """Synthetic 2019 segment. missing_held drops two consecutive sessions of every held name; gaps drops (sid, date) pairs."""
     import csv
     from conftest import cal_row,sec,snap,member,utc
     from leadtrend_v05.stage2_enrich import write_csv
@@ -167,10 +168,11 @@ def _bounded_run_fixture(tmp_path,monkeypatch,missing_held=False):
     write_csv(n/'spinoff_child_prices.csv',[],['event_id','child_ticker','session_date'])
     ds=[date(2019,10,1)+timedelta(days=i) for i in range(90) if (date(2019,10,1)+timedelta(days=i)).weekday()<5]
     securities=[sec('S'+str(i),industry='I'+str(i//2)) for i in range(12)]+[sec('VOO_ETF',stype='etf')]
+    dropped=set(gaps)|({(s.security_id,d) for s in securities if s.security_id!='VOO_ETF' for d in (date(2019,12,3),date(2019,12,4))} if missing_held else set())
     ps=[price(s.security_id,d,100+j*.1+i*.01) for i,s in enumerate(securities) for j,d in enumerate(ds)
-        if not(missing_held and d==date(2019,12,3) and s.security_id!='VOO_ETF')]
+        if (s.security_id,d) not in dropped]
     inputs=Inputs(n,make_config(benchmark_security_id='VOO_ETF'),[cal_row(d) for d in ds],securities,
-        [snap('SNAP',date(2019,10,1),utc(2019,11,1))],[member('SNAP',s.security_id) for s in securities if s.security_id!='VOO_ETF'],ps,[])
+        [snap('SNAP',date(2019,10,1),utc(2019,11,1))],[member('SNAP',s.security_id) for s in securities if s.security_id!='VOO_ETF'],ps,list(events))
     monkeypatch.setattr('leadtrend_v05.stage3.load_inputs',lambda *a,**kw:inputs)
     monkeypatch.setattr('leadtrend_v05.stage3.load_config',lambda *a:inputs.config)
     out=w/'runs/dev';code=run_dev(root,cfg,out)
@@ -190,10 +192,48 @@ def test_complete_run_artifacts_contain_no_holdout_economic_dates(tmp_path,monke
     assert json.loads((out/'summary.json').read_text(encoding='utf-8'))['comparison_end_session']=='2019-12-13'
 
 def test_unknown_held_price_gap_stops_and_preserves_real_assets(tmp_path,monkeypatch):
+    # Two consecutive sessions without a price: the first is valued at the previous close, the second stops.
     code,out=_bounded_run_fixture(tmp_path,monkeypatch,missing_held=True)
     assert code==2
     state=json.loads((out/'last_explainable_state.json').read_text(encoding='utf-8'))
-    assert state['positions'] and state['last_valued_session']=='2019-12-02'
+    assert state['positions'] and state['last_valued_session']=='2019-12-03'
+    assert state['attempted_session']=='2019-12-04'
     assert 'price interrupted' in state['message']
     summary=json.loads((out/'summary.json').read_text(encoding='utf-8'))
     assert summary['status']=='incomplete' and 'total_return' not in summary
+
+def _rows(path):
+    import csv
+    with path.open(encoding='utf-8-sig',newline='') as handle:return list(csv.DictReader(handle))
+
+def test_single_session_gap_values_held_name_at_previous_close_and_completes(tmp_path,monkeypatch):
+    dropped=[(f'S{i}',date(2019,12,3)) for i in range(12)]
+    code,out=_bounded_run_fixture(tmp_path,monkeypatch,gaps=dropped)
+    assert code==0
+    summary=json.loads((out/'summary.json').read_text(encoding='utf-8'))
+    assert summary['status']=='completed' and summary['accounting_rules_version']=='v2' and summary['single_session_stale_marks']>0
+    marks={(r['session_date'],r['security_id']):float(r['mark']) for r in _rows(out/'positions.csv')}
+    held=[sid for (day,sid) in marks if day=='2019-12-03']
+    assert held
+    for sid in held:assert marks[('2019-12-03',sid)]==marks[('2019-12-02',sid)]
+    manifest=json.loads((out/'run_manifest.json').read_text(encoding='utf-8'))
+    assert manifest['accounting_rules_version']=='v2'
+
+def test_signal_session_gap_retains_held_name_without_sale(tmp_path,monkeypatch):
+    code,out=_bounded_run_fixture(tmp_path,monkeypatch,gaps=[('S0',date(2019,12,6))])
+    assert code==0
+    decisions=[r for r in _rows(out/'decisions.csv') if r['signal_session_date']=='2019-12-06' and r['security_id']=='S0']
+    assert decisions and decisions[0]['action']=='retain_frozen' and decisions[0]['reason']=='price_gap_retained_held'
+    trades_s0=[r for r in _rows(out/'trades.csv') if r['security_id']=='S0' and r['session_date']=='2019-12-09']
+    assert trades_s0==[]
+    weeks=[r for r in _rows(out/'positions.csv') if r['session_date']=='2019-12-09' and r['security_id']=='S0']
+    assert weeks
+
+def test_execution_session_without_prices_voids_those_orders_and_nothing_is_postponed(tmp_path,monkeypatch):
+    dropped=[(f'S{i}',date(2019,12,2)) for i in range(6)]
+    code,out=_bounded_run_fixture(tmp_path,monkeypatch,gaps=dropped)
+    assert code==0
+    first=[r for r in _rows(out/'trades.csv') if r['session_date']=='2019-12-02']
+    assert first and not {r['security_id'] for r in first}&{f'S{i}' for i in range(6)}
+    summary=json.loads((out/'summary.json').read_text(encoding='utf-8'))
+    assert summary['voided_orders']>0

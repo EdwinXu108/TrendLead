@@ -43,9 +43,9 @@
 ```powershell
 $PY = 'D:\Tools\miniconda3\python.exe'
 
-# 测试：默认跳过 4 个标记为 slow 的用例（需要真实开发数据、会建缓存），约 12 秒，应为 273 通过、5 跳过
+# 测试：默认跳过 6 个标记为 slow 的用例（需要真实开发数据、会建缓存），约 10 秒，应为 331 通过、6 跳过
 & $PY -X utf8 -m pytest -q -o addopts= tests_v05 --basetemp work/pytest_tmp -o cache_dir=work/pytest_cache
-# 改动信号、评分或缓存代码时，加 --runslow 再跑一次，约 160 秒，应为 278 通过
+# 改动信号、评分或缓存代码时，加 --runslow 再跑一次，约 80 秒，应为 337 通过
 & $PY -X utf8 -m pytest -q -o addopts= tests_v05 --runslow --basetemp work/pytest_tmp -o cache_dir=work/pytest_cache
 
 # 第一阶段模拟数据演示
@@ -94,6 +94,26 @@ $PY = 'D:\Tools\miniconda3\python.exe'
 完整 144 次的回归，用 `daily` 跑一遍网格后，用 `compare-grid` 与 `research/v05/results/stage4_unified/runs/` 做全量逐字节比对（这批结果已被证明与冻结旧引擎一致）。`compare-grid` 对探索档网格自动只比对其实写出的子集（4 张表 + summary.json）。`--expect daily|explore`（默认 `daily`）指定每个新运行必须具有的验证级别，级别不符的运行对记为 FAIL；没有级别字段的旧记录按 daily 计。比对探索档网格须加 `--expect explore`。参考数字：现有结果自比为 144 对、2736 项、0 失败；任何一项不一致或读取失败都记 FAIL 并逐项列出，不会静默跳过。
 
 注意：冻结旧引擎的源码副本（`research/v05/baseline/source/`）写死了整理前的旧路径，**不能再执行**；它的输出仍然是有效的比对基准。`bench --mode baseline` 会因基准已存在而拒绝运行。
+
+## 第一轮工程准备（2026-10-26）
+
+依据 `docs/LeadTrend_策略优化方案_v1.md`。以下都是可选项，默认行为不变；第四阶段结果与基准逐字节检查均按原样通过。
+
+- **选股规则**（`selection`，只在策略实验登记中使用）：`ent_pos`（`short_window`, `short_weight`；入场分 E = (1−w)·P_L + w·P_短，先在保留线内按 E 补位，再按可行顺序 F 补位）、`ent_neg`（`short_window`, `max_short_pct`；保留线内跳过短窗口百分位高于门槛者，第二遍不设门槛）、`sector_cap`（`sector_k`；每个大板块的上限，板块见 `config/sector_map_v1.csv`，不明行业以自身标签为板块）、`exit_cap`（`max_rank_exits`；每周因排名掉出保留线的退出最多执行这么多只，其余顺延一周）。`random_matched` 新增可选的 `sector_k`，随机组合遵守同一大板块上限。
+- **信号**（`signal.kind`）：`peer`（`L`, `L2`；同板块同伴的 P_L2 中位数）、`sector_demeaned`（`L`；减去同板块 M_L 中位数，成员少于三只时减去 U_L 中位数）、`vol_adjusted`（`L`, `vol_L`；M_L ÷ 最近 vol_L 个日对数收益的样本标准差）、`size_tilt`（`L`；0.9·P_L + 0.1·发行人 VOO 权重百分位）、`voo_weight`（`L`；发行人合计 VOO 权重，只作参照）。
+- **登记网格**：每个块可写 `selection`、`selection_params`；也可写 `{"points": [...]}` 的显式列表，每个配置带 `anchor`（锚点配置 ID）。配置 ID 由信号、选股规则、参数、N、b、R 确定；去重计数把选股规则和参数纳入，第四阶段 72 个配置视为默认规则。成绩单另报告与锚点的配对差、两个时段、逐年剔除一年、随机对照（每个配置一组，退出只数取自自己的 10 bp 探索档运行）、换手、最大单股权重、单一板块超过 40%/50% 的天数占比，以及 ENT 两遍买入数、CAP 的触发与顺延次数。
+- **数据规则 v2**（`accounting_rules_version = "v2"`，写入 `run_manifest.json`）：
+  - 规则 A：分拆、拆股等产生的不足一股权益，若没有已核实的结算记录，先记为应收证券；价格出现当日按该收盘价转为现金应收，在事件生效交易日之后第 10 个交易日到账，不收手续费，每笔标记为近似并计入 `fractional_cash`。已核实的 GE、MMM、BBWI 结算记录不变。
+  - 规则 B：持仓单日缺价（且当天无公司行动）按前一交易日收盘价估值，记为 `stale_mark`；执行日缺价的指令作废、不顺延（`void_order`）；信号日或窗口内缺价的持仓当周保留并占用名额（`price_gap_retained_held`），不再因此停止；连续两个交易日缺价仍然停止。
+  - 只有在发生上述事件时，`summary.json` 才新增 `accounting_rules_version`、`single_session_stale_marks`、`voided_orders` 三项；未发生时字节不变。
+- **命令**：
+
+```powershell
+# 中性参数等价检查：四个新规则以中性参数运行 L090_N10_b2_R2，两种成本的 summary.json 须与第四阶段逐字节相同（不登记、不计入试验次数）
+& $PY -X utf8 -m leadtrend_v05 neutral-check --output work/runs/neutral_check --workers auto
+# 第一轮工程准备诊断：D3R（权重与收益区间对齐）、D5R（规则 v2 下 9 个配置各 100 次随机对照）、D7（名次分段）、D8（VOO 权重十分位）
+& $PY -X utf8 -m leadtrend_v05 diagnose --only D3R,D5R,D7,D8 --output work/runs/diagnostics/D1R --workers auto
+```
 
 ## 代码模块
 

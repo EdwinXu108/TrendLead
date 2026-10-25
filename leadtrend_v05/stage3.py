@@ -14,6 +14,8 @@ from .dataio import load_inputs, SecurityRow, PriceRow, sha256_file
 from .calendar import Calendar
 from .eligibility import ClassSelector, build_price_index, eligibility_index
 from .selection import Candidate, SELECTION_RULES, select_portfolio
+from .selection_structured import percentile_by_rank
+from .sectors import load_sector_map, sector_key
 from .signals import is_default_momentum, normalize as normalize_signal, signal_key
 from .execution import plan_equal_weight_trades
 from .ledger import AccountState
@@ -26,6 +28,9 @@ from .stage2_enrich import read_csv, write_csv
 
 DEV_MAX=date(2024,6,28)
 EXPLORE_TABLES=('daily_equity','benchmark','trades','weekly_checks')
+# v2: single-day held price gaps use the previous close; unverified fractional entitlements become cash
+# receivables valued at the first regular-way close and paid on the tenth following session.
+ACCOUNTING_RULES_VERSION='v2'
 
 def guard_development(config, registry, end_override=None):
     start=date.fromisoformat(config['start_date']);end=date.fromisoformat(end_override or config['end_date'])
@@ -38,6 +43,15 @@ def guard_development(config, registry, end_override=None):
         if config.get(key)!=value:raise ValueError('unregistered default parameter: '+key)
     if config.get('slippage_bps') not in {5,10}:raise ValueError('only registered base/stress costs allowed')
     return start,end
+
+class _StaleMarks:
+    """One session's marks where some held names carry the previous close because they had a single-session gap."""
+    def __init__(self, base, stale):
+        self.base=base;self.stale=stale
+    def __getitem__(self, sid):
+        return self.stale[sid] if sid in self.stale else self.base[sid]
+    def __contains__(self, sid):
+        return sid in self.stale or sid in self.base
 
 def write_artifacts(out, tables, summary, manifest, failure=None, *, artifact_mode='full',shared=None):
     out.mkdir(parents=True,exist_ok=True)
@@ -123,6 +137,10 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
     del full
     cal=Calendar(inputs.calendar);dates=[c.session_date for c in cal.sessions];sessions=[c for c in cal.sessions if start<=c.session_date<=end]
     positions={d:i for i,d in enumerate(dates)};signals={c.session_date for c in cal.week_signal_sessions() if start<=c.session_date<=end}
+    def paid_on_tenth(created):
+        """Pay date of a general fractional settlement: the tenth session after the effective session, inside the segment."""
+        i=positions[created]+10
+        return dates[i] if i<len(dates) and dates[i]<=end else None
     if _performance is not None:
         sec,px,children,raw_hashes,marks_by_date,engine=_performance.prepared
     elif _stage4_context is None:
@@ -139,6 +157,10 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
     book=DevBook(AccountState(cfg.initial_capital));tables={name:[] for name in ('universe','scores','decisions','trades','daily_equity','benchmark','positions','receivables','cash_flows','corporate_actions','weekly_checks','data_issues','weekly_coverage','daily_contributions','rolling_relative','return_contributions')}
     if _stage4_context is not None:book.fractional_settlements=getattr(_stage4_context,'fractional_settlements',{})
     coverage={r['signal_session_date']:r for r in read_csv(root/paths.WEEKLY_COVERAGE)}
+    # Sector keys are needed only by the structured selection rules; the reviewed default path does not read the map.
+    sector_by_sid=None;selection_counts=Counter()
+    if raw.get('selection','default')!='default':
+        sector_map=load_sector_map(root);sector_by_sid={sid:sector_key(r.industry,sector_map)[0] for sid,r in sec.items()}
     pending=None;first_trade=None;first_open_value=None;contributions=defaultdict(float);previous_assets={};last_marks={};stop=None
     # Strategy signal: absent means the existing momentum rule on cfg.L, so grid outputs are unchanged.
     signal=normalize_signal(raw['signal']) if raw.get('signal') is not None else {'kind':'momentum','L':cfg.L,'skip':0}
@@ -151,7 +173,7 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
         'registered_development':registry['development'],'registry_sha256':sha256_file(registry_path),
         'normalized_file_hashes':registry['data_version'],'auxiliary_raw_hashes':raw_hashes,
         'parameters':{k:raw[k] for k in ('L','N','k','b','initial_capital','fee_per_trade','slippage_bps')},
-        'engineering_defaults_unvalidated':True,'no_holdout_computed':True,
+        'engineering_defaults_unvalidated':True,'no_holdout_computed':True,'accounting_rules_version':ACCOUNTING_RULES_VERSION,
         'execution_assumption':'next-session raw open is observable allocation quote; whole shares, sell before buy; only swap weeks; no extra settlement delay',
         'fractional_right_assumption':'unverified fractional cash-in-lieu stays a restricted security entitlement at observed child mark; no invented payment',
         'limitations':['survivorship bias from missing historical member quotes','current industry classification','unvalidated engineering defaults']}
@@ -160,15 +182,29 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
     if _stage4_context is not None:
         manifest.update(stage=4,scope=_stage4_context.scope,stage4_registry_sha256=_stage4_context.registry_hash,
                         rebalance=raw['rebalance'],no_holdout_computed=_stage4_context.scope=='development_only')
+    # Entry rules read the short-window percentiles of every signal week up front: one pass keeps one window table loaded.
+    short_pct={}
+    if raw.get('selection','default') in {'ent_pos','ent_neg'}:
+        if _performance is None:raise ValueError('entry rules need the cached score tables')
+        short_window=raw.get('selection_params',{}).get('short_window',20)
+        for d in sorted(signals):
+            short_pct[d]=percentile_by_rank(sorted(_performance.frames[d]['windows'][short_window]['candidates'],key=lambda c:c.sort_key))
     for session in sessions:
         d=session.session_date;iso=d.isoformat();cash_start=book.account.cash;payment=0.;trade_flow=0.;structural=defaultdict(float)
         entitled=dict(book.account.positions)
         try:
             required=set(book.account.positions)|{r.security_id for r in book.security_receivables}
-            for sid in required:
-                if (sid,d) not in px:
+            same_day_ids={e.security_id for e in events_by_date[d]}|{c['security_id'] for e in events_by_date[d] for c in children.get(e.event_id,[])}
+            prior=dates[positions[d]-1] if positions[d]>0 else None
+            stale={}
+            for sid in sorted(required):
+                if (sid,d) in px:continue
+                # Rule v2: one missing session with no corporate action values the name at the previous close; two stop.
+                if sid in same_day_ids or prior is None or (sid,prior) not in px:
                     raise ValueError('held asset price interrupted without verified disposition: '+sid+' '+iso)
-            marks=marks_by_date[d]
+                stale[sid]=px[sid,prior].close
+                tables['data_issues'].append(dict(session_date=iso,security_id=sid,severity='stale_mark',message='single-session price gap valued at previous close'))
+            marks=_StaleMarks(marks_by_date[d],stale) if stale else marks_by_date[d]
             # Corporate actions precede open trades, entitlement uses previous close.
             for e in sorted(events_by_date[d],key=lambda e:(e.event_type not in {'split','reverse_split'},e.event_id)):
                 q=entitled.get(e.security_id,0)
@@ -181,16 +217,24 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
                         child=row['child_security_id'];value=(row['child_shares_delivered']+row['receivable_shares'])*marks[child]
                         structural[e.security_id]+=value;structural[child]-=value
                 else:raise ValueError('held unsupported event '+e.event_id)
+            # Rule v2: an unverified fractional entitlement becomes cash as soon as its first regular-way close exists.
+            book.settle_fractions(d,marks_by_date[d],lambda created:paid_on_tenth(created))
             flows_before=len(book.cash_flows);payment=book.pay(d)
             payment_by=book.payments_on(d,flows_before)
             if pending is not None:
-                target,signal_day,swap=pending
+                target,signal_day,swap,gap_retained=pending
                 # Newly created rights cannot be silently sold or ignored by an
                 # older pending target. Unknown cash-in-lieu stops before orders.
                 book.require_resolved_partial_delivery()
                 frozen=book.frozen_ids()
                 protected_children=book.children_after_signal(signal_day)
-                tradable={sid:q for sid,q in book.account.positions.items() if sid not in frozen|protected_children}
+                tradable={sid:q for sid,q in book.account.positions.items() if sid not in frozen|protected_children|gap_retained}
+                # Rule v2: no price today voids that name's order (a held name keeps its shares, a buy is dropped, nothing is postponed).
+                voided=sorted({sid for sid in set(tradable)|set(target) if (sid,d) not in px})
+                for sid in voided:tables['data_issues'].append(dict(session_date=iso,security_id=sid,severity='void_order',message='no price on execution session; order voided, not postponed'))
+                voided_held={sid for sid in voided if sid in tradable}
+                tradable={sid:q for sid,q in tradable.items() if sid not in voided_held}
+                target=[sid for sid in target if sid not in voided]
                 temp=AccountState(book.account.cash,dict(tradable))
                 opens={sid:px[sid,d].open for sid in set(tradable)|set(target)}
                 if first_trade is None:first_open_value=cfg.initial_capital
@@ -199,7 +243,7 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
                     from .execution import plan_exit_cash_trades
                     planner=plan_exit_cash_trades
                 trades=planner(temp,target,opens,cfg.fee_per_trade,cfg.slippage_rate,d,swap,
-                    allocation_slots=max(0,cfg.N-len(frozen)))
+                    allocation_slots=max(0,cfg.N-len(frozen)-len(gap_retained)-len(voided_held)))
                 running_cash=book.account.cash;qs=dict(tradable)
                 for t in trades:
                     old=qs.get(t.security_id,0);new=old+(t.shares if t.side=='buy' else -t.shares)
@@ -267,19 +311,31 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
                         if score is not None:candidates.append(Candidate(sid,item.issuer_id,item.industry,score))
                         else:unscored[sid]=reason
                 frozen_ids=book.frozen_ids()
+                gap_ids=set()
                 for sid in book.account.positions:
                     # Ineligible spin-off child is an ordinary eligibility exit;
                     # input defects of an otherwise eligible held name must stop.
                     new_child=sid in book.spinoff_children
                     short_child=new_child and unscored.get(sid)=='insufficient_history'
                     if sid in chosen and sid in unscored and sid not in frozen_ids and not short_child:
+                        # Rule v2: a held name that cannot be scored only because of a price gap is kept and holds a slot.
+                        # Gaps inside the scoring window count too: the window rule is not relaxed in this round.
+                        if unscored[sid] in {'missing_price_at_signal','price_gap_in_window'}:
+                            gap_ids.add(sid);continue
                         raise ValueError('held eligible security cannot be scored: '+sid+' '+unscored[sid]+' '+iso)
+                gap_retained=frozenset(gap_ids)
+                frozen_ids=frozen_ids|gap_retained
                 frozen_candidates=[Candidate(sid,sec[sid].issuer_id,sec[sid].industry,0.) for sid in sorted(frozen_ids)]
                 held=[sid for sid in book.account.positions if sid not in frozen_ids]
                 rule=raw.get('selection','default')
                 if rule=='default':selected=select_portfolio(candidates,held,cfg.N,cfg.k,cfg.b,frozen=frozen_candidates)
-                else:selected=SELECTION_RULES[rule](candidates,held,cfg.N,cfg.k,cfg.b,frozen=frozen_candidates,signal_date=iso,
-                    held_meta={sid:(sec[sid].issuer_id,sec[sid].industry) for sid in held},**raw.get('selection_params',{}))
+                else:
+                    params=dict(raw.get('selection_params',{}))
+                    aux={'sector':sector_by_sid}
+                    if rule in {'ent_pos','ent_neg'}:aux['short']=short_pct[d]
+                    selected=SELECTION_RULES[rule](candidates,held,cfg.N,cfg.k,cfg.b,frozen=frozen_candidates,signal_date=iso,
+                        held_meta={sid:(sec[sid].issuer_id,sec[sid].industry) for sid in held},aux=aux,**params)
+                    selection_counts.update(selected.counts)
                 ranked={c.security_id:i+1 for i,c in enumerate(sorted(candidates,key=lambda c:c.sort_key))}
                 if _performance is None:
                     for row in tables['scores'][week_score_start:]:row['rank']=ranked.get(row['security_id'])
@@ -289,14 +345,14 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
                 for sid in sorted(set(decisions)|set(held)|frozen_ids):
                     dec=decisions.get(sid)
                     action=dec.action if dec else 'retain_frozen' if sid in frozen_ids else 'exit'
-                    reason=dec.reason if dec else book.frozen.get(sid,'restricted_entitlement_occupies_slot') if sid in frozen_ids else 'lost_eligibility_or_unscorable_child'
+                    reason=dec.reason if dec else 'price_gap_retained_held' if sid in gap_retained else book.frozen.get(sid,'restricted_entitlement_occupies_slot') if sid in frozen_ids else 'lost_eligibility_or_unscorable_child'
                     tables['decisions'].append(dict(signal_session_date=iso,security_id=sid,issuer_id=sec[sid].issuer_id,industry=sec[sid].industry,
                         score=dec.score if dec else None,rank=ranked.get(sid),action=action,reason=reason,
                         buffer_score=selected.buffer_score,buffer_security_id=selected.buffer_security_id,
                         industry_counts_after=industry_counts_after,
                         target_count=len(target),frozen_count=len(frozen_ids),is_swap_week=int(swap)))
                 next_index=positions[d]+1;next_day=dates[next_index] if next_index<len(dates) else None
-                if next_day is not None and next_day<=end:pending=(target,iso,swap)
+                if next_day is not None and next_day<=end:pending=(target,iso,swap,gap_retained)
                 tables['weekly_checks'].append(dict(signal_session_date=iso,is_swap_week=int(swap),frozen_count=len(frozen_ids),
                     target_count=len(target),total_capacity=max(0,cfg.N-len(frozen_ids)),
                     passive_limit_exceeded=int('passive_frozen_limit_exceeded' in selected.notes),
@@ -317,6 +373,13 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
                 stop['unresolved_security_entitlements']=unvalued_entitlements(d,entitled,events_by_date[d],children,sec)
             tables['data_issues'].append(dict(session_date=iso,security_id='',severity='fatal',message=str(exc)));break
     tables['corporate_actions']=book.event_rows;tables['receivables']=book.receivable_rows;tables['cash_flows']=book.cash_flows
+    # Rule v2 general settlements carry no equity ratio yet; the day's closing equity gives it.
+    equity_on={r['session_date']:r['total_equity'] for r in tables['daily_equity']}
+    for row in book.fractional_rows:
+        if 'equity_ratio' not in row and row['session_date'] in equity_on:
+            row['equity_at_confirmation']=equity_on[row['session_date']];row['equity_ratio']=row['amount']/row['equity_at_confirmation']
+            row['exceeds_0_1_percent']=row['equity_ratio']>0.001
+    v2_counts=Counter(r['severity'] for r in tables['data_issues'] if r['severity'] in {'stale_mark','void_order'})
     if book.fractional_settlements:tables['fractional_cash']=book.fractional_rows
     if stop is None and first_trade is not None:
         benchmark=build_benchmark(cfg.benchmark_security_id,inputs.prices,inputs.events,dates,cfg.initial_capital,first_trade)
@@ -339,6 +402,11 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
             no_holdout_computed=_stage4_context.scope=='development_only',scope=_stage4_context.scope)
         if _stage4_context.scope!='development_only':
             summary['experiment_label']='真实数据近似实验：唯一预先选定配置的保留段一次性检验；不再调参'
+    if raw.get('selection','default')!='default':manifest['selection_counts']=dict(sorted(selection_counts.items()))
+    if v2_counts:
+        # Rule v2 events are reported only when they occur, so runs without them keep their reviewed bytes.
+        summary.update(accounting_rules_version=ACCOUNTING_RULES_VERSION,single_session_stale_marks=v2_counts.get('stale_mark',0),
+            voided_orders=v2_counts.get('void_order',0))
     if _performance is None:write_artifacts(output,tables,summary,manifest,stop)
     else:
         manifest.update(performance_cache_key=_performance.cache_key,performance_data_scope=getattr(_performance,'data_scope','uniform'))

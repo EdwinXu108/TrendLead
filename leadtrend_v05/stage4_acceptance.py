@@ -50,6 +50,7 @@ def audit(folder,root=None,ctx=None,end=None):
     extension=ROOT/paths.VSCO_EXTENSION
     if extension.exists():settlement_policy.update(json.loads(extension.read_text(encoding='utf-8'))['fractional_settlements'])
     calendar_days=[r['session_date'] for r in read(ROOT/paths.NORMALIZED/'calendar.csv')]
+    day_index={x:i for i,x in enumerate(calendar_days)};entitlement_total={}
     fractional_due={};fractional_created=set();fractional_paid=set();fractional_max_error=0.
     cash=100000.;qty=defaultdict(float);receivable=0.;processed=set();previous_positions={};max_cash_error=max_qty_error=max_mark_error=max_entitlement_error=0.
     max_trade_error=0.;frozen_sales=0;frozen_share_changes=0;duplicate_events=0;split_errors=[];spinoff_visible=[];manual=[];cash_receivables={}
@@ -65,6 +66,7 @@ def audit(folder,root=None,ctx=None,end=None):
             if typ in {'split','reverse_split'}:
                 ratio=float(event_inputs[eid]['shares_new_per_old']);old=qty[sid]
                 new=old*ratio
+                entitlement_total[eid,sid]=(new,d)
                 split_errors.append(abs(new-f(e,'shares_after')-f(e,'receivable_shares')))
                 max_entitlement_error=max(max_entitlement_error,abs(old-f(e,'shares_before')))
                 qty[sid]=f(e,'shares_after')
@@ -76,8 +78,27 @@ def audit(folder,root=None,ctx=None,end=None):
                 child=e['child_security_id'];qty[child]+=f(e,'child_shares_delivered')
                 visible=any(p['security_id']==child for p in positions[d])
                 spinoff_visible.append(visible)
+                entitlement_total[eid,child]=(previous_qty.get(sid,0)*f(e,'ratio'),d)
         for r in receivables_by[d]:
-            if r['operation']=='fractional_cash_receivable_created':
+            if r['operation']=='fractional_cash_receivable_created' and r['security_id']+'|'+d not in settlement_policy:
+                # Rule v2 general approximation, replayed independently: first regular-way close, tenth following session.
+                eid=r['event_id'];sid=r['security_id']
+                if eid in fractional_created:failures.append('duplicate fractional cash confirmation '+eid)
+                fractional_created.add(eid)
+                parent=eid.split('|')[0]
+                if (parent,sid) not in entitlement_total:failures.append('general fraction without entitlement '+eid);continue
+                total,effective=entitlement_total[parent,sid]
+                k=day_index[effective];first=day_index[d]
+                if (sid,d) not in quotes:failures.append('general fraction settled without a price '+eid);continue
+                if any((sid,calendar_days[x]) in quotes for x in range(k,first)):failures.append('general fraction not settled at first price '+eid)
+                fraction=total-math.floor(total+1e-9)
+                expected=fraction*float(quotes[sid,d]['close'])
+                due=calendar_days[k+10] if k+10<len(calendar_days) and calendar_days[k+10]<=END else None
+                if (r.get('pay_date') or None)!=due:failures.append('general fractional payment not tenth following session')
+                fractional_max_error=max(fractional_max_error,abs(expected-f(r,'amount')),abs(fraction-f(r,'shares')))
+                receivable+=expected;cash_receivables[eid]=expected
+                if due is not None:fractional_due[eid]=due
+            if r['operation']=='fractional_cash_receivable_created' and r['security_id']+'|'+d in settlement_policy:
                 eid=r['event_id'];sid=r['security_id'];policy=settlement_policy[sid+'|'+d]
                 if eid in fractional_created:failures.append('duplicate fractional cash confirmation '+eid)
                 fractional_created.add(eid)
@@ -101,7 +122,9 @@ def audit(folder,root=None,ctx=None,end=None):
                     elif event_inputs[r['event_id']]['pay_date']>d:failures.append('dividend available before pay date')
                     cash+=expected;receivable-=expected
         for t in by_day[d]:
-            sid=t['security_id'];side=t['side'];q=f(t,'shares');raw_open=float(quotes[sid,d]['open'])
+            sid=t['security_id'];side=t['side'];q=f(t,'shares')
+            if (sid,d) not in quotes:failures.append('trade on a session without a price: '+sid+' '+d);continue
+            raw_open=float(quotes[sid,d]['open'])
             slip=float(manifest['parameters']['slippage_bps'])/10000
             fill=raw_open*(1+slip if side=='buy' else 1-slip)
             delta=-(q*fill+1) if side=='buy' else q*fill-1
@@ -117,6 +140,15 @@ def audit(folder,root=None,ctx=None,end=None):
                     fill_price_computed=fill,fee=1,cash_delta_computed=delta,cash_after_computed=cash,maximum_error=error))
         actual={r['security_id']:r for r in positions[d] if r['asset_type']=='actual_shares'}
         for sid in set(qty)|set(actual):max_qty_error=max(max_qty_error,abs(qty[sid]-f(actual.get(sid,{}),'shares')))
+        for p in positions[d]:
+            # Rule v2 marks, replayed from raw closes: a held name's gap is one session, valued at the previous close.
+            sid=p['security_id'];today=quotes.get((sid,d))
+            if today is not None:
+                if abs(f(p,'mark')-float(today['close']))>TOLERANCE:failures.append('mark differs from raw close '+sid+' '+d)
+                continue
+            k=day_index[d];prior=quotes.get((sid,calendar_days[k-1])) if k>0 else None
+            if prior is None:failures.append('held price gap without single-session rule '+sid+' '+d)
+            elif abs(f(p,'mark')-float(prior['close']))>TOLERANCE:failures.append('stale mark is not the previous close '+sid+' '+d)
         marked=sum(f(r,'value') for r in positions[d])
         max_mark_error=max(max_mark_error,abs(marked+cash+receivable-f(day,'total_equity')))
         max_cash_error=max(max_cash_error,abs(cash-f(day,'cash')),abs(receivable-f(day,'receivable_cash')))

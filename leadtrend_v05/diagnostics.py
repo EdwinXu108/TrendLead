@@ -610,13 +610,14 @@ def _run_diag_jobs(jobs, ctx, workers, payload):
     return len(todo)
 
 
-def d5_controls(root, base, workers, ctx_loader):
-    """100 random_matched controls per registered configuration at L in WINDOWS; reference exits from its own run."""
+def d5_controls(root, base, workers, ctx_loader, configs=None):
+    """100 random_matched controls per registered configuration (default: D5_CONFIGS); reference exits from its own run."""
     from .perf_cache import identity
+    configs = list(configs or D5_CONFIGS)
     doc = identity(root, 'uniform')
     ctx = ctx_loader(root, doc)
     points = []
-    for rid in D5_CONFIGS:
+    for rid in configs:
         reg = STAGE4_BY_ID[rid]
         signal = normalize({'kind': 'momentum', 'L': reg['L'], 'skip': 0})
         exits = reference_exit_counts(root / paths.STAGE4_RUNS / rid / 'cost_10bps')
@@ -630,7 +631,7 @@ def d5_controls(root, base, workers, ctx_loader):
              'explore', False, 'explore') for p in points]
     executed = _run_diag_jobs(jobs, ctx, workers, payload)
     rows = []
-    for rid in D5_CONFIGS:
+    for rid in configs:
         orig = run_metrics(root / paths.STAGE4_RUNS / rid / 'cost_10bps')
         values, turns = [], []
         for p in points:
@@ -691,7 +692,7 @@ def _historical_set(root):
         return {r['security_id'] for r in csv.DictReader(handle) if r.get('classification') == 'historical_member_no_price'}
 
 
-ITEMS = ['D1', 'D2', 'D3', 'D4', 'D5', 'D5STOP', 'D6']
+ITEMS = ['D1', 'D2', 'D3', 'D4', 'D5', 'D5STOP', 'D6', 'D3R', 'D5R', 'D7', 'D8']  # D3R..D8: round 1 (leadtrend_v05/diagnostics_r1.py)
 STOP_TYPES = (('fractional settlement', 'fractional_cash_unverified'), ('price interrupted', 'held_price_interrupted'))
 
 
@@ -822,7 +823,7 @@ def run_diagnostics(root, output, workers=1, only=None):
     historical = _historical_set(root)
     res = {}
     ctx = None
-    if wanted & {'D1', 'D2', 'D3', 'D6'}:
+    if wanted & {'D1', 'D2', 'D3', 'D6', 'D3R', 'D7', 'D8'}:
         ctx = build_context(root, 'uniform')
         records = weekly_records(ctx)
         voo = benchmark_tri(ctx)
@@ -880,7 +881,39 @@ def run_diagnostics(root, output, workers=1, only=None):
             res.update(d4=d4_rows, d4_sum=d4_sum)
             write_csv(out / 'D4_exit_reasons.csv', d4_rows)
             write_csv(out / 'D4_summary.csv', d4_sum)
+    if 'D7' in wanted:
+        from .diagnostics_r1 import D7_LENGTHS, d7_segments
+        weeks7, _ = d2_forward(records, ctx, tri_fn)
+        seg_rows = []
+        for L in D7_LENGTHS:
+            seg_rows += d7_segments(weeks7, records, ctx.prepared[-1], mapping, L)
+        write_csv(out / 'D7_rank_segments.csv', seg_rows)
     del ctx
+    if 'D3R' in wanted:
+        from .diagnostics_r1 import D3R_CONFIGS, d3r_active
+        act_rows, sec_rows, act_sum = [], [], []
+        for config in D3R_CONFIGS:
+            weights, held_industry = run_positions(root / paths.STAGE4_RUNS / config / 'cost_10bps')
+            a, s, t = d3r_active(config, records, weights, {**sec_industry, **held_industry}, tri_fn, mapping)
+            act_rows += a
+            sec_rows += s
+            act_sum.append(t)
+        write_csv(out / 'D3R_active_contribution_securities.csv', act_rows)
+        write_csv(out / 'D3R_sector_side_by_side.csv', sec_rows)
+        write_csv(out / 'D3R_active_totals.csv', act_sum)
+    if 'D5R' in wanted:
+        from .diagnostics_r1 import D5R_CONFIGS
+        res['d5r'], executed_r = d5_controls(root, out, workers, lambda r, doc: _diag_context(r, doc, load_cache),
+                                             configs=D5R_CONFIGS)
+        write_csv(out / 'D5R_random_null.csv', res['d5r'])
+        write_csv(out / 'D5R_stop_reasons.csv', stop_rows(out))
+    if 'D8' in wanted:
+        from .diagnostics_r1 import A90, a90_exposure, d8_rows, random_exposure
+        pools = {rec['t'].isoformat(): rec['issuer_weight'] for rec in records}
+        actual_buys, actual_hold = a90_exposure(root, records, pools)
+        random_buys, random_hold = random_exposure(sorted((out / 'null' / A90).glob('*/cost_10bps')), records)
+        write_csv(out / 'D8_weight_deciles.csv', d8_rows('A90 actual', pools, actual_buys, actual_hold)
+                  + d8_rows('A90 random controls', pools, random_buys, random_hold))
     if 'D5' in wanted:
         res['d5'], executed = d5_controls(root, out, workers, lambda r, doc: _diag_context(r, doc, load_cache))
         write_csv(out / 'D5_random_null.csv', res['d5'])

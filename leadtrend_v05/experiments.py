@@ -2,19 +2,27 @@
 
 A spec is research/v05/experiments/<ID>.json. It must be committed with no pending changes before it runs, and the
 commit that holds it is written into every output. Only the development segment (to 2024-06-28) is ever run.
+
+Grid blocks are either axis products (signal, N, b, rebalance, selection, selection_params, all lists) or explicit
+points (a list of dicts, each with its own anchor). A point's anchor is a configuration ID in the grid or a stage 4
+configuration ID; the anchor is run too, and it is compared with paired differences.
 """
 import csv
+import hashlib
 import json
 import math
 import multiprocessing
 import subprocess
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 from statistics import median
 
 from . import paths
 from .perf_artifacts import read_table
 from .perf_bench import Timer, dump, sha
+from .sectors import load_sector_map, sector_key
+from .selection import SELECTION_RULES
+from .selection_structured import RULE_PARAMS
 from .signals import canonical, describe, is_default_momentum, main_L, normalize, signal_key
 from .stage4_registry import digest, points as stage4_points, verify
 from .stage4_summary import interval
@@ -25,34 +33,72 @@ BASELINE = {'id': 'L090_N08_b2_R2', 'L': 90, 'N': 8, 'k': 2, 'b': 2, 'rebalance'
 BASELINE_SIGNAL = {'kind': 'momentum', 'L': 90, 'skip': 0}
 COSTS = [5, 10]
 DEV_START, DEV_END = '2019-11-29', '2024-06-28'
-DEFAULT_CONFIRM_TOP = 3
 DEFAULT_NULL_RUNS = 200
+PERIODS = ('2019-11-29 to 2021-12-31', '2022-01-01 to 2024-06-28')
+REGISTERED_SELECTIONS = set(RULE_PARAMS)
 
 
-def make_point(signal, N, b, rebalance):
+def selection_key(selection, params):
+    """Eight hex digits naming a registered selection rule and its parameters; empty for the default rule."""
+    if selection == 'default' and not params:
+        return ''
+    blob = json.dumps({'selection': selection, 'params': params or {}}, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(blob.encode('utf-8')).hexdigest()[:8]
+
+
+def make_point(signal, N, b, rebalance, selection='default', selection_params=None, anchor=None):
     sig = normalize(signal)
     L = main_L(sig)
     base_id = f'L{L:03d}_N{N:02d}_b{b}_{rebalance}'
     pid = base_id if is_default_momentum(sig) else f'S{signal_key(sig)}_{base_id}'
-    return {'id': pid, 'signal': sig, 'L': L, 'N': N, 'k': max(1, math.floor(.3 * N + .5)), 'b': b,
-            'rebalance': rebalance}
+    point = {'id': pid, 'signal': sig, 'L': L, 'N': N, 'k': max(1, math.floor(.3 * N + .5)), 'b': b, 'rebalance': rebalance}
+    if selection != 'default' or selection_params:
+        if selection not in SELECTION_RULES or selection == 'random_matched':
+            raise ValueError('unknown or reserved selection rule: ' + selection)
+        params = dict(selection_params or {})
+        unknown = set(params) - set(RULE_PARAMS.get(selection, {}))
+        if unknown:
+            raise ValueError(f'{selection} does not take parameters {sorted(unknown)}')
+        point.update(id=f'{pid}_{selection}_{selection_key(selection, params)}', selection=selection, selection_params=params)
+    if anchor is not None:
+        point['anchor'] = anchor
+    return point
+
+
+def _point_from_item(item):
+    unknown = set(item) - {'signal', 'N', 'b', 'rebalance', 'selection', 'selection_params', 'anchor'}
+    if unknown:
+        raise ValueError('grid point has unknown keys: ' + ','.join(sorted(unknown)))
+    return make_point(item['signal'], item['N'], item['b'], item['rebalance'], item.get('selection', 'default'),
+                      item.get('selection_params'), item.get('anchor'))
 
 
 def expand_grid(blocks):
-    """Each block is a product of axes; the grid is the union of blocks (duplicates collapse)."""
+    """Each block is an axis product or an explicit point list; the grid is the union (duplicates collapse)."""
     if not isinstance(blocks, list) or not blocks:
-        raise ValueError('grid must be a non-empty list of axis blocks')
+        raise ValueError('grid must be a non-empty list of blocks')
     points = {}
     for block in blocks:
+        if 'points' in block:
+            if not isinstance(block['points'], list) or not block['points']:
+                raise ValueError('points block needs a non-empty list')
+            for item in block['points']:
+                p = _point_from_item(item)
+                points.setdefault(p['id'], p)
+            continue
         for axis in ('signal', 'N', 'b', 'rebalance'):
             if not isinstance(block.get(axis), list) or not block[axis]:
                 raise ValueError(f'grid block needs a non-empty {axis} list')
+        selections = block.get('selection', ['default'])
+        params_list = block.get('selection_params', [None])
         for signal in block['signal']:
             for N in block['N']:
                 for b in block['b']:
                     for R in block['rebalance']:
-                        p = make_point(signal, N, b, R)
-                        points.setdefault(p['id'], p)
+                        for selection in selections:
+                            for params in params_list:
+                                p = make_point(signal, N, b, R, selection, params, block.get('anchor'))
+                                points.setdefault(p['id'], p)
     return list(points.values())
 
 
@@ -73,15 +119,11 @@ def load_spec(root, spec_path):
         raise ValueError('costs_bps must be [5, 10]')
     if spec.get('end_date', DEV_END) > DEV_END:
         raise ValueError('experiments may only use the development segment (to ' + DEV_END + ')')
-    confirm_top = spec.get('confirm_top', DEFAULT_CONFIRM_TOP)
     null_runs = spec.get('null_runs', DEFAULT_NULL_RUNS)
-    if isinstance(confirm_top, bool) or not isinstance(confirm_top, int) or confirm_top < 1:
-        raise ValueError('confirm_top must be a positive integer')
     if isinstance(null_runs, bool) or not isinstance(null_runs, int) or null_runs < 0:
         raise ValueError('null_runs must be a non-negative integer')
     grid = expand_grid(spec['grid'])
-    return dict(spec=spec, path=path, id=spec['id'], grid=grid, confirm_top=confirm_top, null_runs=null_runs,
-                sha256=digest(path))
+    return dict(spec=spec, path=path, id=spec['id'], grid=grid, null_runs=null_runs, sha256=digest(path))
 
 
 def registration_commit(root, spec_path):
@@ -99,8 +141,9 @@ def registration_commit(root, spec_path):
 
 
 def attempt_key(point):
-    """A configuration is one attempt: its normalised signal, N, k, b and rebalance."""
-    return (canonical(point['signal']), point['N'], point['k'], point['b'], point['rebalance'])
+    """One configuration is one attempt: normalised signal, N, k, b, rebalance, selection rule and its parameters."""
+    return (canonical(point['signal']), point['N'], point['k'], point['b'], point['rebalance'],
+            point.get('selection', 'default'), json.dumps(point.get('selection_params') or {}, sort_keys=True))
 
 
 def registered_attempts(root):
@@ -114,24 +157,25 @@ def registered_attempts(root):
 
 def _zero_L(signal):
     n = normalize(signal)
-    if n['kind'] == 'momentum':
-        return {'kind': 'momentum', 'L': 0, 'skip': n['skip']}
-    return {'kind': 'composite', 'components': [_zero_L(c) for c in n['components']],
-            'weights': n['weights'], 'combine': n['combine']}
+    if n['kind'] == 'composite':
+        return {'kind': 'composite', 'components': [_zero_L(c) for c in n['components']],
+                'weights': n['weights'], 'combine': n['combine']}
+    return dict(n, L=0)
 
 
-def _rest_key(signal):
-    return json.dumps(_zero_L(signal), sort_keys=True, separators=(',', ':'))
+def _rest_key(point):
+    return json.dumps([_zero_L(point['signal']), point.get('selection', 'default'),
+                       point.get('selection_params') or {}], sort_keys=True, separators=(',', ':'))
 
 
 def neighbors_of(point, points):
     """Configurations one step along exactly one ordinal axis (momentum L, N, b, rebalance); the rest equal."""
     axes = ('L', 'N', 'b', 'rebalance')
-    rest = _rest_key(point['signal'])
+    rest = _rest_key(point)
     found = {}
     for axis in axes:
         def same_rest(q):
-            return _rest_key(q['signal']) == rest and all(q[a] == point[a] for a in axes if a != axis)
+            return _rest_key(q) == rest and all(q[a] == point[a] for a in axes if a != axis)
         candidates = [q for q in points if q['id'] != point['id'] and same_rest(q)]
         values = sorted({q[axis] for q in candidates} | {point[axis]}, key=lambda v: (isinstance(v, str), v))
         i = values.index(point[axis])
@@ -154,10 +198,6 @@ def rank_points(points, excess10, complete):
         means[p['id']] = -math.inf if any(v == -math.inf for v in values) else sum(values) / len(values)
     order = sorted(points, key=lambda p: (-means[p['id']], p['id']))
     return order, means
-
-
-def combo_key(point, base_signal):
-    return f"{point['N']}_{point['b']}_{point['rebalance']}_{signal_key(base_signal)}"
 
 
 def percentile(value, values):
@@ -193,19 +233,58 @@ def run_metrics(folder, initial=100000.0):
     benchmark = read_table(Path(folder) / 'benchmark.csv')
     first = s['comparison_start_session']
     full = interval(equity, benchmark, 'opening', DEV_END, first, initial)
-    years = {}
+    years, year_returns = {}, {}
     for y in range(2020, 2024):
         x = interval(equity, benchmark, f'{y - 1}-12-31', f'{y}-12-31', first, initial)
         years[y] = x['strategy_return'] - x['benchmark_return'] if x else None
+        year_returns[y] = (x['strategy_return'], x['benchmark_return']) if x else None
     high = interval(equity, benchmark, 'opening', '2021-12-31', first, initial)
     lower = interval(equity, benchmark, '2021-12-31', DEV_END, first, initial)
     return dict(
         annualized_return=s['annualized_return'], annualized_excess=full['annualized_excess'],
         benchmark_annualized=full['benchmark_annualized'], max_drawdown=s['drawdown']['max_drawdown'],
         turnover=s['annual_turnover_one_way_half_two_sided'],
-        years=years, winning_years=sum(1 for v in years.values() if v is not None and v > 0),
+        years=years, year_returns=year_returns, winning_years=sum(1 for v in years.values() if v is not None and v > 0),
         high_missing_excess=high['annualized_excess'] if high else None,
         lower_missing_excess=lower['annualized_excess'] if lower else None)
+
+
+def leave_one_year_out(year_returns):
+    """Excess over VOO (annualised, the three remaining years compounded) when one of 2020-2023 is removed."""
+    out = {}
+    for y in year_returns:
+        rest = [v for j, v in year_returns.items() if j != y]
+        if any(v is None for v in rest):
+            out[y] = None
+            continue
+        m = len(rest)
+        strategy = math.prod(1 + s for s, _ in rest)
+        voo = math.prod(1 + b for _, b in rest)
+        out[y] = (strategy ** (1 / m) - 1) - (voo ** (1 / m) - 1)
+    return out
+
+
+def position_shares(folder, sectors, equity_by_day):
+    """Largest single-name weight and daily largest sector weight, from a daily-verified run's positions."""
+    folder = Path(folder)
+    per_day_max_name = defaultdict(float)
+    per_day_sector = defaultdict(lambda: defaultdict(float))
+    for r in read_table(folder / 'positions.csv'):
+        day = r['session_date']
+        if day not in equity_by_day:
+            continue
+        value = float(r['value'])
+        share = value / equity_by_day[day]
+        per_day_max_name[day] = max(per_day_max_name[day], share)
+        if r.get('asset_type', 'actual_shares') == 'actual_shares':
+            per_day_sector[day][sectors.get(r['industry'], r['industry'])] += share
+    days = sorted(equity_by_day)
+    daily_name = [per_day_max_name.get(d, 0.0) for d in days]
+    daily_sector = [max(per_day_sector[d].values()) if per_day_sector.get(d) else 0.0 for d in days]
+    n = len(days) or 1
+    return dict(max_single_weight=max(daily_name, default=0.0), median_daily_max_single_weight=median(daily_name) if daily_name else 0.0,
+                sector_over_40_share=sum(1 for v in daily_sector if v > 0.40) / n,
+                sector_over_50_share=sum(1 for v in daily_sector if v > 0.50) / n)
 
 
 def _run_folder(base, point, cost, phase):
@@ -249,9 +328,6 @@ class ExperimentContext(OptimizedContext):
         if raw['start_date'] != self.segment['start'] or raw['end_date'] != self.segment['end']:
             raise ValueError('unregistered segment / holdout boundary')
         return self.start, self.end
-
-
-_WORKER = {}
 
 
 def _init_worker(cache_path, cache_key, payload):
@@ -342,6 +418,23 @@ def _null_cell(row):
     return f"{point}（{row['null_percentile_low']:.1f}%–{row['null_percentile_high']:.1f}%）"
 
 
+SCORECARD_COLUMNS = [
+    ('配置', 'id', str), ('信号', 'signal', str), ('选股规则', 'selection', str), ('N', 'N', str), ('b', 'b', str),
+    ('再平衡', 'rebalance', str), ('锚点', 'anchor', str),
+    ('10bp年化收益', 'annualized_return_10bps', _pct), ('10bp年化超额', 'annualized_excess_10bps', _pct),
+    ('5bp年化超额', 'annualized_excess_5bps', _pct), ('相对锚点超额差(10bp)', 'paired_vs_anchor_10bps', _pct),
+    ('相对锚点超额差(5bp)', 'paired_vs_anchor_5bps', _pct), ('时段A配对差', 'paired_period_a', _pct),
+    ('时段B配对差', 'paired_period_b', _pct), ('逐年剔除一年后超额最小值', 'leave_one_year_out_min', _pct),
+    ('剔除后仍为正的次数(/4)', 'leave_one_year_out_positive', str), ('最大回撤', 'max_drawdown', _pct),
+    ('年单边换手(x)', 'turnover_one_way', _ratio), ('2020超额', 'excess_2020', _pct), ('2021超额', 'excess_2021', _pct),
+    ('2022超额', 'excess_2022', _pct), ('2023超额', 'excess_2023', _pct), ('胜年数', 'winning_years', str),
+    ('随机对照百分位', 'null_cell', str), ('随机完成数', 'null_completed', str), ('随机换手中位数(x)', 'null_turnover_median', _ratio),
+    ('最大单股权重', 'max_single_weight', _pct), ('单板块超40%天数占比', 'sector_over_40_share', _pct),
+    ('单板块超50%天数占比', 'sector_over_50_share', _pct), ('ENT一遍买入', 'pass1_buys', str), ('ENT二遍买入', 'pass2_buys', str),
+    ('CAP触发周数', 'cap_trigger_weeks', str), ('CAP顺延次数', 'cap_deferred', str),
+]
+
+
 def _write_scorecard(out, rows, header):
     fields = list(rows[0].keys())
     with (out / 'scorecard.csv').open('w', encoding='utf-8', newline='') as f:
@@ -349,33 +442,35 @@ def _write_scorecard(out, rows, header):
         w.writeheader()
         w.writerows(rows)
     lines = ['# 成绩单：' + header['id'], '']
-    lines += [f"- 累计试验次数：{header['attempts']}（按（规范化信号、N、k、b、再平衡）去重，计入第四阶段 72 个配置与 research/v05/experiments/ 下全部已登记配置）",
+    lines += [f"- 累计试验次数：{header['attempts']}（按（规范化信号、选股规则、参数、N、k、b、再平衡）去重，计入第四阶段 72 个配置与 research/v05/experiments/ 下全部已登记配置）",
               f"- 登记文件提交号：{header['registration_commit']}",
               f"- 登记假设：{header['hypothesis']}",
               f"- 基准逐字节检查：{header['baseline_check']}",
-              '- 开发段结果，存在幸存者偏差，使用当前行业分类；不构成策略有效性的结论。',
-              '- 随机对照为换手匹配：每个确认配置一组，种子从 0 起。随机只决定持仓取舍，每周退出只数与该配置自己的探索档运行相同。',
+              '- 开发段结果，存在幸存者偏差，使用当前行业分类；不构成策略有效性的结论。成绩单不设门槛。',
+              '- 随机对照为换手匹配：每个配置一组，种子从 0 起，退出只数取自该配置自己的 10 bp 探索档运行，并遵守该配置的细分行业 k 与大板块上限（如有）。',
               '- 随机对照百分位格式为“点估计（下界–上界）”：该配置 10 bp 年化超额不高于随机结果的比例。点估计只用已完成的运行；下界假设停止的运行全部高于该配置，上界假设全部低于。',
-              '- 收益、超额、回撤、邻域均值以百分比显示，保留 1 位小数；年单边换手为比值，保留 1 位小数。', '']
+              '- 配对差 = 本配置减锚点（同一成本、同一时段）；逐年剔除一年后，用其余三年复利求得的相对 VOO 年化超额。',
+              '- 收益、超额、回撤、占比以百分比显示，保留 1 位小数；年单边换手为比值，保留 1 位小数。', '']
     if header.get('null_counts'):
         lines.append('- 随机对照完成数（完成/登记）：' + '；'.join(f'{k} {v}' for k, v in header['null_counts'].items()))
         lines.append('')
-    cols = ['配置', '信号', 'N', 'b', '再平衡', '10bp年化收益', '10bp年化超额', '5bp年化收益', '5bp年化超额',
-            '相对基准超额差(10bp)', '邻域均值(10bp)', '最大回撤', '年单边换手(x)', '2020超额', '2021超额', '2022超额',
-            '2023超额', '胜年数', '缺价较多段超额', '缺价较少段超额', '随机对照百分位', '随机完成数',
-            '随机换手中位数(x)', '是否daily确认']
-    lines.append('| ' + ' | '.join(cols) + ' |')
-    lines.append('|' + '---|' * len(cols))
+    lines.append('| ' + ' | '.join(c[0] for c in SCORECARD_COLUMNS) + ' |')
+    lines.append('|' + '---|' * len(SCORECARD_COLUMNS))
     for r in rows:
-        vals = [r['id'], r['signal'], r['N'], r['b'], r['rebalance'], _pct(r['annualized_return_10bps']),
-                _pct(r['annualized_excess_10bps']), _pct(r['annualized_return_5bps']), _pct(r['annualized_excess_5bps']),
-                _pct(r['excess_vs_baseline_10bps']), _pct(r['neighborhood_mean_10bps']), _pct(r['max_drawdown']),
-                _ratio(r['turnover_one_way']), _pct(r['excess_2020']), _pct(r['excess_2021']), _pct(r['excess_2022']),
-                _pct(r['excess_2023']), r['winning_years'], _pct(r['high_missing_excess']),
-                _pct(r['lower_missing_excess']), _null_cell(r), r['null_completed'],
-                _ratio(r['null_turnover_median']), r['daily_confirmed']]
+        cells = {key: (_null_cell(r) if key == 'null_cell' else r.get(key)) for _, key, _ in SCORECARD_COLUMNS}
+        vals = [fn(cells[key]) if cells[key] not in (None, '') else '' for _, key, fn in SCORECARD_COLUMNS]
         lines.append('| ' + ' | '.join('' if v is None else str(v) for v in vals) + ' |')
     (out / 'scorecard.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+
+def _anchor_point(root, anchor, points):
+    for p in points:
+        if p['id'] == anchor:
+            return p
+    for p in stage4_points():
+        if p['id'] == anchor:
+            return make_point({'kind': 'momentum', 'L': p['L'], 'skip': 0}, p['N'], p['b'], p['rebalance'])
+    raise ValueError('anchor is not a configuration of this experiment or of stage 4: ' + str(anchor))
 
 
 def run_experiment(root, spec_path, workers=1, null_runs=None):
@@ -390,13 +485,27 @@ def run_experiment(root, spec_path, workers=1, null_runs=None):
     experiment = {'id': spec_id, 'registration_commit': commit, 'spec_sha256': loaded['sha256']}
     doc = identity(root, 'uniform')
     load_cache(root, doc)  # builds the cache for this code on first use, otherwise loads it
-    ensure_signal_tables(root, doc, [p['signal'] for p in loaded['grid']])
-    points = loaded['grid'] + ([p for p in [make_point(BASELINE_SIGNAL, BASELINE['N'], BASELINE['b'], BASELINE['rebalance'])]
-                               if p['id'] not in {q['id'] for q in loaded['grid']}])
+    grid = loaded['grid']
+    anchors = {}
+    for p in grid:
+        if p.get('anchor') is not None:
+            anchors[p['anchor']] = None
+    ids = {p['id'] for p in grid}
+    extra = []
+    for p in [make_point(BASELINE_SIGNAL, BASELINE['N'], BASELINE['b'], BASELINE['rebalance'])]:
+        if p['id'] not in ids:
+            extra.append(p)
+            ids.add(p['id'])
+    for anchor in sorted(anchors):
+        a = _anchor_point(root, anchor, grid + extra)
+        if a['id'] not in ids:
+            extra.append(a)
+            ids.add(a['id'])
+    points = grid + extra
+    ensure_signal_tables(root, doc, [p['signal'] for p in points])
     payload = dict(points=points, costs=COSTS, experiment=experiment)
     ctx = _experiment_ctx(root, doc, payload)
-    jobs = _jobs(points, base, 'explore', 'explore', 'explore', COSTS, experiment)
-    _run_jobs(jobs, ctx, workers, payload)
+    _run_jobs(_jobs(points, base, 'explore', 'explore', 'explore', COSTS, experiment), ctx, workers, payload)
     check = check_baseline(root, base)
     excess10, complete = {}, {}
     for p in points:
@@ -404,80 +513,100 @@ def run_experiment(root, spec_path, workers=1, null_runs=None):
         complete[p['id']] = m is not None
         excess10[p['id']] = m['annualized_excess'] if m else None
     order, means = rank_points(points, excess10, complete)
-    confirmed = [p for p in order][:loaded['confirm_top']]
-    if BASELINE['id'] not in {p['id'] for p in confirmed}:
-        confirmed.append(next(p for p in points if p['id'] == BASELINE['id']))
-    daily_jobs = _jobs(confirmed, base, 'daily', 'lean', 'daily', COSTS, experiment)
-    _run_jobs(daily_jobs, ctx, workers, payload)
-    # Null controls: per confirmed configuration, random picks that make the same full exits each week as that
-    # configuration's own explore run (10 bp). Each configuration has its own group; groups share no runs.
-    combos = {}
-    for p in confirmed:
-        combos.setdefault(combo_key(p, p['signal']), p)
+    # Every configuration gets a daily verified run at both costs: positions and decisions come from it.
+    _run_jobs(_jobs(points, base, 'daily', 'lean', 'daily', COSTS, experiment), ctx, workers, payload)
+    # Null controls: per configuration, random picks that make the same full exits each week as its own explore run
+    # (10 bp). Each configuration has its own group; groups share no runs.
     null_points = []
-    for key, p in combos.items():
+    for p in points:
         if _metrics_or_none(_run_folder(base, p, 10, 'explore')) is None:
             raise ValueError('reference explore run incomplete; its null controls cannot be matched: ' + p['id'])
         exits = reference_exit_counts(_run_folder(base, p, 10, 'explore'))
+        sector_k = (p.get('selection_params') or {}).get('sector_k') if p.get('selection') == 'sector_cap' else None
         for seed in range(n_null):
+            params = dict(seed=seed, exit_counts=exits)
+            if sector_k is not None:
+                params['sector_k'] = sector_k
             null_points.append(dict(id=f'NULL_{p["id"]}_s{seed:03d}', signal=p['signal'], L=p['L'], N=p['N'], k=p['k'],
-                                    b=p['b'], rebalance=p['rebalance'], selection='random_matched',
-                                    selection_params=dict(seed=seed, exit_counts=exits), _combo=key))
+                                    b=p['b'], rebalance=p['rebalance'], selection='random_matched', selection_params=params,
+                                    _group=p['id']))
     null_jobs = []
     for q in null_points:
-        q2 = {k: v for k, v in q.items() if k != '_combo'}
-        null_jobs.append((dict(q2, experiment=experiment), 10, str(base / 'null' / q['_combo'] / q['id'] / 'cost_10bps'),
-                          'explore', False, 'explore'))
-    payload = dict(points=points + [{k: v for k, v in q.items() if k != '_combo'} for q in null_points],
+        q2 = {k: v for k, v in q.items() if k != '_group'}
+        null_jobs.append((dict(q2, experiment=experiment), 10,
+                          str(base / 'null' / q['_group'] / q['id'] / 'cost_10bps'), 'explore', False, 'explore'))
+    payload = dict(points=points + [{k: v for k, v in q.items() if k != '_group'} for q in null_points],
                    costs=COSTS, experiment=experiment)
     ctx = _experiment_ctx(root, doc, payload)
     _run_jobs(null_jobs, ctx, workers, payload)
-    null_values, null_turnover = {}, {}
+    null_values, null_turnover = defaultdict(list), defaultdict(list)
+    totals = Counter(q['_group'] for q in null_points)
     for q in null_points:
-        m = _metrics_or_none(base / 'null' / q['_combo'] / q['id'] / 'cost_10bps')
+        m = _metrics_or_none(base / 'null' / q['_group'] / q['id'] / 'cost_10bps')
         if m is not None:
-            null_values.setdefault(q['_combo'], []).append(m['annualized_excess'])
-            null_turnover.setdefault(q['_combo'], []).append(m['turnover'])
-    totals = Counter(q['_combo'] for q in null_points)
-    null_counts = {key: f"{len(null_values.get(key, []))}/{totals[key]}" for key in combos}
-    confirmed_ids = {p['id'] for p in confirmed}
-    base_metrics = _metrics_or_none(_run_folder(base, next(p for p in points if p['id'] == BASELINE['id']), 10, 'explore'))
+            null_values[q['_group']].append(m['annualized_excess'])
+            null_turnover[q['_group']].append(m['turnover'])
+    base_metrics = {p['id']: _metrics_or_none(_run_folder(base, p, 10, 'explore')) for p in points}
+    base_metrics5 = {p['id']: _metrics_or_none(_run_folder(base, p, 5, 'explore')) for p in points}
+    sector_map = load_sector_map(root)
+    sectors = {}
     rows = []
-    for p in [next(q for q in points if q['id'] == BASELINE['id'])] + [q for q in order if q['id'] != BASELINE['id']]:
-        m10 = _metrics_or_none(_run_folder(base, p, 10, 'explore'))
-        m5 = _metrics_or_none(_run_folder(base, p, 5, 'explore'))
-        nulls = dict(null_percentile='', null_percentile_low='', null_percentile_high='', null_completed='',
-                     null_turnover_median='')
-        if p['id'] in confirmed_ids:
-            key = combo_key(p, p['signal'])
-            point, low, high = null_band(m10['annualized_excess'] if m10 else None, null_values.get(key, []), totals[key])
-            nulls = dict(null_percentile=point, null_percentile_low=low, null_percentile_high=high,
-                         null_completed=null_counts[key],
-                         null_turnover_median=median(null_turnover[key]) if null_turnover.get(key) else '')
+    anchor_of = {p['id']: (p.get('anchor') or '') for p in points}
+    for p in [q for q in points if q['id'] == BASELINE['id']] + [q for q in order if q['id'] != BASELINE['id']]:
+        m10, m5 = base_metrics[p['id']], base_metrics5[p['id']]
+        anchor_id = anchor_of[p['id']] or (BASELINE['id'] if p['id'] == BASELINE['id'] else '')
+        anchor = next((q for q in points if q['id'] == anchor_id), None)
+        a10 = base_metrics.get(anchor['id']) if anchor else None
+        a5 = base_metrics5.get(anchor['id']) if anchor else None
+        loyo = leave_one_year_out(m10['year_returns']) if m10 else {}
+        loyo_values = [v for v in loyo.values() if v is not None]
+        equity_by_day = {}
+        if m10:
+            for r in read_table(_run_folder(base, p, 10, 'daily') / 'daily_equity.csv'):
+                equity_by_day[r['session_date']] = float(r['total_equity'])
+            positions = position_shares(_run_folder(base, p, 10, 'daily'), {k: sector_key(k, sector_map)[0] for k in set(
+                r['industry'] for r in read_table(_run_folder(base, p, 10, 'daily') / 'positions.csv'))}, equity_by_day)
+        else:
+            positions = {}
+        manifest = json.loads((_run_folder(base, p, 10, 'explore') / 'run_manifest.json').read_text(encoding='utf-8'))
+        counts = manifest.get('selection_counts', {})
+        m_null = null_values.get(p['id'], [])
+        point, low, high = null_band(m10['annualized_excess'] if m10 else None, m_null, totals[p['id']])
+        nulls = dict(null_percentile=point, null_percentile_low=low, null_percentile_high=high,
+                     null_completed=f"{len(m_null)}/{totals[p['id']]}",
+                     null_turnover_median=median(null_turnover[p['id']]) if null_turnover.get(p['id']) else '')
         rows.append(dict(
-            id=p['id'], signal=describe(p['signal']), N=p['N'], b=p['b'], rebalance=p['rebalance'],
+            id=p['id'], signal=describe(p['signal']), selection=p.get('selection', 'default') + (
+                '' if not p.get('selection_params') else ' ' + json.dumps(p['selection_params'], ensure_ascii=False, sort_keys=True)),
+            N=p['N'], b=p['b'], rebalance=p['rebalance'], anchor=anchor_id,
             annualized_return_10bps=m10['annualized_return'] if m10 else '',
             annualized_excess_10bps=m10['annualized_excess'] if m10 else '',
             annualized_return_5bps=m5['annualized_return'] if m5 else '',
             annualized_excess_5bps=m5['annualized_excess'] if m5 else '',
-            excess_vs_baseline_10bps=(m10['annualized_excess'] - base_metrics['annualized_excess'])
-            if (m10 and base_metrics) else '',
-            neighborhood_mean_10bps=means[p['id']] if means[p['id']] != -math.inf else '',
+            paired_vs_anchor_10bps=(m10['annualized_excess'] - a10['annualized_excess']) if (m10 and a10) else '',
+            paired_vs_anchor_5bps=(m5['annualized_excess'] - a5['annualized_excess']) if (m5 and a5) else '',
+            paired_period_a=(m10['high_missing_excess'] - a10['high_missing_excess']) if (m10 and a10) else '',
+            paired_period_b=(m10['lower_missing_excess'] - a10['lower_missing_excess']) if (m10 and a10) else '',
+            leave_one_year_out_min=min(loyo_values) if loyo_values else '',
+            leave_one_year_out_positive=sum(1 for v in loyo_values if v > 0) if loyo_values else '',
             max_drawdown=m10['max_drawdown'] if m10 else '', turnover_one_way=m10['turnover'] if m10 else '',
             excess_2020=(m10['years'][2020] if m10 else ''), excess_2021=(m10['years'][2021] if m10 else ''),
             excess_2022=(m10['years'][2022] if m10 else ''), excess_2023=(m10['years'][2023] if m10 else ''),
             winning_years=m10['winning_years'] if m10 else '',
-            high_missing_excess=m10['high_missing_excess'] if m10 else '',
-            lower_missing_excess=m10['lower_missing_excess'] if m10 else '',
-            **nulls, daily_confirmed='yes' if p['id'] in confirmed_ids else 'no'))
+            max_single_weight=positions.get('max_single_weight', ''),
+            sector_over_40_share=positions.get('sector_over_40_share', ''),
+            sector_over_50_share=positions.get('sector_over_50_share', ''),
+            pass1_buys=counts.get('pass1_buys', ''), pass2_buys=counts.get('pass2_buys', ''),
+            cap_trigger_weeks=counts.get('cap_trigger_weeks', ''), cap_deferred=counts.get('cap_deferred', ''),
+            null_cell='', **nulls, daily_confirmed='yes'))
     base.mkdir(parents=True, exist_ok=True)
-    by_id = {p['id']: null_counts[combo_key(p, p['signal'])] for p in confirmed}
+    by_id = {p['id']: f"{len(null_values.get(p['id'], []))}/{totals[p['id']]}" for p in points}
     header = dict(id=spec_id, attempts=registered_attempts(root), registration_commit=commit,
                   hypothesis=loaded['spec']['hypothesis'],
                   baseline_check=', '.join(f'{k} {v}' for k, v in check.items()), null_counts=by_id)
     _write_scorecard(base, rows, header)
     dump(base / 'experiment_manifest.json', dict(
         experiment=experiment, spec=loaded['spec'], attempts=header['attempts'], baseline_check=check,
-        confirmed=[p['id'] for p in confirmed], null_runs=n_null, null_combos=sorted(combos),
-        grid_points=len(loaded['grid']), points=len(points), null_points=len(null_points), null_counts=by_id))
+        grid_points=len(grid), points=len(points), anchors_added=[p['id'] for p in extra], null_runs=n_null,
+        null_points=len(null_points), null_counts=by_id))
     return base

@@ -95,7 +95,7 @@ def test_spec_with_holdout_or_later_end_or_wrong_baseline_is_refused(tmp_path):
 def test_valid_spec_loads_with_defaults(tmp_path):
     path = write_spec(tmp_path, base_spec())
     loaded = load_spec(tmp_path, path)
-    assert loaded['confirm_top'] == 3 and loaded['null_runs'] == 200
+    assert loaded['null_runs'] == 200
     assert [p['id'] for p in loaded['grid']] == ['L060_N08_b2_R2', 'L090_N08_b2_R2']
 
 

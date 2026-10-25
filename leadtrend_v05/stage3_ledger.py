@@ -24,6 +24,7 @@ class DevBook:
     frozen:dict[str,str]=field(default_factory=dict)
     fractional_settlements:dict=field(default_factory=dict)
     fractional_rows:list[dict]=field(default_factory=list)
+    general_fraction_ids:set[str]=field(default_factory=set)
     # Incremental mirrors of the spinoff rows inside event_rows; maintained so the
     # daily/weekly loops never rescan the whole event history.
     spinoff_rows:list[dict]=field(default_factory=list)
@@ -92,13 +93,39 @@ class DevBook:
                 row['exceeds_0_1_percent']=row['equity_ratio']>0.001
         a.processed_event_ids.add(event.event_id)
 
+    def settle_fractions(self,d,marks,pay_date_of):
+        """Rule v2: an unverified fractional entitlement becomes a cash receivable at its first regular-way close.
+
+        marks holds only closes actually observed on d, so a right is never valued before its price exists. The cash
+        is paid on pay_date_of(effective session): the tenth following session, or never if it falls outside the segment.
+        No fee. Each conversion is an approximation and is reported as one.
+        """
+        remaining=[]
+        for r in self.security_receivables:
+            if r.security_id not in marks:
+                remaining.append(r);continue
+            close=marks[r.security_id];amount=r.shares*close
+            cash_id=r.event_id+'|'+r.security_id+'|fractional_cash';pay=pay_date_of(r.created)
+            self.account.receivable_cash+=amount
+            self.account.receivables.append(Receivable(cash_id,r.security_id,amount,r.created,pay,r.shares))
+            self.general_fraction_ids.add(cash_id)
+            paid_on=pay.isoformat() if pay else ''
+            self.fractional_rows.append(dict(session_date=d.isoformat(),event_id=cash_id,parent_event_id=r.event_id,
+                security_id=r.security_id,fractional_shares=r.shares,valuation_price=close,amount=amount,pay_date=paid_on,
+                fractional_cash_valuation='approximation',source='rule v2: first regular-way close; tenth following session; no fee'))
+            self.receivable_rows.append(dict(session_date=d.isoformat(),event_id=cash_id,security_id=r.security_id,
+                operation='fractional_cash_receivable_created',shares=r.shares,amount=amount,
+                source='rule v2 general approximation',pay_date=paid_on))
+        self.security_receivables=remaining
+
     def pay(self,d):
         before=self.account.cash
         for r in pay_receivables(self.account,d):
             fractional=r.event_id.endswith('|fractional_cash')
             self.receivable_rows.append(dict(session_date=d.isoformat(),event_id=r.event_id,security_id=r.security_id,
                 operation='cash_receivable_paid',shares=r.entitled_shares,amount=r.amount,source='verified event pay_date'))
-            if fractional:self.receivable_rows[-1]['source']='investor-authorized fractional settlement policy'
+            if r.event_id in self.general_fraction_ids:self.receivable_rows[-1]['source']='rule v2 general approximation'
+            elif fractional:self.receivable_rows[-1]['source']='investor-authorized fractional settlement policy'
             self.cash_flows.append(dict(session_date=d.isoformat(),event_id=r.event_id,security_id=r.security_id,cash_delta=r.amount,kind='fractional_cash_payment' if fractional else 'dividend_payment'))
         return self.account.cash-before
 

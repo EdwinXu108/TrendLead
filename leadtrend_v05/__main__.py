@@ -206,6 +206,24 @@ def cmd_run_experiment(args):
     return 0
 
 
+def cmd_neutral_check(args):
+    import os
+    from .neutral_check import run_neutral_check
+    from .perf_runner import WORKER_PEAK_BYTES, auto_workers
+    from .perf_bench import available_physical
+    root = _project_root()
+    workers = args.workers
+    if workers == 'auto':
+        workers = auto_workers(available_physical(), WORKER_PEAK_BYTES['explore'], os.cpu_count() or 1)
+    try:
+        report = run_neutral_check(root, args.output, workers=workers)
+    except ValueError as exc:
+        print('neutral check refused: ' + str(exc))
+        return 2
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0 if report['status'] == 'PASS' else 2
+
+
 def cmd_diagnose(args):
     import os
     from .diagnostics import run_diagnostics
@@ -270,6 +288,10 @@ def build_parser() -> argparse.ArgumentParser:
     diag.add_argument('--workers', type=_workers_arg, default=1, help='worker processes 1..8, or auto')
     diag.add_argument('--only', default=None, help='recompute only these items, comma-separated, e.g. D3 (default: all)')
     diag.set_defaults(func=cmd_diagnose)
+    neutral = sub.add_parser('neutral-check', help='Neutral-parameter equivalence of the round-1 selection rules; not an attempt; never holdout')
+    neutral.add_argument('--output', required=True, help='directory under work/runs, e.g. work/runs/neutral_check')
+    neutral.add_argument('--workers', type=_workers_arg, default=1, help='worker processes 1..8, or auto')
+    neutral.set_defaults(func=cmd_neutral_check)
     hold=sub.add_parser('run-holdout',help='One-shot, rule-selected Stage4 holdout; refuses without authorization')
     hold.set_defaults(func=cmd_run_holdout)
     repair=sub.add_parser('stage2-repair',help='Claude A1--A3 identity, child quote and official dividend repairs')

@@ -45,6 +45,12 @@ def normalize(sig):
         if sig.get('combine', 'rank_mean') != 'rank_mean':
             raise ValueError('only rank_mean is implemented')
         return {'kind': 'composite', 'components': parts, 'weights': values, 'combine': 'rank_mean'}
+    if kind == 'peer':
+        return {'kind': 'peer', 'L': _int(sig['L'], 'L', 1), 'L2': _int(sig.get('L2', 60), 'L2', 1)}
+    if kind == 'vol_adjusted':
+        return {'kind': 'vol_adjusted', 'L': _int(sig['L'], 'L', 1), 'vol_L': _int(sig.get('vol_L', 60), 'vol_L', 2)}
+    if kind in OVERLAY_KINDS:
+        return {'kind': kind, 'L': _int(sig['L'], 'L', 1)}
     raise ValueError(f'unknown signal kind {kind!r}')
 
 
@@ -56,6 +62,9 @@ def signal_key(sig):
     return hashlib.sha256(canonical(sig).encode('utf-8')).hexdigest()[:12]
 
 
+OVERLAY_KINDS = {'peer', 'sector_demeaned', 'vol_adjusted', 'size_tilt', 'voo_weight'}
+
+
 def is_default_momentum(sig):
     n = normalize(sig)
     return n['kind'] == 'momentum' and n['skip'] == 0
@@ -64,15 +73,20 @@ def is_default_momentum(sig):
 def main_L(sig):
     """The window length a configuration reports as its L: the first momentum component's L."""
     n = normalize(sig)
-    if n['kind'] == 'momentum':
-        return n['L']
-    return main_L(n['components'][0])
+    if n['kind'] == 'composite':
+        return main_L(n['components'][0])
+    return n['L']
 
 
 def describe(sig):
     n = normalize(sig)
     if n['kind'] == 'momentum':
         return f"动量 L={n['L']}" + (f" 跳过{n['skip']}日" if n['skip'] else '')
+    if n['kind'] in OVERLAY_KINDS:
+        names = {'peer': '板块同伴', 'sector_demeaned': '板块中性', 'vol_adjusted': '波动调整',
+                 'size_tilt': '规模倾斜', 'voo_weight': 'VOO权重'}
+        extra = f" 同伴L={n['L2']}" if n['kind'] == 'peer' else (f" 波动窗口={n['vol_L']}" if n['kind'] == 'vol_adjusted' else '')
+        return f"{names[n['kind']]} L={n['L']}{extra}"
     parts = ', '.join(describe(c) for c in n['components'])
     return f"复合(rank_mean; 权重 {','.join(str(w) for w in n['weights'])}): {parts}"
 

@@ -308,7 +308,7 @@ def ensure_signal_tables(root,doc,signals,cache_root=None):
     """
     from datetime import date
     from .eligibility import eligibility_index
-    from .signals import SCORE_FIELDS,canonical,composite_cells,momentum_cell,normalize,signal_key,week_rows
+    from .signals import OVERLAY_KINDS,SCORE_FIELDS,canonical,composite_cells,momentum_cell,normalize,signal_key,week_rows
     root=Path(root);folder=(Path(cache_root) if cache_root else root/paths.CACHE)/doc['key']
     info=json.loads((folder/'cache.json').read_text(encoding='utf-8'))
     if info['identity']!=doc:raise ValueError('cache identity mismatch')
@@ -330,6 +330,45 @@ def ensure_signal_tables(root,doc,signals,cache_root=None):
             rowinfo={s:(elig[s].issuer_id,elig[s].industry) for s in sids}
             rows.extend(week_rows(iso,sids,cells,rowinfo,n['L'],key))
         return rows
+    def context():
+        if 'engine' not in state:
+            built=build_context(root,doc['scope'])
+            state['engine']=built.prepared[-1];state['elig']=eligibility_index(built.full);state['members']=built.full.members
+        return state['engine'],state['elig'],state['members']
+    def overlay_rows(n,key):
+        from .overlay_signals import daily_log_volatility,peer,sector_demeaned,size_tilt,vol_adjusted,voo_weight
+        from .sectors import load_sector_map,sector_key
+        engine,elig,members=context()
+        base=_table_by_week(ensure({'kind':'momentum','L':n['L'],'skip':0}))
+        second=_table_by_week(ensure({'kind':'momentum','L':n['L2'],'skip':0})) if n['kind']=='peer' else None
+        sector_map=load_sector_map(root)
+        weight={(m.snapshot_id,m.security_id):(m.weight or 0.0) for m in members}
+        members_by_week=defaultdict(list)
+        for r in csv_rows(folder/'universe.csv.gz'):members_by_week[r['signal_session_date']].append(r)
+        rows=[]
+        for iso in sorted(weeks):
+            d=date.fromisoformat(iso);sids=sorted(weeks[iso])
+            cells90={s:_cell(base[iso][s]) for s in sids}
+            sectors={s:sector_key(elig[s].industry,sector_map) for s in sids}
+            # Issuer VOO weight: the snapshot used this week, summed over every member class of the issuer.
+            issuer_w=defaultdict(float)
+            for r in members_by_week[iso]:issuer_w[r['issuer_id']]+=weight.get((r['snapshot_id'],r['security_id']),0.0)
+            issuer_of={r['security_id']:r['issuer_id'] for r in members_by_week[iso]}
+            by_security={s:issuer_w.get(issuer_of.get(s),0.0) for s in sids}
+            if n['kind']=='peer':
+                out=peer(cells90,{s:_cell(second[iso][s]) for s in sids if s in second.get(iso,{})},sectors)
+            elif n['kind']=='sector_demeaned':
+                out=sector_demeaned(cells90,sectors)
+            elif n['kind']=='vol_adjusted':
+                sigma={s:daily_log_volatility(engine.tri[s].tri,engine.sessions,engine.pos[d],n['vol_L']) for s in sids if s in engine.tri and cells90[s][0] is not None}
+                out=vol_adjusted(cells90,sigma)
+            elif n['kind']=='size_tilt':
+                out=size_tilt(cells90,by_security)
+            else:
+                out=voo_weight(cells90,by_security)
+            rowinfo={s:(elig[s].issuer_id,elig[s].industry) for s in sids}
+            rows.extend(week_rows(iso,sids,out,rowinfo,n['L'],key))
+        return rows
     def ensure(sig):
         n=normalize(sig)
         if n['kind']=='momentum' and n['skip']==0 and n['L'] in doc['windows']:
@@ -338,6 +377,8 @@ def ensure_signal_tables(root,doc,signals,cache_root=None):
         if key in tables:return folder/tables[key]['path']
         if n['kind']=='momentum':
             rows=momentum_rows(n,key);L=n['L']
+        elif n['kind'] in OVERLAY_KINDS:
+            rows=overlay_rows(n,key);L=n['L']
         elif n['kind']=='composite':
             parts=[_table_by_week(ensure(c)) for c in n['components']];L=n['components'][0]['L']
             rows=[]

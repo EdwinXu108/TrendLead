@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+from collections import Counter
 from dataclasses import dataclass, field
 
 from .scoring import ScoreRow
@@ -47,6 +48,7 @@ class SelectionResult:
     filled_all: bool
     target_count: int
     notes: list[str]
+    counts: dict[str, int] = field(default_factory=dict)
 
 
 def _sort_key(score: float, security_id: str) -> tuple[float, str]:
@@ -295,6 +297,8 @@ def select_random_matched(
     seed: int,
     exit_counts: dict[str, int],
     held_meta: dict[str, tuple[str, str]],
+    aux: dict | None = None,
+    sector_k: int | None = None,
 ) -> SelectionResult:
     """Turnover-matched random control; same frozen, industry-cap, issuer and fill rules as select_portfolio.
 
@@ -305,7 +309,8 @@ def select_random_matched(
     d) the holding is filled to N minus frozen, from scorable unheld candidates in draw order (random_fill).
     There is no retention buffer, so b (the buffer parameter) is accepted and unused.
     exit_counts maps signal date to the reference configuration's full exits that week; held_meta maps security to
-    (issuer_id, industry) for every held name.
+    (issuer_id, industry) for every held name. With sector_k, the large-sector cap applies in the same places as the
+    industry cap: aux['sector'] maps each security to its sector key, and frozen names count toward it.
     """
     notes: list[str] = []
     frozen = frozen or []
@@ -324,8 +329,14 @@ def select_random_matched(
     ranked = sorted(candidates, key=lambda c: c.sort_key)
     rank_of = {c.security_id: i + 1 for i, c in enumerate(ranked)}
 
+    sector = aux['sector'] if sector_k is not None else {}
+    sec_frozen = Counter(sector[c.security_id] for c in frozen) if sector_k is not None else Counter()
+
     def cap_of(industry: str) -> int:
         return caps.get(industry, k)
+
+    def sec_room(sid: str, counts: dict[str, int]) -> bool:
+        return sector_k is None or counts.get(sector[sid], 0) < sector_k - sec_frozen.get(sector[sid], 0)
 
     def draw(sid: str) -> str:
         return draw_order(seed, signal_date, sid)
@@ -338,12 +349,15 @@ def select_random_matched(
 
     overflow: list[str] = []
     counts: dict[str, int] = {}
+    sec_counts: dict[str, int] = {}
     kept: list[str] = []
     for sid in retain_ids:
         ind = by_id[sid].industry
-        if counts.get(ind, 0) < cap_of(ind):
+        if counts.get(ind, 0) < cap_of(ind) and sec_room(sid, sec_counts):
             kept.append(sid)
             counts[ind] = counts.get(ind, 0) + 1
+            if sector_k is not None:
+                sec_counts[sector[sid]] = sec_counts.get(sector[sid], 0) + 1
         else:
             overflow.append(sid)
     if len(kept) > total_capacity:
@@ -353,8 +367,11 @@ def select_random_matched(
 
     used_issuers = {c.issuer_id for c in retain}
     fill_counts: dict[str, int] = {}
+    fill_sec: dict[str, int] = {}
     for c in retain:
         fill_counts[c.industry] = fill_counts.get(c.industry, 0) + 1
+        if sector_k is not None:
+            fill_sec[sector[c.security_id]] = fill_sec.get(sector[c.security_id], 0) + 1
     fills: list[Candidate] = []
     for c in sorted(candidates, key=lambda c: draw(c.security_id)):
         if len(retain) + len(fills) >= total_capacity:
@@ -363,9 +380,13 @@ def select_random_matched(
             continue
         if c.issuer_id in used_issuers or fill_counts.get(c.industry, 0) >= cap_of(c.industry):
             continue
+        if not sec_room(c.security_id, fill_sec):
+            continue
         fills.append(c)
         used_issuers.add(c.issuer_id)
         fill_counts[c.industry] = fill_counts.get(c.industry, 0) + 1
+        if sector_k is not None:
+            fill_sec[sector[c.security_id]] = fill_sec.get(sector[c.security_id], 0) + 1
 
     target = retain + fills
     target_ids = [c.security_id for c in target]
@@ -440,3 +461,5 @@ def score_rows_to_candidates(
 
 # Selection rules by name. "default" is the reviewed rule; the others exist only for strategy experiments.
 SELECTION_RULES = {"default": select_portfolio, "random_matched": select_random_matched}
+from .selection_structured import STRUCTURED_RULES  # noqa: E402  (after the base definitions it extends)
+SELECTION_RULES.update(STRUCTURED_RULES)

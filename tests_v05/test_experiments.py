@@ -8,10 +8,13 @@ import pytest
 
 from leadtrend_v05 import experiments
 from leadtrend_v05.experiments import (ExperimentContext, expand_grid, load_spec, make_point, neighbors_of,
-                                       percentile, rank_points, registration_commit, run_metrics)
+                                       null_band, percentile, rank_points, reference_exit_counts, registered_attempts,
+                                       registration_commit, run_metrics)
 from leadtrend_v05.perf_bench import dump
 from leadtrend_v05.stage4_registry import points as registry_points
 from leadtrend_v05.stage4_summary import interval
+
+ROOT = Path(__file__).resolve().parent.parent
 
 MOM = lambda L: {'kind': 'momentum', 'L': L, 'skip': 0}  # noqa: E731
 
@@ -176,15 +179,59 @@ def test_run_metrics_reuses_the_interval_arithmetic(tmp_path):
 
 
 def test_scorecard_files_carry_the_registration_header(tmp_path):
-    rows = [dict(id='L090_N08_b2_R2', signal='动量 L=90', N=8, b=2, rebalance='R2', annualized_return_10bps=0.02, annualized_return_5bps=0.021,
-                 annualized_excess_10bps=0.01, annualized_excess_5bps=0.011, excess_vs_baseline_10bps='',
-                 neighborhood_mean_10bps=0.01, max_drawdown=0.05, turnover_one_way=1.0, excess_2020=0.0,
-                 excess_2021=0.0, excess_2022=0.0, excess_2023=0.0, winning_years=0, high_missing_excess=0.0,
-                 lower_missing_excess=0.0, null_percentile='', null_completed='', daily_confirmed='yes')]
-    experiments._write_scorecard(tmp_path, rows, dict(id='T1', attempts=78, registration_commit='abc', hypothesis='自检，与第四阶段重复',
+    rows = [dict(id='L090_N08_b2_R2', signal='动量 L=90', N=8, b=2, rebalance='R2', annualized_return_10bps=0.02,
+                 annualized_return_5bps=0.021, annualized_excess_10bps=0.01, annualized_excess_5bps=0.011,
+                 excess_vs_baseline_10bps='', neighborhood_mean_10bps=0.01, max_drawdown=0.05, turnover_one_way=1.0,
+                 excess_2020=0.0, excess_2021=0.0, excess_2022=0.0, excess_2023=0.0, winning_years=0,
+                 high_missing_excess=0.0, lower_missing_excess=0.0, null_percentile=60.0, null_percentile_low=45.0,
+                 null_percentile_high=75.0, null_completed='15/20', null_turnover_median=1.25, daily_confirmed='yes')]
+    experiments._write_scorecard(tmp_path, rows, dict(id='T1', attempts=72, registration_commit='abc', hypothesis='自检，与第四阶段重复',
                                                        baseline_check='5bps PASS, 10bps PASS',
-                                                       null_counts={'L090': '15/20'}))
+                                                       null_counts={'L090_N08_b2_R2': '15/20'}))
     md = (tmp_path / 'scorecard.md').read_text(encoding='utf-8')
-    assert '累计试验次数：78' in md and '登记文件提交号：abc' in md and '幸存者偏差' in md
-    assert '随机对照完成数（完成/登记）：L090 15/20' in md and '登记假设：自检，与第四阶段重复' in md
-    assert (tmp_path / 'scorecard.csv').read_text(encoding='utf-8').splitlines()[0].startswith('id,signal')
+    assert '累计试验次数：72' in md and '登记文件提交号：abc' in md and '幸存者偏差' in md
+    assert '随机对照完成数（完成/登记）：L090_N08_b2_R2 15/20' in md and '登记假设：自检，与第四阶段重复' in md
+    assert '60.0%（45.0%–75.0%）' in md and '| 2.0% | 1.0% |' in md  # percentages to one decimal
+    assert '| 5.0% | 1.0 |' in md  # drawdown is a percentage, turnover is a ratio, both to one decimal
+    header_line = (tmp_path / 'scorecard.csv').read_text(encoding='utf-8').splitlines()[0]
+    assert header_line.startswith('id,signal') and 'null_percentile_low' in header_line and 'null_turnover_median' in header_line
+    assert (tmp_path / 'scorecard.csv').read_text(encoding='utf-8').splitlines()[1].split(',')[-2] == '1.25'  # raw values
+
+
+def test_null_band_reports_the_completed_point_and_bounds_for_stopped_runs():
+    values = [0.01, 0.02, 0.03, 0.04]  # completed null excess values
+    assert null_band(0.025, values, 4) == (50.0, 50.0, 50.0)
+    assert null_band(0.025, values, 8) == (50.0, 25.0, 75.0)  # four stopped: all above (lower) or all below (upper)
+    assert null_band(None, values, 8) == ('', '', '')
+    assert null_band(0.025, [], 4) == ('', 0.0, 100.0)
+
+
+def test_reference_exit_counts_only_full_sells_per_signal_week(tmp_path):
+    folder = tmp_path / 'ref'
+    folder.mkdir()
+    (folder / 'trades.csv').write_text(
+        'session_date,security_id,side,shares,signal_session_date,shares_after\n'
+        '2020-01-02,A,sell,10,2019-12-27,0\n'
+        '2020-01-02,B,sell,5,2019-12-27,3\n'  # a trim is not a full exit
+        '2020-01-02,C,buy,7,2019-12-27,7\n'
+        '2020-01-09,D,sell,4,2020-01-03,0\n', encoding='utf-8')
+    assert reference_exit_counts(folder) == {'2019-12-27': 1, '2020-01-03': 1}
+
+
+def test_registered_attempts_count_distinct_configurations_once(tmp_path):
+    assert registered_attempts(ROOT) == 72  # the committed self-check repeats five stage 4 configurations: no new attempts
+    write_spec(tmp_path, base_spec())  # L060 and L090 at N8: both already in the stage 4 grid
+    assert registered_attempts(tmp_path) == 72
+    write_spec(tmp_path, base_spec(id='T2', grid=[{'signal': [MOM(60)], 'N': [9], 'b': [2], 'rebalance': ['R2']}]))
+    assert registered_attempts(tmp_path) == 73
+
+
+def test_selection_must_match_the_registration_for_every_point():
+    ctx = _Ctx()
+    null = dict(make_point(MOM(60), 8, 2, 'R2'), id='NULL_L060_N08_b2_R2_s000', selection='random_matched',
+                selection_params=dict(seed=0, exit_counts={}))
+    ctx.configure(points=[null], costs=[5, 10], experiment={'id': 'T1'})
+    assert ctx.authorize(dict(raw_for(null), configuration_id=null['id'], selection='random_matched',
+                              selection_params=dict(seed=0, exit_counts={})), None) == (None, None)
+    with pytest.raises(ValueError, match='selection does not match'):
+        ctx.authorize(dict(raw_for(null), configuration_id=null['id']), None)  # default selection requested

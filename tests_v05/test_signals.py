@@ -1,8 +1,8 @@
-"""Signal definitions: skip-0 momentum equals the existing score, skip cells, rank-mean composites and seeded random."""
+"""Signal definitions: skip-0 momentum equals the existing score, skip cells and rank-mean composites."""
 import pytest
 
 from leadtrend_v05 import signals
-from leadtrend_v05.signals import composite_cells, momentum_cell, normalize, random_cells, random_unit, ranked, signal_key
+from leadtrend_v05.signals import composite_cells, momentum_cell, normalize, ranked, signal_key
 from test_perf_arrays import synthetic_engine
 
 
@@ -50,20 +50,6 @@ def test_composite_single_scorable_security_gets_percentile_one_and_first_listed
     assert out['B'] == (None, None, None, None, 'insufficient_history')
 
 
-def test_random_is_deterministic_per_seed_date_and_security_and_stays_in_unit_interval():
-    assert random_unit(3, '2020-01-03', 'A') == random_unit(3, '2020-01-03', 'A')
-    assert random_unit(3, '2020-01-03', 'A') != random_unit(4, '2020-01-03', 'A')
-    assert random_unit(3, '2020-01-03', 'A') != random_unit(3, '2020-01-10', 'A')
-    assert all(0.0 <= random_unit(s, '2020-01-03', x) < 1.0 for s in range(5) for x in 'ABCDE')
-
-
-def test_random_keeps_the_base_scorable_set_and_reasons():
-    base = {'A': (0.2, 1, 1, 6, ''), 'B': (None, None, None, 0, 'insufficient_history')}
-    out = random_cells(['A', 'B'], 7, '2020-01-03', base)
-    assert out['A'][0] is not None and out['A'][0] == random_unit(7, '2020-01-03', 'A')
-    assert out['B'] == (None, None, None, None, 'insufficient_history')
-
-
 def test_rank_follows_score_then_security_id():
     cells = {'B': (0.5, None, None, None, ''), 'A': (0.5, None, None, None, ''), 'C': (None, None, None, None, 'x')}
     assert ranked(cells) == {'A': 1, 'B': 2, 'C': None}
@@ -83,10 +69,9 @@ def test_signal_key_is_canonical_and_defaults_are_filled():
     {'kind': 'momentum', 'L': 90, 'skip': -1},
     {'kind': 'momentum', 'L': True},
     {'kind': 'composite', 'components': []},
-    {'kind': 'composite', 'components': [{'kind': 'random', 'seed': 1, 'base': {'kind': 'momentum', 'L': 60}}]},
     {'kind': 'composite', 'components': [{'kind': 'momentum', 'L': 60}], 'weights': [0.0]},
     {'kind': 'composite', 'components': [{'kind': 'momentum', 'L': 60}], 'combine': 'mean'},
-    {'kind': 'random', 'seed': 1, 'base': {'kind': 'random', 'seed': 2, 'base': {'kind': 'momentum', 'L': 60}}},
+    {'kind': 'random', 'seed': 1, 'base': {'kind': 'momentum', 'L': 60}},
     {'kind': 'mystery'},
 ])
 def test_invalid_signals_are_refused(bad):
@@ -97,4 +82,3 @@ def test_invalid_signals_are_refused(bad):
 def test_main_L_is_the_first_momentum_component():
     comp = {'kind': 'composite', 'components': [{'kind': 'momentum', 'L': 60}, {'kind': 'momentum', 'L': 126}]}
     assert signals.main_L(comp) == 60
-    assert signals.main_L({'kind': 'random', 'seed': 1, 'base': comp}) == 60

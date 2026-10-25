@@ -8,13 +8,15 @@ import json
 import math
 import multiprocessing
 import subprocess
+from collections import Counter
 from pathlib import Path
+from statistics import median
 
 from . import paths
 from .perf_artifacts import read_table
 from .perf_bench import Timer, dump, sha
 from .signals import canonical, describe, is_default_momentum, main_L, normalize, signal_key
-from .stage4_registry import digest, verify
+from .stage4_registry import digest, points as stage4_points, verify
 from .stage4_summary import interval
 from .perf_cache import OptimizedContext
 
@@ -23,7 +25,6 @@ BASELINE = {'id': 'L090_N08_b2_R2', 'L': 90, 'N': 8, 'k': 2, 'b': 2, 'rebalance'
 BASELINE_SIGNAL = {'kind': 'momentum', 'L': 90, 'skip': 0}
 COSTS = [5, 10]
 DEV_START, DEV_END = '2019-11-29', '2024-06-28'
-STAGE4_CONFIGS = 72
 DEFAULT_CONFIRM_TOP = 3
 DEFAULT_NULL_RUNS = 200
 
@@ -97,21 +98,26 @@ def registration_commit(root, spec_path):
                           text=True, check=True).stdout.strip()
 
 
+def attempt_key(point):
+    """A configuration is one attempt: its normalised signal, N, k, b and rebalance."""
+    return (canonical(point['signal']), point['N'], point['k'], point['b'], point['rebalance'])
+
+
 def registered_attempts(root):
-    total = STAGE4_CONFIGS
+    """Distinct configurations tried: the stage 4 grid plus every registered experiment grid, de-duplicated."""
+    seen = {attempt_key(make_point({'kind': 'momentum', 'L': p['L'], 'skip': 0}, p['N'], p['b'], p['rebalance']))
+            for p in stage4_points()}
     for path in sorted((Path(root) / EXPERIMENTS).glob('*.json')):
-        total += len(expand_grid(json.loads(path.read_text(encoding='utf-8'))['grid']))
-    return total
+        seen.update(attempt_key(p) for p in expand_grid(json.loads(path.read_text(encoding='utf-8'))['grid']))
+    return len(seen)
 
 
 def _zero_L(signal):
     n = normalize(signal)
     if n['kind'] == 'momentum':
         return {'kind': 'momentum', 'L': 0, 'skip': n['skip']}
-    if n['kind'] == 'composite':
-        return {'kind': 'composite', 'components': [_zero_L(c) for c in n['components']],
-                'weights': n['weights'], 'combine': n['combine']}
-    return {'kind': 'random', 'seed': n['seed'], 'base': _zero_L(n['base'])}
+    return {'kind': 'composite', 'components': [_zero_L(c) for c in n['components']],
+            'weights': n['weights'], 'combine': n['combine']}
 
 
 def _rest_key(signal):
@@ -158,6 +164,27 @@ def percentile(value, values):
     if value is None or not values:
         return ''
     return round(100.0 * sum(1 for v in values if v <= value) / len(values), 1)
+
+
+def null_band(value, values, total):
+    """(point, lower, upper) in percent for a configuration's value among its null controls.
+
+    The point uses the completed runs only. Of the `total` registered runs, the lower bound assumes every stopped
+    run was above `value`, the upper bound assumes every stopped run was below it. Blank when there is no value.
+    """
+    if value is None or total == 0:
+        return '', '', ''
+    at_or_below = sum(1 for v in values if v <= value)
+    return percentile(value, values), round(100.0 * at_or_below / total, 1), round(100.0 * (at_or_below + total - len(values)) / total, 1)
+
+
+def reference_exit_counts(folder):
+    """Full exits per signal week in a reference run: sells that take the position to zero shares."""
+    counts = {}
+    for row in read_table(Path(folder) / 'trades.csv'):
+        if row['side'] == 'sell' and float(row['shares_after']) == 0:
+            counts[row['signal_session_date']] = counts.get(row['signal_session_date'], 0) + 1
+    return counts
 
 
 def run_metrics(folder, initial=100000.0):
@@ -213,6 +240,8 @@ class ExperimentContext(OptimizedContext):
                 raise ValueError('configuration does not match the registration: ' + key)
         if normalize(raw.get('signal', BASELINE_SIGNAL)) != p['signal']:
             raise ValueError('signal does not match the registration')
+        if raw.get('selection', 'default') != p.get('selection', 'default') or raw.get('selection_params') != p.get('selection_params'):
+            raise ValueError('selection does not match the registration')
         if raw.get('slippage_bps') not in self.costs:
             raise ValueError('unregistered cost')
         if raw.get('initial_capital') != 100000 or raw.get('fee_per_trade') != 1:
@@ -298,6 +327,21 @@ def check_baseline(root, base):
     return results
 
 
+def _pct(v):
+    return '' if v in (None, '') else f'{100 * v:.1f}%'
+
+
+def _ratio(v):
+    return '' if v in (None, '') else f'{v:.1f}'
+
+
+def _null_cell(row):
+    if row['null_percentile_low'] == '':
+        return ''
+    point = '无完成运行' if row['null_percentile'] == '' else f"{row['null_percentile']:.1f}%"
+    return f"{point}（{row['null_percentile_low']:.1f}%–{row['null_percentile_high']:.1f}%）"
+
+
 def _write_scorecard(out, rows, header):
     fields = list(rows[0].keys())
     with (out / 'scorecard.csv').open('w', encoding='utf-8', newline='') as f:
@@ -305,28 +349,31 @@ def _write_scorecard(out, rows, header):
         w.writeheader()
         w.writerows(rows)
     lines = ['# 成绩单：' + header['id'], '']
-    lines += [f"- 累计试验次数：{header['attempts']}（第四阶段 72 个配置，加上 research/v05/experiments/ 下全部已登记配置）",
+    lines += [f"- 累计试验次数：{header['attempts']}（按（规范化信号、N、k、b、再平衡）去重，计入第四阶段 72 个配置与 research/v05/experiments/ 下全部已登记配置）",
               f"- 登记文件提交号：{header['registration_commit']}",
               f"- 登记假设：{header['hypothesis']}",
               f"- 基准逐字节检查：{header['baseline_check']}",
               '- 开发段结果，存在幸存者偏差，使用当前行业分类；不构成策略有效性的结论。',
-              '- 随机对照百分位：该配置 10 bp 年化超额，不高于它的已完成随机信号结果的比例（%）。随机运行若在持仓遇到未核实的数据缺口时停止，不计入分布；完成数见下。', '']
+              '- 随机对照为换手匹配：每个确认配置一组，种子从 0 起。随机只决定持仓取舍，每周退出只数与该配置自己的探索档运行相同。',
+              '- 随机对照百分位格式为“点估计（下界–上界）”：该配置 10 bp 年化超额不高于随机结果的比例。点估计只用已完成的运行；下界假设停止的运行全部高于该配置，上界假设全部低于。',
+              '- 收益、超额、回撤、邻域均值以百分比显示，保留 1 位小数；年单边换手为比值，保留 1 位小数。', '']
     if header.get('null_counts'):
         lines.append('- 随机对照完成数（完成/登记）：' + '；'.join(f'{k} {v}' for k, v in header['null_counts'].items()))
         lines.append('')
     cols = ['配置', '信号', 'N', 'b', '再平衡', '10bp年化收益', '10bp年化超额', '5bp年化收益', '5bp年化超额',
-            '相对基准超额差(10bp)', '邻域均值(10bp)', '最大回撤', '年单边换手', '2020超额', '2021超额', '2022超额',
-            '2023超额', '胜年数', '缺价较多段超额', '缺价较少段超额', '随机对照百分位', '随机完成数', '是否daily确认']
+            '相对基准超额差(10bp)', '邻域均值(10bp)', '最大回撤', '年单边换手(x)', '2020超额', '2021超额', '2022超额',
+            '2023超额', '胜年数', '缺价较多段超额', '缺价较少段超额', '随机对照百分位', '随机完成数',
+            '随机换手中位数(x)', '是否daily确认']
     lines.append('| ' + ' | '.join(cols) + ' |')
     lines.append('|' + '---|' * len(cols))
     for r in rows:
-        vals = [r['id'], r['signal'], r['N'], r['b'], r['rebalance'], r['annualized_return_10bps'],
-                r['annualized_excess_10bps'], r['annualized_return_5bps'], r['annualized_excess_5bps'],
-                r['excess_vs_baseline_10bps'],
-                r['neighborhood_mean_10bps'], r['max_drawdown'], r['turnover_one_way'], r['excess_2020'],
-                r['excess_2021'], r['excess_2022'], r['excess_2023'], r['winning_years'],
-                r['high_missing_excess'], r['lower_missing_excess'], r['null_percentile'], r['null_completed'],
-                r['daily_confirmed']]
+        vals = [r['id'], r['signal'], r['N'], r['b'], r['rebalance'], _pct(r['annualized_return_10bps']),
+                _pct(r['annualized_excess_10bps']), _pct(r['annualized_return_5bps']), _pct(r['annualized_excess_5bps']),
+                _pct(r['excess_vs_baseline_10bps']), _pct(r['neighborhood_mean_10bps']), _pct(r['max_drawdown']),
+                _ratio(r['turnover_one_way']), _pct(r['excess_2020']), _pct(r['excess_2021']), _pct(r['excess_2022']),
+                _pct(r['excess_2023']), r['winning_years'], _pct(r['high_missing_excess']),
+                _pct(r['lower_missing_excess']), _null_cell(r), r['null_completed'],
+                _ratio(r['null_turnover_median']), r['daily_confirmed']]
         lines.append('| ' + ' | '.join('' if v is None else str(v) for v in vals) + ' |')
     (out / 'scorecard.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
 
@@ -362,46 +409,51 @@ def run_experiment(root, spec_path, workers=1, null_runs=None):
         confirmed.append(next(p for p in points if p['id'] == BASELINE['id']))
     daily_jobs = _jobs(confirmed, base, 'daily', 'lean', 'daily', COSTS, experiment)
     _run_jobs(daily_jobs, ctx, workers, payload)
+    # Null controls: per confirmed configuration, random picks that make the same full exits each week as that
+    # configuration's own explore run (10 bp). Each configuration has its own group; groups share no runs.
     combos = {}
     for p in confirmed:
-        combos.setdefault(combo_key(p, p['signal']), (p, []))
+        combos.setdefault(combo_key(p, p['signal']), p)
     null_points = []
-    for key, (p, _) in combos.items():
+    for key, p in combos.items():
+        if _metrics_or_none(_run_folder(base, p, 10, 'explore')) is None:
+            raise ValueError('reference explore run incomplete; its null controls cannot be matched: ' + p['id'])
+        exits = reference_exit_counts(_run_folder(base, p, 10, 'explore'))
         for seed in range(n_null):
-            nsig = {'kind': 'random', 'seed': seed, 'base': p['signal']}
-            nid = f'NULL_{p["id"]}_s{seed:03d}'
-            null_points.append(dict(id=nid, signal=normalize(nsig), L=p['L'], N=p['N'], k=p['k'], b=p['b'],
-                                    rebalance=p['rebalance'], _combo=key))
-    if null_points:
-        ensure_signal_tables(root, doc, [q['signal'] for q in null_points])
-    all_points = points + [dict((k, v) for k, v in q.items() if k != '_combo') for q in null_points]
-    payload = dict(points=all_points, costs=COSTS, experiment=experiment)
-    ctx = _experiment_ctx(root, doc, payload)
+            null_points.append(dict(id=f'NULL_{p["id"]}_s{seed:03d}', signal=p['signal'], L=p['L'], N=p['N'], k=p['k'],
+                                    b=p['b'], rebalance=p['rebalance'], selection='random_matched',
+                                    selection_params=dict(seed=seed, exit_counts=exits), _combo=key))
     null_jobs = []
     for q in null_points:
         q2 = {k: v for k, v in q.items() if k != '_combo'}
         null_jobs.append((dict(q2, experiment=experiment), 10, str(base / 'null' / q['_combo'] / q['id'] / 'cost_10bps'),
                           'explore', False, 'explore'))
+    payload = dict(points=points + [{k: v for k, v in q.items() if k != '_combo'} for q in null_points],
+                   costs=COSTS, experiment=experiment)
+    ctx = _experiment_ctx(root, doc, payload)
     _run_jobs(null_jobs, ctx, workers, payload)
-    null_values = {}
+    null_values, null_turnover = {}, {}
     for q in null_points:
         m = _metrics_or_none(base / 'null' / q['_combo'] / q['id'] / 'cost_10bps')
         if m is not None:
             null_values.setdefault(q['_combo'], []).append(m['annualized_excess'])
-    null_counts = {key: f"{len(null_values.get(key, []))}/{sum(1 for q in null_points if q['_combo'] == key)}"
-                   for key in combos}
+            null_turnover.setdefault(q['_combo'], []).append(m['turnover'])
+    totals = Counter(q['_combo'] for q in null_points)
+    null_counts = {key: f"{len(null_values.get(key, []))}/{totals[key]}" for key in combos}
     confirmed_ids = {p['id'] for p in confirmed}
     base_metrics = _metrics_or_none(_run_folder(base, next(p for p in points if p['id'] == BASELINE['id']), 10, 'explore'))
     rows = []
     for p in [next(q for q in points if q['id'] == BASELINE['id'])] + [q for q in order if q['id'] != BASELINE['id']]:
         m10 = _metrics_or_none(_run_folder(base, p, 10, 'explore'))
         m5 = _metrics_or_none(_run_folder(base, p, 5, 'explore'))
-        is_conf = p['id'] in confirmed_ids
-        pct, completed = '', ''
-        if is_conf:
+        nulls = dict(null_percentile='', null_percentile_low='', null_percentile_high='', null_completed='',
+                     null_turnover_median='')
+        if p['id'] in confirmed_ids:
             key = combo_key(p, p['signal'])
-            pct = percentile(m10['annualized_excess'] if m10 else None, null_values.get(key, []))
-            completed = null_counts.get(key, '')
+            point, low, high = null_band(m10['annualized_excess'] if m10 else None, null_values.get(key, []), totals[key])
+            nulls = dict(null_percentile=point, null_percentile_low=low, null_percentile_high=high,
+                         null_completed=null_counts[key],
+                         null_turnover_median=median(null_turnover[key]) if null_turnover.get(key) else '')
         rows.append(dict(
             id=p['id'], signal=describe(p['signal']), N=p['N'], b=p['b'], rebalance=p['rebalance'],
             annualized_return_10bps=m10['annualized_return'] if m10 else '',
@@ -417,14 +469,15 @@ def run_experiment(root, spec_path, workers=1, null_runs=None):
             winning_years=m10['winning_years'] if m10 else '',
             high_missing_excess=m10['high_missing_excess'] if m10 else '',
             lower_missing_excess=m10['lower_missing_excess'] if m10 else '',
-            null_percentile=pct, null_completed=completed, daily_confirmed='yes' if is_conf else 'no'))
+            **nulls, daily_confirmed='yes' if p['id'] in confirmed_ids else 'no'))
     base.mkdir(parents=True, exist_ok=True)
+    by_id = {p['id']: null_counts[combo_key(p, p['signal'])] for p in confirmed}
     header = dict(id=spec_id, attempts=registered_attempts(root), registration_commit=commit,
                   hypothesis=loaded['spec']['hypothesis'],
-                  baseline_check=', '.join(f'{k} {v}' for k, v in check.items()), null_counts=null_counts)
+                  baseline_check=', '.join(f'{k} {v}' for k, v in check.items()), null_counts=by_id)
     _write_scorecard(base, rows, header)
     dump(base / 'experiment_manifest.json', dict(
         experiment=experiment, spec=loaded['spec'], attempts=header['attempts'], baseline_check=check,
-        confirmed=[p['id'] for p in confirmed], null_runs=n_null, null_combos=sorted(set(combos)),
-        grid_points=len(loaded['grid']), points=len(points), null_points=len(null_points), null_counts=null_counts))
+        confirmed=[p['id'] for p in confirmed], null_runs=n_null, null_combos=sorted(combos),
+        grid_points=len(loaded['grid']), points=len(points), null_points=len(null_points), null_counts=by_id))
     return base

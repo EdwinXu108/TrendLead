@@ -277,7 +277,9 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
                 frozen_candidates=[Candidate(sid,sec[sid].issuer_id,sec[sid].industry,0.) for sid in sorted(frozen_ids)]
                 held=[sid for sid in book.account.positions if sid not in frozen_ids]
                 rule=raw.get('selection','default')
-                selected=(select_portfolio if rule=='default' else SELECTION_RULES[rule])(candidates,held,cfg.N,cfg.k,cfg.b,frozen=frozen_candidates)
+                if rule=='default':selected=select_portfolio(candidates,held,cfg.N,cfg.k,cfg.b,frozen=frozen_candidates)
+                else:selected=SELECTION_RULES[rule](candidates,held,cfg.N,cfg.k,cfg.b,frozen=frozen_candidates,signal_date=iso,
+                    held_meta={sid:(sec[sid].issuer_id,sec[sid].industry) for sid in held},**raw.get('selection_params',{}))
                 ranked={c.security_id:i+1 for i,c in enumerate(sorted(candidates,key=lambda c:c.sort_key))}
                 if _performance is None:
                     for row in tables['scores'][week_score_start:]:row['rank']=ranked.get(row['security_id'])

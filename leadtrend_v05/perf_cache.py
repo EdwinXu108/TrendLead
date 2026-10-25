@@ -4,8 +4,9 @@ The cache keeps prices as numpy arrays and the shared score/universe tables as l
 holds only small objects; runtime views (quotes, marks, signal-week frames) are rebuilt from those files on
 every load and are never pickled.
 """
-import json,math,os,pickle,time,sys,platform
+import json,math,os,pickle,shutil,time,sys,platform
 from collections import defaultdict
+from datetime import datetime,timezone
 from dataclasses import replace
 from pathlib import Path
 import numpy as np
@@ -301,13 +302,13 @@ def _cell(row):
 def ensure_signal_tables(root,doc,signals,cache_root=None):
     """Write the score table of every signal not yet in this cache, and record it in cache.json.
 
-    Momentum with skip 0 on a cached window uses the existing table. Composite and random tables are derived from
-    their component or base tables. Momentum with a skip, or on a window the cache does not hold, needs the engine
+    Momentum with skip 0 on a cached window uses the existing table. Composite tables are derived from their
+    component tables. Momentum with a skip, or on a window the cache does not hold, needs the engine
     and is built with the full context once.
     """
     from datetime import date
     from .eligibility import eligibility_index
-    from .signals import SCORE_FIELDS,canonical,composite_cells,momentum_cell,normalize,random_cells,signal_key,week_rows
+    from .signals import SCORE_FIELDS,canonical,composite_cells,momentum_cell,normalize,signal_key,week_rows
     root=Path(root);folder=(Path(cache_root) if cache_root else root/paths.CACHE)/doc['key']
     info=json.loads((folder/'cache.json').read_text(encoding='utf-8'))
     if info['identity']!=doc:raise ValueError('cache identity mismatch')
@@ -346,15 +347,6 @@ def ensure_signal_tables(root,doc,signals,cache_root=None):
                 out=composite_cells(sids,cells,n['weights'])
                 rowinfo={s:(parts[0][iso][s]['issuer_id'],parts[0][iso][s]['industry']) for s in sids}
                 rows.extend(week_rows(iso,sids,out,rowinfo,L,key))
-        else:
-            base=normalize(n['base']);path=ensure(base);per=_table_by_week(path);L=main_L_of(base)
-            rows=[]
-            for iso in sorted(weeks):
-                sids=sorted(weeks[iso])
-                cells={s:_cell(per[iso][s]) for s in sids}
-                out=random_cells(sids,n['seed'],iso,cells)
-                rowinfo={s:(per[iso][s]['issuer_id'],per[iso][s]['industry']) for s in sids}
-                rows.extend(week_rows(iso,sids,out,rowinfo,L,key))
         p=folder/name;write_gzip_csv(p,rows,SCORE_FIELDS+['signal_key'])
         files[name]=sha(p);tables[key]=dict(path=name,physical_sha256=sha(p),logical_sha256=logical_sha(p),signal=n,canonical=canonical(n))
         return p
@@ -362,9 +354,29 @@ def ensure_signal_tables(root,doc,signals,cache_root=None):
     dump(folder/'cache.json',info)
     return paths_out
 
-def main_L_of(sig):
-    from .signals import main_L
-    return main_L(sig)
+CACHE_KEEP=3
+
+def prune_cache(root,keep=CACHE_KEEP):
+    """Keep the newest `keep` cache folders under work/cache (by folder modification time); delete the rest.
+
+    Only direct child directories of work/cache are candidates. Every removal, and every kept folder, is appended
+    to work/logs/cache_prune.log as one JSON line.
+    """
+    root=Path(root);base=root/paths.CACHE
+    if not base.is_dir():return []
+    dirs=[p for p in base.iterdir() if p.is_dir() and not p.is_symlink()]
+    dirs.sort(key=lambda p:(p.stat().st_mtime,p.name),reverse=True)
+    removed,failed=[],[]
+    for p in dirs[keep:]:
+        size=sum(f.stat().st_size for f in p.rglob('*') if f.is_file())
+        try:
+            shutil.rmtree(p);removed.append(dict(path=p.relative_to(root).as_posix(),bytes=size))
+        except OSError as err:failed.append(dict(path=p.relative_to(root).as_posix(),error=str(err)))
+    entry=dict(time=datetime.now(timezone.utc).isoformat(timespec='seconds'),keep=keep,
+        kept=[p.relative_to(root).as_posix() for p in dirs[:keep]],removed=removed,failed=failed)
+    logs=root/paths.LOGS;logs.mkdir(parents=True,exist_ok=True)
+    with (logs/'cache_prune.log').open('a',encoding='utf-8') as f:f.write(json.dumps(entry,ensure_ascii=False)+'\n')
+    return removed
 
 def build_cache(root,doc,cache_root=None):
     root=Path(root);folder=(Path(cache_root) if cache_root else root/paths.CACHE)/doc['key'];folder.mkdir(parents=True,exist_ok=True)
@@ -389,6 +401,7 @@ def build_cache(root,doc,cache_root=None):
     files={p.name:sha(p) for p in folder.iterdir() if p.is_file() and p.name!='cache.json'}
     dump(folder/'cache.json',dict(identity=doc,files=files,build_seconds=time.perf_counter()-start,immutable=True,
         cell_stats=ctx.cell_stats))
+    if cache_root is None:prune_cache(root)  # the default namespace only; a cold namespace keeps all its caches
     return attach(ctx,folder)
 
 def load_cache(root,doc=None,scope='uniform',cache_root=None):

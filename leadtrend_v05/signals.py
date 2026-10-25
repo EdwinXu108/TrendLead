@@ -6,7 +6,7 @@ the existing score tables; every other signal gets its own table named by that k
 Kinds:
 - momentum: TRI(t-skip) / TRI(t-skip-L) - 1, with availability checked over the whole window [t-skip-L, t].
 - composite: weighted average of cross-sectional rank percentiles of momentum components (rank_mean only).
-- random: deterministic uniform draw per (seed, signal date, security) over the base signal's scorable set.
+The random null control is a selection rule (selection.select_random_matched), not a signal.
 """
 import hashlib
 import json
@@ -45,11 +45,6 @@ def normalize(sig):
         if sig.get('combine', 'rank_mean') != 'rank_mean':
             raise ValueError('only rank_mean is implemented')
         return {'kind': 'composite', 'components': parts, 'weights': values, 'combine': 'rank_mean'}
-    if kind == 'random':
-        base = normalize(sig['base'])
-        if base['kind'] not in {'momentum', 'composite'}:
-            raise ValueError('random base must be a momentum or composite signal')
-        return {'kind': 'random', 'seed': _int(sig['seed'], 'seed', 0), 'base': base}
     raise ValueError(f'unknown signal kind {kind!r}')
 
 
@@ -71,25 +66,15 @@ def main_L(sig):
     n = normalize(sig)
     if n['kind'] == 'momentum':
         return n['L']
-    if n['kind'] == 'composite':
-        return main_L(n['components'][0])
-    return main_L(n['base'])
+    return main_L(n['components'][0])
 
 
 def describe(sig):
     n = normalize(sig)
     if n['kind'] == 'momentum':
         return f"动量 L={n['L']}" + (f" 跳过{n['skip']}日" if n['skip'] else '')
-    if n['kind'] == 'composite':
-        parts = ', '.join(describe(c) for c in n['components'])
-        return f"复合(rank_mean; 权重 {','.join(str(w) for w in n['weights'])}): {parts}"
-    return f"随机对照 seed={n['seed']} (基于 {describe(n['base'])})"
-
-
-def random_unit(seed, iso, sid):
-    """Uniform draw in [0, 1) fixed by (seed, signal date, security); no process state involved."""
-    digest = hashlib.sha256(f'{seed}|{iso}|{sid}'.encode('utf-8')).digest()
-    return int.from_bytes(digest[:8], 'big') / 2 ** 64
+    parts = ', '.join(describe(c) for c in n['components'])
+    return f"复合(rank_mean; 权重 {','.join(str(w) for w in n['weights'])}): {parts}"
 
 
 def momentum_cell(engine, sid, d, L, skip):
@@ -137,18 +122,6 @@ def composite_cells(sids, component_cells, weights):
         else:
             reason = next(cell[s][4] for cell in component_cells if cell[s][0] is None)
             out[s] = (None, None, None, None, reason)
-    return out
-
-
-def random_cells(sids, seed, iso, base_cells):
-    """Same scorable set as the base; scores are seeded uniform draws."""
-    out = {}
-    for s in sids:
-        score, _, _, _, reason = base_cells[s]
-        if score is None:
-            out[s] = (None, None, None, None, reason)
-        else:
-            out[s] = (random_unit(seed, iso, s), None, None, None, '')
     return out
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 from dataclasses import dataclass, field
 
@@ -277,6 +278,146 @@ def select_portfolio(
     )
 
 
+def draw_order(seed: int, signal_date: str, security_id: str) -> str:
+    """Fixed pseudo-random order key over securities: sha256 of (seed, signal date, security)."""
+    return hashlib.sha256(f"{seed}|{signal_date}|{security_id}".encode("utf-8")).hexdigest()
+
+
+def select_random_matched(
+    candidates: list[Candidate],
+    held_ids: list[str],
+    N: int,
+    k: int,
+    b: float,
+    frozen: list[Candidate] | None = None,
+    *,
+    signal_date: str,
+    seed: int,
+    exit_counts: dict[str, int],
+    held_meta: dict[str, tuple[str, str]],
+) -> SelectionResult:
+    """Turnover-matched random control; same frozen, industry-cap, issuer and fill rules as select_portfolio.
+
+    Per signal week, in this order:
+    a) held names with no score this week leave (random_forced_exit, as the default rule leaves them);
+    b) max(0, reference full exits - those forced exits) scorable held names leave, lowest draw first (random_exit);
+    c) remaining held names are kept, subject to the industry cap and N (overflow leaves as random_forced_exit);
+    d) the holding is filled to N minus frozen, from scorable unheld candidates in draw order (random_fill).
+    There is no retention buffer, so b (the buffer parameter) is accepted and unused.
+    exit_counts maps signal date to the reference configuration's full exits that week; held_meta maps security to
+    (issuer_id, industry) for every held name.
+    """
+    notes: list[str] = []
+    frozen = frozen or []
+    frozen_ids = {c.security_id for c in frozen}
+    frozen_issuers = {c.issuer_id for c in frozen}
+    frozen_counts: dict[str, int] = {}
+    for c in frozen:
+        frozen_counts[c.industry] = frozen_counts.get(c.industry, 0) + 1
+    total_capacity = max(0, N - len(frozen_ids))
+    caps = {ind: max(0, k - count) for ind, count in frozen_counts.items()}
+    if len(frozen_ids) > N or any(x > k for x in frozen_counts.values()):
+        notes.append('passive_frozen_limit_exceeded')
+    candidates = [c for c in candidates if c.security_id not in frozen_ids and c.issuer_id not in frozen_issuers]
+    by_id = {c.security_id: c for c in candidates}
+    held_set = set(held_ids) - frozen_ids
+    ranked = sorted(candidates, key=lambda c: c.sort_key)
+    rank_of = {c.security_id: i + 1 for i, c in enumerate(ranked)}
+
+    def cap_of(industry: str) -> int:
+        return caps.get(industry, k)
+
+    def draw(sid: str) -> str:
+        return draw_order(seed, signal_date, sid)
+
+    unscorable = sorted(sid for sid in held_set if sid not in by_id)
+    scorable_held = sorted((sid for sid in held_set if sid in by_id), key=draw)
+    n_random = max(0, exit_counts.get(signal_date, 0) - len(unscorable))
+    random_exit = scorable_held[:n_random]
+    retain_ids = scorable_held[n_random:]
+
+    overflow: list[str] = []
+    counts: dict[str, int] = {}
+    kept: list[str] = []
+    for sid in retain_ids:
+        ind = by_id[sid].industry
+        if counts.get(ind, 0) < cap_of(ind):
+            kept.append(sid)
+            counts[ind] = counts.get(ind, 0) + 1
+        else:
+            overflow.append(sid)
+    if len(kept) > total_capacity:
+        overflow.extend(kept[total_capacity:])
+        kept = kept[:total_capacity]
+    retain = [by_id[sid] for sid in kept]
+
+    used_issuers = {c.issuer_id for c in retain}
+    fill_counts: dict[str, int] = {}
+    for c in retain:
+        fill_counts[c.industry] = fill_counts.get(c.industry, 0) + 1
+    fills: list[Candidate] = []
+    for c in sorted(candidates, key=lambda c: draw(c.security_id)):
+        if len(retain) + len(fills) >= total_capacity:
+            break
+        if c.security_id in held_set:  # held names, including those that exited this week, are not refilled
+            continue
+        if c.issuer_id in used_issuers or fill_counts.get(c.industry, 0) >= cap_of(c.industry):
+            continue
+        fills.append(c)
+        used_issuers.add(c.issuer_id)
+        fill_counts[c.industry] = fill_counts.get(c.industry, 0) + 1
+
+    target = retain + fills
+    target_ids = [c.security_id for c in target]
+    filled_all = len(target_ids) == total_capacity
+    if not filled_all:
+        notes.append(f"underfilled_target={len(target_ids)}/{N}")
+    notes.append(f"random_matched_exits={len(random_exit)}")
+
+    final_ind: dict[str, int] = {}
+    for c in target:
+        final_ind[c.industry] = final_ind.get(c.industry, 0) + 1
+    retained = set(kept)
+    fill_ids = {c.security_id for c in fills}
+
+    def exit_decision(sid: str, reason: str) -> Decision:
+        c = by_id.get(sid)
+        issuer, industry = (c.issuer_id, c.industry) if c else held_meta[sid]
+        return Decision(action="exit", security_id=sid, issuer_id=issuer, industry=industry,
+                        score=c.score if c else None, reason=reason, rank=rank_of.get(sid))
+
+    exits = {sid: "random_exit" for sid in random_exit}
+    exits.update({sid: "random_forced_exit" for sid in overflow})
+    decisions: list[Decision] = []
+    for c in ranked:
+        if c.security_id in exits:
+            decisions.append(exit_decision(c.security_id, exits[c.security_id]))
+            continue
+        if c.security_id in retained:
+            action, reason = "retain", "random_retained"
+        elif c.security_id in fill_ids:
+            action, reason = "fill", "random_fill"
+        else:
+            action, reason = "skip", "not_selected"
+        decisions.append(Decision(action=action, security_id=c.security_id, issuer_id=c.issuer_id, industry=c.industry,
+                                  score=c.score, reason=reason, rank=rank_of.get(c.security_id),
+                                  industry_counts_after=dict(final_ind), in_feasible_order=False))
+    for sid in unscorable:
+        decisions.append(exit_decision(sid, "random_forced_exit"))
+    decisions.sort(key=lambda d: (d.security_id, d.action))
+
+    return SelectionResult(
+        target_ids=target_ids,
+        decisions=decisions,
+        buffer_score=None,
+        buffer_security_id=None,
+        feasible_order=[],
+        filled_all=filled_all,
+        target_count=len(target_ids),
+        notes=notes,
+    )
+
+
 def score_rows_to_candidates(
     rows: list[ScoreRow],
     eligible_ids: set[str],
@@ -297,5 +438,5 @@ def score_rows_to_candidates(
         )
     return out
 
-# Selection rules by name; only the reviewed default exists. New rules are added here as new functions.
-SELECTION_RULES = {"default": select_portfolio}
+# Selection rules by name. "default" is the reviewed rule; the others exist only for strategy experiments.
+SELECTION_RULES = {"default": select_portfolio, "random_matched": select_random_matched}

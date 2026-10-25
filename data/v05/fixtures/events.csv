@@ -1,0 +1,6 @@
+event_id,security_id,event_type,effective_session,shares_new_per_old,cash_amount_per_share,cash_basis,pay_date,source
+EV_SPLIT_T01,SYN_T01,split,2025-03-20,2,,,,synthetic
+EV_DIV_F01,SYN_F01,cash_dividend,2025-04-10,,0.50,per_share_at_entitlement,2025-04-25,synthetic
+EV_DIV_H01,SYN_H01,cash_dividend,2025-05-08,,0.30,per_share_at_entitlement,2025-05-22,synthetic
+EV_DIV_E01,SYN_E01,cash_dividend,2025-03-28,,0.40,per_share_at_entitlement,2025-04-11,synthetic
+EV_DIV_VOO,SYN_VOO,cash_dividend,2025-03-28,,1.20,per_share_at_entitlement,2025-04-04,synthetic

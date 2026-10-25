@@ -1,0 +1,15 @@
+{
+  "created_utc": "2026-10-25T07:03:03.041562+00:00",
+  "base_sha256": "725da1cbad90f8ee6edf7bfec89926996d8374ece641aa28a06c3b7376e410e8",
+  "files": {
+    "data/v05/raw/stage4_remediation/vsco_fraction_authorization.json": "a2ec88394db1f7e9e3c1b681cd038361fe03bd1ec09899e69b4688e45453d283"
+  },
+  "fractional_settlements": {
+    "CHILD:VSCO|2021-08-03": {
+      "price": 58.23,
+      "pay_date": "2021-08-17",
+      "valuation": "approximation",
+      "source": "Investor explicitly confirmed VSCO extension; first regular-way raw close OpenD US.VSXY; no fees; tenth following trading session"
+    }
+  }
+}

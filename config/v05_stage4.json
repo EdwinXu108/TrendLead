@@ -1,0 +1,8 @@
+{
+  "registry": "work/v05/stage4_registry.json",
+  "output": "work/v05/stage4_grid",
+  "summary_output": "work/v05/stage4_summary",
+  "workers": 1,
+  "costs_bps": [5, 10],
+  "note": "The immutable registry is authoritative; config does not add parameter attempts."
+}

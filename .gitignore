@@ -1,0 +1,24 @@
+__pycache__/
+.pytest_cache/
+*.egg-info/
+.venv/
+
+# scratch area: caches, new runs, logs (safe to delete)
+work/
+
+# v1.0 public release: data, run details, personal configuration and third-party bundles stay local
+config/v05_stage2.json
+data/v05/raw/
+data/v05/normalized/
+data/v05/prep/
+data/v05/reference/
+research/v05/baseline/
+research/v05/perf/
+research/v05/results/stage3_dev_run/
+research/v05/results/stage4_unified/runs/
+/archive/
+vendor/
+.workbuddy-ai/
+work/
+*.pyc
+data/classification_snapshots/

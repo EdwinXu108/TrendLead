@@ -1,0 +1,47 @@
+{
+  "registry_sha256": "fc144d5ab5d82322a1092cb9c63ddc2ae864ea92cd0da4b07910eecf9e8fea10",
+  "rows": 144,
+  "configurations": 72,
+  "completed_cost_runs": 144,
+  "incomplete_cost_runs": 0,
+  "acceptance_failed_cost_runs": 0,
+  "decision": {
+    "registry_sha256": "fc144d5ab5d82322a1092cb9c63ddc2ae864ea92cd0da4b07910eecf9e8fea10",
+    "attempted_configurations": 72,
+    "cost_runs": 144,
+    "results_csv_sha256": "31ca496944f0abf2c8f70ab009ed4ed6fa1bb7a21cf9a929c6f7d77d18415b81",
+    "criteria_csv_sha256": "d4a9ab89a2495c5471e1e68ef95e02045eacff9ac0e4bccfed5f128a336a6336",
+    "candidate_count": 1,
+    "selected": [
+      "L090_N08_b2_R2"
+    ],
+    "selected_evidence": [
+      {
+        "configuration_id": "L090_N08_b2_R2",
+        "L": 90,
+        "N": 8,
+        "k": 2,
+        "b": 2,
+        "rebalance": "R2",
+        "a_stress_beats_voo": true,
+        "b_neighbor_majority": true,
+        "c_three_years": true,
+        "d_complete": true,
+        "neighbor_ids": "L060_N08_b2_R2|L126_N08_b2_R2|L090_N10_b2_R2",
+        "neighbor_count": 3,
+        "neighbor_wins_5bps": 2,
+        "winning_years_10bps": 4,
+        "annualized_excess_10bps": 0.06900664298853498,
+        "neighborhood_mean_10bps": 0.00261804802627269,
+        "neighborhood_mean_selection_value": 0.00261804802627269,
+        "candidate": true
+      }
+    ],
+    "conclusion": "出现满足原登记条件的唯一选定点；本轮不授权运行保留段",
+    "holdout_permitted": false,
+    "holdout_not_computed_by_aggregation": true,
+    "rule_qualified": true,
+    "holdout_execution_authorized": false,
+    "execution_note": "This remediation round forbids holdout; pending Claude review and fresh investor confirmation"
+  }
+}

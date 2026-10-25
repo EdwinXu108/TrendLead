@@ -1,0 +1,40 @@
+{
+  "dataset_kind": "synthetic",
+  "L": 20,
+  "N": 10,
+  "k": 3,
+  "b": 2,
+  "initial_capital": 100000.0,
+  "fee_per_trade": 1.0,
+  "slippage_bps": 5.0,
+  "stress_slippage_bps": 10.0,
+  "class_selection_turnover_days": 20,
+  "benchmark_security_id": "SYN_VOO",
+  "input_dir": "data/v05/fixtures",
+  "timezone_internal": "UTC",
+  "timezone_display": "America/New_York",
+  "currency": "USD",
+  "supported_events": ["split", "reverse_split", "cash_dividend"],
+  "unsupported_event_types": [
+    "spinoff",
+    "merger",
+    "acquisition",
+    "delisting",
+    "name_change",
+    "symbol_change"
+  ],
+  "excluded_security_types": [
+    "reit",
+    "spac",
+    "shell",
+    "partnership_unit",
+    "etf",
+    "fund",
+    "bond",
+    "preferred_fixed",
+    "warrant"
+  ],
+  "excluded_tickers": ["BRK.A", "BRKA"],
+  "rebalance_policy": "only_on_swap",
+  "notes": "Engineering defaults for stage-1 offline demo. Not validated optimal parameters. dataset_kind=synthetic."
+}

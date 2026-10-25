@@ -1,0 +1,19 @@
+{
+  "created_utc": "2026-10-25T07:01:27.675524+00:00",
+  "reason": "Restore existing section5.2 child-raw-close valuation now that actual VSCO raw close is available. Additive overlay, original normalized event and rule unchanged.",
+  "events": [
+    {
+      "event_id": "CA_SPINOFF_CUSIP:070830104_2021-08-03_c6af750a58f4",
+      "child_ticker": "VSCO",
+      "regular_way_session": "2021-08-03",
+      "raw_close": 58.23,
+      "shares_per_old": 0.3333333333333333,
+      "value_per_old_share": 19.409999999999997,
+      "source": "data/v05/normalized/auxiliary_vsco_prices_v2.csv"
+    }
+  ],
+  "files": {
+    "data/v05/normalized/auxiliary_vsco_prices_v2.csv": "30b341cbce6fcb3f2974cf925a47020552e7fff810ce601dfaca7a5e6f70213a",
+    "data/v05/overlays/data_version.json": "725da1cbad90f8ee6edf7bfec89926996d8374ece641aa28a06c3b7376e410e8"
+  }
+}

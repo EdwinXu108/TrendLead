@@ -1,0 +1,60 @@
+{
+  "created_utc": "2026-10-25T06:52:03.969308+00:00",
+  "previous_version": "original stage4 registered normalized files untouched",
+  "auxiliary_prices": "data/v05/normalized/auxiliary_vsco_prices_v2.csv",
+  "selectable": false,
+  "identity": {
+    "historical_ticker": "VSCO",
+    "current_vendor_code": "US.VSXY",
+    "rename_effective": "2026-06-02",
+    "cusip": "926400102",
+    "isin": "US9264001028",
+    "exchange": "NYSE",
+    "no_splits": "OpenD rehab empty; Yahoo split events empty"
+  },
+  "children": [
+    {
+      "event_id": "CA_SPINOFF_CUSIP:070830104_2021-08-03_c6af750a58f4",
+      "child_ticker": "VSCO",
+      "session_date": "2021-08-03",
+      "shares_per_old": 0.3333333333333333,
+      "raw_close": 58.23,
+      "value_per_old": 19.41,
+      "source": "Official BBWI spin-off 8-K; OpenD US.VSXY AuType.NONE; auxiliary only"
+    }
+  ],
+  "fractional_settlements": {
+    "CUSIP:36266G107|2023-01-04": {
+      "price": 60.49,
+      "pay_date": "2023-01-19",
+      "valuation": "approximation",
+      "source": "Investor-approved fallback; first regular-way 2023-01-04 raw close; +10 trading sessions; no fee; original quote data/v05/raw/opend_kline_none_v1/NONE_GEHC_2019-05-01_2026-12-31.csv",
+      "quote_path": "data/v05/raw/opend_kline_none_v1/NONE_GEHC_2019-05-01_2026-12-31.csv"
+    },
+    "CUSIP:36828A101|2024-04-02": {
+      "price": 140.0,
+      "pay_date": "2024-04-16",
+      "valuation": "approximation",
+      "source": "Investor-approved fallback; first regular-way 2024-04-02 raw close; +10 trading sessions; no fee; original quote data/v05/raw/opend_kline_none_v1/NONE_GEV_2019-05-01_2026-12-31.csv",
+      "quote_path": "data/v05/raw/opend_kline_none_v1/NONE_GEV_2019-05-01_2026-12-31.csv"
+    },
+    "CUSIP:83444M101|2024-04-01": {
+      "price": 69.1,
+      "pay_date": "2024-04-15",
+      "valuation": "approximation",
+      "source": "Investor-approved fallback; first regular-way 2024-04-01 raw close; +10 trading sessions; no fee; original quote data/v05/raw/opend_kline_none_v1/NONE_SOLV_2019-05-01_2026-12-31.csv",
+      "quote_path": "data/v05/raw/opend_kline_none_v1/NONE_SOLV_2019-05-01_2026-12-31.csv"
+    }
+  },
+  "files": {
+    "data/v05/normalized/auxiliary_vsco_prices_v2.csv": "30b341cbce6fcb3f2974cf925a47020552e7fff810ce601dfaca7a5e6f70213a",
+    "data/v05/raw/stage4_remediation/VSXY_history_none.json": "c1e64e4ff68aff977606373dd1f0a5efb195045bec76db331defdb5cb1f65350",
+    "data/v05/raw/stage4_remediation/VSXY_stock_basic.json": "8e5639914826bbf3802d95097ee3b33ee6b5cdb7cb340905bd739a9bdfe89f06",
+    "data/v05/raw/stage4_remediation/VSXY_rehab.json": "eb74937fcd6265742903eeba4153dd306758f7b14ff0857ff1b73c8063ba8306",
+    "data/v05/raw/stage4_remediation/yahoo_VSXY.json": "011cc4bf26fccad374ce258a430c6cefeccfea83a51f5369582bacbf2e955df9",
+    "data/v05/raw/opend_kline_none_v1/NONE_GEHC_2019-05-01_2026-12-31.csv": "56a30b51641aa0f6ae2988fc8872b5befb239d4fdf5493155a8570bf36ef9412",
+    "data/v05/raw/opend_kline_none_v1/NONE_GEV_2019-05-01_2026-12-31.csv": "aa8b89ddcc0931aa6062f4f1cd26ae39625273a9942859b50645a51e66eb4efb",
+    "data/v05/raw/opend_kline_none_v1/NONE_SOLV_2019-05-01_2026-12-31.csv": "9638ce4958c4c12bfea59d6ccfa4316627b207e88cdf7fa74e9a1094b30277bb"
+  },
+  "reorganized_2026_10_25": "paths moved from work/v05/stage4_remediation; before_rerun.json reference removed (history archive only); economic content unchanged"
+}

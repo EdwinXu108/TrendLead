@@ -1,0 +1,52 @@
+{
+  "dataset_kind": "real_partial",
+  "status": "registered_before_viewing_any_real_returns",
+  "blocking_issues": 0,
+  "execution_authorized": false,
+  "purpose": "Stage-2 data coverage registration; Stage-3 must use development segment only",
+  "sample_start": "2019-11-29",
+  "sample_end": "2026-10-23",
+  "valid_signal_weeks": 361,
+  "development": {
+    "start": "2019-11-29",
+    "end": "2024-06-28",
+    "n_weeks": 240
+  },
+  "holdout": {
+    "start": "2024-07-05",
+    "end": "2026-10-23",
+    "n_weeks": 121
+  },
+  "dev_holdout_split": {
+    "method": "first floor(2/3) passing signal weeks = development"
+  },
+  "data_version": {
+    "calendar.csv": "2e1f58bc80d951eb6ab66a7e51415746301dbbadc9b1594d9035923089af8d8f",
+    "events.csv": "1257d1be17253110eac59894384ba562564de5186040240b582ae2af661f571a",
+    "prices.csv": "c95f5b2f15bc3a8cb8d7cac68a03c807dab6fae0176eb4c19cc97b34e053c3ea",
+    "securities.csv": "3d9e3c68a61a86932662a5236e01b610ae0e94eb36d53fc964610079186b5ca3",
+    "snapshot_members.csv": "7ca7cfe124b1b08c275eddda7781ea3acadc822234ac046e02c3fc774b3fac3f",
+    "snapshots.csv": "32aca5232320e4e866f3db3b5a389ccb7928475f5c7d6645d9edca7509917006",
+    "spinoff_child_prices.csv": "c6184d29633b950e52bd76371c053fb9316b9aaa73c3d788ef9e834abd84d5b9"
+  },
+  "engineering_defaults_unvalidated": {
+    "L": 20,
+    "N": 10,
+    "k": 3,
+    "b": 2
+  },
+  "score_coverage_gate": 0.95,
+  "gate_note": "engineering gate, unvalidated",
+  "no_real_returns_viewed": true,
+  "coverage_policy": {
+    "remediable_gap_max_ratio": 0.01,
+    "historical_no_price_max_ratio": null,
+    "weekly_scored_industry_min_ratio": 0.95,
+    "original_score_95pct_is_diagnostic_only": true
+  },
+  "historical_no_price_ratio_summary": {
+    "min": 0.0021186441,
+    "median": 0.059447983,
+    "max": 0.1226215645
+  }
+}

@@ -1,0 +1,5 @@
+snapshot_id,holdings_as_of,available_at,availability_precision,source,source_hash,retrieved_at,revision
+SNAP_2025_01,2025-01-31,2025-02-12,date,synthetic_voo_holdings_v1,synthetic_v1,2025-02-13T00:00:00Z,original
+SNAP_2025_01_REV,2025-01-31,2025-03-05,date,synthetic_voo_holdings_v1r,synthetic_v1r,2025-03-06T00:00:00Z,revision_drop_u02
+SNAP_2025_03,2025-03-31,2025-04-11,date,synthetic_voo_holdings_v2,synthetic_v2,2025-04-12T00:00:00Z,original
+SNAP_FUTURE,2025-05-30,2025-07-15,date,synthetic_voo_holdings_future,synthetic_future,2025-07-16T00:00:00Z,must_not_leak_into_early_signals

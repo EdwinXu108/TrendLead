@@ -1,0 +1,669 @@
+{
+  "stage": 4,
+  "created_at_utc": "2026-10-25T05:32:31.394363+00:00",
+  "results_seen_before_registration": [
+    "Stage3 L20 N10 k3 b2 R1 development at 5 and 10 bps only"
+  ],
+  "new_parameter_results_seen": false,
+  "all_attempts": 72,
+  "costs_are_not_additional_attempts": true,
+  "configurations": [
+    {
+      "id": "L010_N08_b2_R1",
+      "L": 10,
+      "N": 8,
+      "k": 2,
+      "b": 2,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L020_N08_b2_R1",
+      "L": 20,
+      "N": 8,
+      "k": 2,
+      "b": 2,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L040_N08_b2_R1",
+      "L": 40,
+      "N": 8,
+      "k": 2,
+      "b": 2,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L060_N08_b2_R1",
+      "L": 60,
+      "N": 8,
+      "k": 2,
+      "b": 2,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L090_N08_b2_R1",
+      "L": 90,
+      "N": 8,
+      "k": 2,
+      "b": 2,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L126_N08_b2_R1",
+      "L": 126,
+      "N": 8,
+      "k": 2,
+      "b": 2,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L010_N10_b2_R1",
+      "L": 10,
+      "N": 10,
+      "k": 3,
+      "b": 2,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L020_N10_b2_R1",
+      "L": 20,
+      "N": 10,
+      "k": 3,
+      "b": 2,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L040_N10_b2_R1",
+      "L": 40,
+      "N": 10,
+      "k": 3,
+      "b": 2,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L060_N10_b2_R1",
+      "L": 60,
+      "N": 10,
+      "k": 3,
+      "b": 2,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L090_N10_b2_R1",
+      "L": 90,
+      "N": 10,
+      "k": 3,
+      "b": 2,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L126_N10_b2_R1",
+      "L": 126,
+      "N": 10,
+      "k": 3,
+      "b": 2,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L010_N12_b2_R1",
+      "L": 10,
+      "N": 12,
+      "k": 4,
+      "b": 2,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L020_N12_b2_R1",
+      "L": 20,
+      "N": 12,
+      "k": 4,
+      "b": 2,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L040_N12_b2_R1",
+      "L": 40,
+      "N": 12,
+      "k": 4,
+      "b": 2,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L060_N12_b2_R1",
+      "L": 60,
+      "N": 12,
+      "k": 4,
+      "b": 2,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L090_N12_b2_R1",
+      "L": 90,
+      "N": 12,
+      "k": 4,
+      "b": 2,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L126_N12_b2_R1",
+      "L": 126,
+      "N": 12,
+      "k": 4,
+      "b": 2,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L010_N08_b3_R1",
+      "L": 10,
+      "N": 8,
+      "k": 2,
+      "b": 3,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L020_N08_b3_R1",
+      "L": 20,
+      "N": 8,
+      "k": 2,
+      "b": 3,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L040_N08_b3_R1",
+      "L": 40,
+      "N": 8,
+      "k": 2,
+      "b": 3,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L060_N08_b3_R1",
+      "L": 60,
+      "N": 8,
+      "k": 2,
+      "b": 3,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L090_N08_b3_R1",
+      "L": 90,
+      "N": 8,
+      "k": 2,
+      "b": 3,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L126_N08_b3_R1",
+      "L": 126,
+      "N": 8,
+      "k": 2,
+      "b": 3,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L010_N10_b3_R1",
+      "L": 10,
+      "N": 10,
+      "k": 3,
+      "b": 3,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L020_N10_b3_R1",
+      "L": 20,
+      "N": 10,
+      "k": 3,
+      "b": 3,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L040_N10_b3_R1",
+      "L": 40,
+      "N": 10,
+      "k": 3,
+      "b": 3,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L060_N10_b3_R1",
+      "L": 60,
+      "N": 10,
+      "k": 3,
+      "b": 3,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L090_N10_b3_R1",
+      "L": 90,
+      "N": 10,
+      "k": 3,
+      "b": 3,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L126_N10_b3_R1",
+      "L": 126,
+      "N": 10,
+      "k": 3,
+      "b": 3,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L010_N12_b3_R1",
+      "L": 10,
+      "N": 12,
+      "k": 4,
+      "b": 3,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L020_N12_b3_R1",
+      "L": 20,
+      "N": 12,
+      "k": 4,
+      "b": 3,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L040_N12_b3_R1",
+      "L": 40,
+      "N": 12,
+      "k": 4,
+      "b": 3,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L060_N12_b3_R1",
+      "L": 60,
+      "N": 12,
+      "k": 4,
+      "b": 3,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L090_N12_b3_R1",
+      "L": 90,
+      "N": 12,
+      "k": 4,
+      "b": 3,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L126_N12_b3_R1",
+      "L": 126,
+      "N": 12,
+      "k": 4,
+      "b": 3,
+      "rebalance": "R1"
+    },
+    {
+      "id": "L010_N08_b2_R2",
+      "L": 10,
+      "N": 8,
+      "k": 2,
+      "b": 2,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L020_N08_b2_R2",
+      "L": 20,
+      "N": 8,
+      "k": 2,
+      "b": 2,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L040_N08_b2_R2",
+      "L": 40,
+      "N": 8,
+      "k": 2,
+      "b": 2,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L060_N08_b2_R2",
+      "L": 60,
+      "N": 8,
+      "k": 2,
+      "b": 2,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L090_N08_b2_R2",
+      "L": 90,
+      "N": 8,
+      "k": 2,
+      "b": 2,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L126_N08_b2_R2",
+      "L": 126,
+      "N": 8,
+      "k": 2,
+      "b": 2,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L010_N10_b2_R2",
+      "L": 10,
+      "N": 10,
+      "k": 3,
+      "b": 2,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L020_N10_b2_R2",
+      "L": 20,
+      "N": 10,
+      "k": 3,
+      "b": 2,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L040_N10_b2_R2",
+      "L": 40,
+      "N": 10,
+      "k": 3,
+      "b": 2,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L060_N10_b2_R2",
+      "L": 60,
+      "N": 10,
+      "k": 3,
+      "b": 2,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L090_N10_b2_R2",
+      "L": 90,
+      "N": 10,
+      "k": 3,
+      "b": 2,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L126_N10_b2_R2",
+      "L": 126,
+      "N": 10,
+      "k": 3,
+      "b": 2,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L010_N12_b2_R2",
+      "L": 10,
+      "N": 12,
+      "k": 4,
+      "b": 2,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L020_N12_b2_R2",
+      "L": 20,
+      "N": 12,
+      "k": 4,
+      "b": 2,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L040_N12_b2_R2",
+      "L": 40,
+      "N": 12,
+      "k": 4,
+      "b": 2,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L060_N12_b2_R2",
+      "L": 60,
+      "N": 12,
+      "k": 4,
+      "b": 2,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L090_N12_b2_R2",
+      "L": 90,
+      "N": 12,
+      "k": 4,
+      "b": 2,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L126_N12_b2_R2",
+      "L": 126,
+      "N": 12,
+      "k": 4,
+      "b": 2,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L010_N08_b3_R2",
+      "L": 10,
+      "N": 8,
+      "k": 2,
+      "b": 3,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L020_N08_b3_R2",
+      "L": 20,
+      "N": 8,
+      "k": 2,
+      "b": 3,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L040_N08_b3_R2",
+      "L": 40,
+      "N": 8,
+      "k": 2,
+      "b": 3,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L060_N08_b3_R2",
+      "L": 60,
+      "N": 8,
+      "k": 2,
+      "b": 3,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L090_N08_b3_R2",
+      "L": 90,
+      "N": 8,
+      "k": 2,
+      "b": 3,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L126_N08_b3_R2",
+      "L": 126,
+      "N": 8,
+      "k": 2,
+      "b": 3,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L010_N10_b3_R2",
+      "L": 10,
+      "N": 10,
+      "k": 3,
+      "b": 3,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L020_N10_b3_R2",
+      "L": 20,
+      "N": 10,
+      "k": 3,
+      "b": 3,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L040_N10_b3_R2",
+      "L": 40,
+      "N": 10,
+      "k": 3,
+      "b": 3,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L060_N10_b3_R2",
+      "L": 60,
+      "N": 10,
+      "k": 3,
+      "b": 3,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L090_N10_b3_R2",
+      "L": 90,
+      "N": 10,
+      "k": 3,
+      "b": 3,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L126_N10_b3_R2",
+      "L": 126,
+      "N": 10,
+      "k": 3,
+      "b": 3,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L010_N12_b3_R2",
+      "L": 10,
+      "N": 12,
+      "k": 4,
+      "b": 3,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L020_N12_b3_R2",
+      "L": 20,
+      "N": 12,
+      "k": 4,
+      "b": 3,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L040_N12_b3_R2",
+      "L": 40,
+      "N": 12,
+      "k": 4,
+      "b": 3,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L060_N12_b3_R2",
+      "L": 60,
+      "N": 12,
+      "k": 4,
+      "b": 3,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L090_N12_b3_R2",
+      "L": 90,
+      "N": 12,
+      "k": 4,
+      "b": 3,
+      "rebalance": "R2"
+    },
+    {
+      "id": "L126_N12_b3_R2",
+      "L": 126,
+      "N": 12,
+      "k": 4,
+      "b": 3,
+      "rebalance": "R2"
+    }
+  ],
+  "costs_bps": [
+    5,
+    10
+  ],
+  "source_stage2_registry_sha256": "87a9994509a8ea59aa9b59c6f0c45f139a22215ffab47e7ee9272f94b47acd44",
+  "normalized_sha256": {
+    "calendar.csv": "2e1f58bc80d951eb6ab66a7e51415746301dbbadc9b1594d9035923089af8d8f",
+    "events.csv": "1257d1be17253110eac59894384ba562564de5186040240b582ae2af661f571a",
+    "prices.csv": "c95f5b2f15bc3a8cb8d7cac68a03c807dab6fae0176eb4c19cc97b34e053c3ea",
+    "securities.csv": "3d9e3c68a61a86932662a5236e01b610ae0e94eb36d53fc964610079186b5ca3",
+    "snapshot_members.csv": "7ca7cfe124b1b08c275eddda7781ea3acadc822234ac046e02c3fc774b3fac3f",
+    "snapshots.csv": "32aca5232320e4e866f3db3b5a389ccb7928475f5c7d6645d9edca7509917006",
+    "spinoff_child_prices.csv": "c6184d29633b950e52bd76371c053fb9316b9aaa73c3d788ef9e834abd84d5b9"
+  },
+  "development": {
+    "start": "2019-11-29",
+    "end": "2024-06-28",
+    "n_weeks": 240
+  },
+  "holdout": {
+    "start": "2024-07-05",
+    "end": "2026-10-23",
+    "n_weeks": 121
+  },
+  "initial_capital": 100000,
+  "fee_per_trade": 1,
+  "tax_assumption": 0,
+  "rebalance_rules": {
+    "R1": "On swap weeks, all tradable positions restored near equal weight using N minus frozen slots; no swap, no trades; same Stage3 execution.",
+    "R2": "On swap weeks sell exits only; retained shares unchanged; distribute all available cash after exit fees and reserving one fee per new buy equally among new additions, using adverse fill prices and whole shares. With no additions, leave cash for a later weekly review; no swap means no trades. Initial entry is equal allocation among additions."
+  },
+  "neighbors": "Same b and rebalance; adjacent index in L or N, Manhattan distance exactly one, no diagonals; k follows N.",
+  "holdout_rule": {
+    "a": "P development annualized return at 10bps strictly exceeds same-period VOO annualized return",
+    "b": "At 5bps, strictly more than half of ALL geometric neighbors have annualized return above VOO; incomplete neighbor is not a win",
+    "c": "At 10bps, strictly positive calendar-year return difference versus VOO in at least 3 of 2020,2021,2022,2023",
+    "d": "P completes both cost scenarios and passes ledger acceptance; no unresolved held event",
+    "selection": "Select exactly one candidate maximizing arithmetic mean of own and all neighbors 10bps annualized EXCESS return. No additional return/risk criteria.",
+    "incomplete_neighbor_mean": "Any incomplete 10bps neighbor gives extended-real mean -infinity for selection, never inventing a numeric return. Equal means, including all -infinity, tie by ascending configuration ID.",
+    "none": "开发段未发现满足事先条件的参数区域; do not run or compute holdout scores, trades, equity, benchmark, or returns",
+    "positive": "Exactly one selected configuration, one holdout experiment with both 5bps/10bps; no subsequent parameter change",
+    "holdout_account": "Fresh $100000 account at first eligible holdout signal 2024-07-05, next-session open execution. Historical prices may warm scores; no inherited development holdings, cash or tax state.",
+    "execution_once": "Create exclusive holdout execution lock BEFORE any holdout calculation. Refuse a second invocation, including failed/incomplete runs; no automatic retries."
+  },
+  "annualization": "CAGR = (ending equity / starting equity)^(365.25 / elapsed calendar days)-1; same interval for VOO; annualized excess = strategy CAGR minus VOO CAGR",
+  "calendar_years": "2020-2023: previous year final session close to current year final session close, including all intervening costs/dividends; no fresh restart",
+  "subperiods": [
+    {
+      "label": "2019-12_to_2021-12",
+      "start": "first actual execution open",
+      "end": "2021-12-31"
+    },
+    {
+      "label": "2022-01_to_2024-06",
+      "start": "2021-12-31 close (boundary for 2022-01)",
+      "end": "2024-06-28"
+    }
+  ],
+  "subperiod_note": "Slice the same continuous account/benchmark; do not restart or rerank at subperiod boundaries; pick last NYSE session at/before each endpoint.",
+  "incomplete_reporting": "Count attempted configuration regardless of completion; retain last explainable state; no complete-period return imputation; not eligible for holdout",
+  "engineering_replays": "Deterministic repair/replays of the SAME registered configuration are logged as replays, not hidden new strategy attempts; no parameter additions",
+  "baseline_stage3_sha256": {
+    "5": {
+      "trades.csv": "ab7f40953ea6dc84705b589a3fb98b6662939803f6c6c8cad2a289621d393a23",
+      "daily_equity.csv": "e24e483fdaed479c0c6958e70657a848780eaba049bf01b9613417b37a11396d",
+      "benchmark.csv": "c872d82e3a373433f7139975e65c9572ae0d6a49744bf28acabec9d4c7ff6cbb",
+      "summary.json": "0be258090045e0c4e586ec8dd91c29f54e6c19ab4006066098b024d73b53495f"
+    },
+    "10": {
+      "trades.csv": "d13400f694887cb526438e5d1c709cf6df5cb382c33ff7980ea2126274137e0d",
+      "daily_equity.csv": "f536fc2125d2c8a3eb3cda9f6e22f718e9ed2072e14bbb0855779172b5a80906",
+      "benchmark.csv": "c872d82e3a373433f7139975e65c9572ae0d6a49744bf28acabec9d4c7ff6cbb",
+      "summary.json": "ef0a65e955eddf0ff4c1bebe190b245f09aaad51dcdd446621b90c5c51ebc1fd"
+    }
+  },
+  "supplemental_events": "Original normalized files never modified. Official new evidence and necessary event overlays must be append-only under stage4 paths with source, acquisition time/hash, and disclosure of results already seen. Unverifiable held events stop the configuration.",
+  "limitations": [
+    "missing historical member quotes / survivor bias",
+    "current industry classification",
+    "72 multiple comparisons; no efficacy conclusion or investor parameter recommendation"
+  ]
+}

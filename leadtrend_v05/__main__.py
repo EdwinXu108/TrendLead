@@ -206,6 +206,24 @@ def cmd_run_experiment(args):
     return 0
 
 
+def cmd_diagnose(args):
+    import os
+    from .diagnostics import run_diagnostics
+    from .perf_runner import WORKER_PEAK_BYTES, auto_workers
+    from .perf_bench import available_physical
+    root = _project_root()
+    workers = args.workers
+    if workers == 'auto':
+        workers = auto_workers(available_physical(), WORKER_PEAK_BYTES['explore'], os.cpu_count() or 1)
+    try:
+        out = run_diagnostics(root, args.output, workers=workers)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    print(out)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="leadtrend_v05")
     sub = p.add_subparsers(dest="command", required=True)
@@ -246,6 +264,10 @@ def build_parser() -> argparse.ArgumentParser:
     exp.add_argument('--workers',type=_workers_arg,default=1,help='worker processes 1..8, or auto')
     exp.add_argument('--null',type=int,default=None,help='override null_runs in the spec')
     exp.set_defaults(func=cmd_run_experiment)
+    diag = sub.add_parser('diagnose', help='Diagnostics D0 on the development segment only; never the holdout; not an attempt')
+    diag.add_argument('--output', required=True, help='directory under work/runs, e.g. work/runs/diagnostics/D0')
+    diag.add_argument('--workers', type=_workers_arg, default=1, help='worker processes 1..8, or auto')
+    diag.set_defaults(func=cmd_diagnose)
     hold=sub.add_parser('run-holdout',help='One-shot, rule-selected Stage4 holdout; refuses without authorization')
     hold.set_defaults(func=cmd_run_holdout)
     repair=sub.add_parser('stage2-repair',help='Claude A1--A3 identity, child quote and official dividend repairs')

@@ -1,0 +1,9 @@
+name,paired_10bps,paired_5bps,period_A,period_B,leave_one_year_out_positive,null_lower,c1_gap_ge_1pp_and_5bp_same_sign,c2_periods_not_opposite,c3_loyo_ge_3,c4_null_lower_ge_75,all_four
+ENT_POS,-2.42%,-2.36%,-5.64%,-0.25%,2,94.0%,False,True,False,True,False
+ENT_NEG,-3.23%,-2.94%,-6.73%,-0.85%,3,87.0%,False,True,True,True,False
+SKP90,1.18%,1.52%,-3.68%,4.48%,4,100.0%,True,False,True,True,False
+SKP60,0.60%,0.71%,6.50%,-3.31%,1,40.0%,False,False,False,False,False
+PEER,-9.90%,-9.77%,-14.22%,-6.92%,2,34.0%,False,True,False,False,False
+G,2.13%,2.21%,1.80%,2.32%,4,98.0%,True,True,True,True,True
+VOLA,-3.84%,-3.56%,-8.19%,-0.88%,3,87.0%,False,True,True,True,False
+SIZE,6.63%,6.78%,3.09%,8.95%,4,100.0%,True,True,True,True,True

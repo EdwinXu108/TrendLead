@@ -1,0 +1,13 @@
+name,weeks,point_annualized_diff_vs_A90,p05,p95,method
+ENT_POS,239,-0.020383684153530375,-0.0682785851379281,0.02779015637481822,"moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory"
+ENT_NEG,239,-0.026716787647920636,-0.06662631689598017,0.010603495681555044,"moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory"
+SEC3,239,0.05197181741333705,-0.00622338700239688,0.10310153939185095,"moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory"
+SEC2,239,-0.0015794812388572705,-0.08875424424694071,0.08571516169190234,"moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory"
+SKP90,239,0.011004109317504562,-0.025004084461849044,0.04777540517150982,"moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory"
+SKP60,239,-0.08787472776799847,-0.22154186984038488,0.047704962036235664,"moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory"
+CAP2,239,0.010481236767789571,-0.01741262893065027,0.04806163108220782,"moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory"
+PEER,239,-0.08836881629905764,-0.171339295903312,0.0016310408791060328,"moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory"
+G,239,0.013937537977114141,-0.05558610991531167,0.07724525450711119,"moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory"
+VOLA,239,-0.04593190976358723,-0.13788589492286235,0.041338136554575584,"moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory"
+SIZE,239,0.05299149683256995,-0.045608675286119116,0.13011498569157703,"moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory"
+WGT,239,-0.016706775166995976,-0.1712558814414814,0.11387959038364301,"moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory"

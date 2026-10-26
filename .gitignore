@@ -22,3 +22,6 @@ vendor/
 work/
 *.pyc
 data/classification_snapshots/
+
+# leadtrend_db v1: raw archive, database and exports stay local (rebuild from the archive)
+data/db/

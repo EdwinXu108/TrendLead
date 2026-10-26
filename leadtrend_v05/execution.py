@@ -28,8 +28,13 @@ def adverse_fill(reference_price: float, side: str, slippage_rate: float) -> flo
 
 
 def plan_exit_cash_trades(account, target_ids, open_prices, fee_per_trade,
-                          slippage_rate, session_date, is_swap_week, **kwargs):
-    """R2: exits finance additions; retained positions are never resized."""
+                          slippage_rate, session_date, is_swap_week, cap=None, marks=None, total_pre=None, **kwargs):
+    """R2: exits finance additions; retained positions are not resized unless a single-stock cap is given.
+
+    cap (plan 9.4(2)): in a trading week, a retained name above cap x total equity (total_pre, at the execution
+    session's closing marks before any order) is cut to the largest whole-share holding within the cap. The sale
+    proceeds join the cash that the additions split. cap=None leaves the trades exactly as before.
+    """
     if not is_swap_week:return []
     targets=set(target_ids);held={s for s,q in account.positions.items() if q>0}
     additions=sorted(targets-held);trades=[]
@@ -38,6 +43,13 @@ def plan_exit_cash_trades(account, target_ids, open_prices, fee_per_trade,
         fill=adverse_fill(ref,'sell',slippage_rate)
         delta=record_trade_cash(account,sid,qty,'sell',fill,fee_per_trade)
         trades.append(Trade(session_date,sid,'sell',qty,ref,fill,fee_per_trade,delta,'exit'))
+    if cap is not None:
+        for sid in sorted(held&targets):
+            qty=account.shares_of(sid);keep=min(qty,int(cap*total_pre//marks[sid]))
+            if qty-keep<=0:continue
+            ref=open_prices[sid];fill=adverse_fill(ref,'sell',slippage_rate)
+            delta=record_trade_cash(account,sid,qty-keep,'sell',fill,fee_per_trade)
+            trades.append(Trade(session_date,sid,'sell',qty-keep,ref,fill,fee_per_trade,delta,'cap_trim'))
     if not additions:return trades
     budget=max(0.,account.cash-len(additions)*fee_per_trade)/len(additions)
     for sid in additions:

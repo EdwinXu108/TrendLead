@@ -84,6 +84,13 @@ class RobustnessContext(ExperimentContext):
         start = raw.get('start_date')
         if start not in weeks[:len(OFFSETS)]:
             raise ValueError('start must be the development start or one of the first four signal weeks')
+        tranche = raw.get('tranche')
+        if tranche is not None and not (isinstance(tranche.get('K'), int) and 1 <= tranche['K'] <= 12
+                                        and isinstance(tranche.get('j'), int) and 0 <= tranche['j'] < tranche['K']):
+            raise ValueError('tranche needs K from 1 to 12 and j from 0 to K-1')
+        cap = raw.get('cap')
+        if cap is not None and not 0 < cap <= 1:
+            raise ValueError('single-stock cap must be in (0, 1]')
         super().authorize(dict(raw, start_date=self.segment['start']), end_override)
         return date.fromisoformat(start), self.end
 
@@ -154,14 +161,20 @@ def run_offsets(root, base, ids, offsets=OFFSETS, costs=(10,), workers=1):
 
 
 def run_issuer(root, base, ids, issuer, costs=COSTS, workers=1):
+    return run_issuers(root, base, ids, [issuer], costs=costs, workers=workers)
+
+
+def run_issuers(root, base, ids, issuers, costs=COSTS, workers=1):
+    """Remove every security of the given issuers (one or more) from every week, then run the configurations."""
     root, base = Path(root), Path(base)
     doc = identity(root, 'uniform')
-    excluded = sorted({r['security_id'] for r in read_table(root / paths.NORMALIZED / 'securities.csv') if r.get('issuer_id') == issuer})
+    issuers = list(issuers)
+    excluded = sorted({r['security_id'] for r in read_table(root / paths.NORMALIZED / 'securities.csv') if r.get('issuer_id') in set(issuers)})
     if not excluded:
-        raise ValueError('no security carries issuer ' + issuer)
+        raise ValueError('no security carries the given issuers: ' + ','.join(issuers))
     points = configurations(root, ids)
     ensure_signal_tables(root, doc, [p['signal'] for p in points])
-    experiment = dict(id=EXPERIMENT_ID, kind='issuer_exclusion', excluded_issuer=issuer, note='robustness run; not an attempt; not for selection')
+    experiment = dict(id=EXPERIMENT_ID, kind='issuer_exclusion', excluded_issuers=issuers, note='robustness run; not an attempt; not for selection')
     payload = dict(points=points, costs=list(COSTS), experiment=experiment)
     ctx = _context(root, doc, payload, excluded)
     jobs = []
@@ -169,7 +182,7 @@ def run_issuer(root, base, ids, issuer, costs=COSTS, workers=1):
         for cost in costs:
             jobs.append((dict(p, experiment=experiment), cost, str(base / p['id'] / f'cost_{cost}bps'), 'explore', False, 'explore'))
     executed = _run_jobs(jobs, ctx, workers, payload, excluded)
-    return dict(issuer=issuer, excluded_securities=len(excluded), executed=executed)
+    return dict(issuers=issuers, excluded_securities=len(excluded), executed=executed)
 
 
 def equivalence(root, base, workers=1):

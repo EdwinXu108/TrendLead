@@ -463,3 +463,5 @@ def score_rows_to_candidates(
 SELECTION_RULES = {"default": select_portfolio, "random_matched": select_random_matched}
 from .selection_structured import STRUCTURED_RULES  # noqa: E402  (after the base definitions it extends)
 SELECTION_RULES.update(STRUCTURED_RULES)
+from .selection_matched import MATCHED_RULE_FUNCTIONS  # noqa: E402  (diagnostic matched controls, plan 9.3(1))
+SELECTION_RULES.update(MATCHED_RULE_FUNCTIONS)

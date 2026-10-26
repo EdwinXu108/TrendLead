@@ -27,6 +27,7 @@ from .signals import canonical, describe, is_default_momentum, main_L, normalize
 from .stage4_registry import digest, points as stage4_points, verify
 from .stage4_summary import interval
 from .perf_cache import OptimizedContext
+from .drawdown import load_dtb3, risk_profile
 
 EXPERIMENTS = 'research/v05/experiments'
 BASELINE = {'id': 'L090_N08_b2_R2', 'L': 90, 'N': 8, 'k': 2, 'b': 2, 'rebalance': 'R2'}
@@ -42,6 +43,7 @@ DEV_START, DEV_END = '2019-11-29', '2024-06-28'
 DEFAULT_NULL_RUNS = 200
 PERIODS = ('2019-11-29 to 2021-12-31', '2022-01-01 to 2024-06-28')
 REGISTERED_SELECTIONS = set(RULE_PARAMS)
+RESERVED_SELECTIONS = {'random_matched', 'random_size_matched', 'random_sector_matched'}  # controls, never registered
 
 
 def selection_key(selection, params):
@@ -59,7 +61,7 @@ def make_point(signal, N, b, rebalance, selection='default', selection_params=No
     pid = base_id if is_default_momentum(sig) else f'S{signal_key(sig)}_{base_id}'
     point = {'id': pid, 'signal': sig, 'L': L, 'N': N, 'k': max(1, math.floor(.3 * N + .5)), 'b': b, 'rebalance': rebalance}
     if selection != 'default' or selection_params:
-        if selection not in SELECTION_RULES or selection == 'random_matched':
+        if selection not in SELECTION_RULES or selection in RESERVED_SELECTIONS:
             raise ValueError('unknown or reserved selection rule: ' + selection)
         params = dict(selection_params or {})
         unknown = set(params) - set(RULE_PARAMS.get(selection, {}))
@@ -500,6 +502,15 @@ SCORECARD_COLUMNS = [
     ('收益/波动', 'ret_over_vol', _ratio2), ('收益/回撤', 'ret_over_dd', _ratio2), ('2022年最大回撤', 'dd_2022', _pct),
     ('相对WGT超额差(10bp)', 'paired_vs_WGT_10bps', _pct), ('相对WGT年化波动差', 'vol_vs_WGT', _pct),
     ('相对WGT最大回撤差', 'dd_vs_WGT', _pct), ('相对WGT收益/波动差', 'ret_over_vol_vs_WGT', _ratio2),
+    ('最大回撤峰值日', 'dd_peak_date', str), ('最大回撤谷底日', 'dd_trough_date', str), ('最大回撤恢复日', 'dd_recovery_date', str),
+    ('最长水下天数', 'longest_underwater_days', str), ('2020年最大回撤', 'dd_2020', _pct),
+    ('最差自然年收益', 'worst_year_return', _pct), ('最差年份', 'worst_year', str), ('夏普比(扣DTB3)', 'sharpe_dtb3', _ratio2),
+    ('头号发行人占总盈亏', 'top_issuer_share', _pct),
+    ('VOO最大回撤', 'voo_max_drawdown', _pct), ('VOO最大回撤峰值日', 'voo_dd_peak_date', str), ('VOO最大回撤谷底日', 'voo_dd_trough_date', str),
+    ('VOO最大回撤恢复日', 'voo_dd_recovery_date', str), ('VOO最长水下天数', 'voo_longest_underwater_days', str),
+    ('VOO 2020年最大回撤', 'voo_dd_2020', _pct), ('VOO 2022年最大回撤', 'voo_dd_2022', _pct),
+    ('VOO最差自然年收益', 'voo_worst_year_return', _pct), ('VOO最差年份', 'voo_worst_year', str),
+    ('VOO收益/最大回撤', 'voo_ret_over_dd', _ratio2), ('VOO夏普比(扣DTB3)', 'voo_sharpe_dtb3', _ratio2),
 ]
 
 
@@ -518,6 +529,8 @@ def _write_scorecard(out, rows, header):
               '- 随机对照为换手匹配：每个配置一组，种子从 0 起，退出只数取自该配置自己的 10 bp 探索档运行，并遵守该配置的细分行业 k 与大板块上限（如有）。',
               '- 随机对照百分位格式为“点估计（下界–上界）”：该配置 10 bp 年化超额不高于随机结果的比例。点估计只用已完成的运行；下界假设停止的运行全部高于该配置，上界假设全部低于。',
               '- 配对差 = 本配置减锚点（同一成本、同一时段）；逐年剔除一年后，用其余三年复利求得的相对 VOO 年化超额。',
+              '- 回撤与夏普列（9.2）：最大回撤的峰值、谷底、恢复日，最长水下天数（日历日），2020 年最大回撤，最差自然年收益，'
+              '扣 DTB3 的夏普比（DTB3 为 FRED 三个月国库券利率，按百分比年化后取窗口均值），头号发行人占总盈亏比例；VOO 同样列于末尾。',
               '- 风险列来自 daily 运行（10 bp）：相对 VOO 的日收益，252 个交易日年化；收益/波动、收益/回撤用年化收益（CAGR）；'
               '2022 年最大回撤的峰值取 2022 年内的最高点；相对 WGT 的差为本配置减 WGT。',
               '- 收益、超额、回撤、占比以百分比显示，保留 1 位小数；年单边换手为比值，保留 1 位小数。', '']
@@ -563,6 +576,26 @@ def write_csv_rows(path, rows):
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         w.writeheader()
         w.writerows(rows)
+
+
+_PROFILE_KEYS = ('dd_peak_date', 'dd_trough_date', 'dd_recovery_date', 'longest_underwater_days', 'dd_2020',
+                 'worst_year_return', 'worst_year', 'sharpe_dtb3', 'top_issuer_share', 'voo_max_drawdown', 'voo_dd_peak_date',
+                 'voo_dd_trough_date', 'voo_dd_recovery_date', 'voo_longest_underwater_days', 'voo_dd_2020', 'voo_dd_2022',
+                 'voo_worst_year_return', 'voo_worst_year', 'voo_ret_over_dd', 'voo_sharpe_dtb3')
+
+
+def _profile_cells(profile):
+    """Scorecard cells from risk_profile: the strategy's drawdown record and the same numbers for VOO."""
+    if not profile:
+        return {k: '' for k in _PROFILE_KEYS}
+    cells = {k: profile.get(k, '') for k in _PROFILE_KEYS if not k.startswith('voo_')}
+    cells.update({'voo_max_drawdown': profile.get('voo_max_drawdown'), 'voo_dd_peak_date': profile.get('voo_dd_peak_date'),
+                  'voo_dd_trough_date': profile.get('voo_dd_trough_date'), 'voo_dd_recovery_date': profile.get('voo_dd_recovery_date'),
+                  'voo_longest_underwater_days': profile.get('voo_longest_underwater_days'), 'voo_dd_2020': profile.get('voo_dd_2020'),
+                  'voo_dd_2022': profile.get('voo_dd_2022'), 'voo_worst_year_return': profile.get('voo_worst_year_return'),
+                  'voo_worst_year': profile.get('voo_worst_year'), 'voo_ret_over_dd': profile.get('voo_ret_over_dd'),
+                  'voo_sharpe_dtb3': profile.get('voo_sharpe_dtb3')})
+    return {k: ('' if v is None else v) for k, v in cells.items()}
 
 
 def _diff(a, b):
@@ -686,6 +719,10 @@ def run_experiment(root, spec_path, workers=1, null_runs=None):
     sectors = {}
     rows = []
     risks = {p['id']: risk_metrics(_run_folder(base, p, 10, 'daily'), base_metrics[p['id']]) for p in points if base_metrics[p['id']]}
+    rates = load_dtb3(root)
+    issuer_of = {r['security_id']: r.get('issuer_id', '') for r in read_table(root / paths.NORMALIZED / 'securities.csv')}
+    profiles = {p['id']: risk_profile(_run_folder(base, p, 10, 'daily'), root, rates, issuer_of)
+                for p in points if base_metrics[p['id']]}
     wgt = next((p for p in points if p.get('name') == REFERENCE_NAME), None)
     anchor_of = {p['id']: (p.get('anchor') or '') for p in points}
     for p in [q for q in points if q['id'] == BASELINE['id']] + [q for q in order if q['id'] != BASELINE['id']]:
@@ -745,6 +782,7 @@ def run_experiment(root, spec_path, workers=1, null_runs=None):
             vol_vs_WGT=_diff(risk.get('vol'), wgt_risk.get('vol')),
             dd_vs_WGT=_diff(m10 and m10['max_drawdown'], wgt_m and wgt_m['max_drawdown']),
             ret_over_vol_vs_WGT=_diff(risk.get('ret_vol'), wgt_risk.get('ret_vol')),
+            **_profile_cells(profiles.get(p['id'], {})),
             null_cell='', **nulls, daily_confirmed='yes'))
     base.mkdir(parents=True, exist_ok=True)
     by_id = {p['id']: f"{len(null_values.get(p['id'], []))}/{totals[p['id']]}" for p in points}

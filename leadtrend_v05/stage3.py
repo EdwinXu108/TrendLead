@@ -14,10 +14,11 @@ from .dataio import load_inputs, SecurityRow, PriceRow, sha256_file
 from .calendar import Calendar
 from .eligibility import ClassSelector, build_price_index, eligibility_index
 from .selection import Candidate, SELECTION_RULES, select_portfolio
+from .selection_matched import MATCHED_RULES, load_match_table
 from .selection_structured import percentile_by_rank
 from .sectors import load_sector_map, sector_key
 from .signals import is_default_momentum, normalize as normalize_signal, signal_key
-from .execution import plan_equal_weight_trades
+from .execution import plan_equal_weight_trades, plan_exit_cash_trades
 from .ledger import AccountState
 from .benchmark import build_benchmark
 from .universe import choose_snapshot
@@ -136,7 +137,12 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
             snapshots=[s for s in full.snapshots if s.available_at.date()<=end and s.holdings_as_of<=end])
     del full
     cal=Calendar(inputs.calendar);dates=[c.session_date for c in cal.sessions];sessions=[c for c in cal.sessions if start<=c.session_date<=end]
-    positions={d:i for i,d in enumerate(dates)};signals={c.session_date for c in cal.week_signal_sessions() if start<=c.session_date<=end}
+    positions={d:i for i,d in enumerate(dates)}
+    # Tranche sub-account j (plan 9.4(1)) checks at the signal weeks with index j, j+K, ... and holds 1/K of the account.
+    tranche=raw.get('tranche');K=tranche['K'] if tranche else 1;j=tranche['j'] if tranche else 0
+    signal_days=sorted(c.session_date for c in cal.week_signal_sessions() if start<=c.session_date<=end)
+    if K>1:signal_days=[d for i,d in enumerate(signal_days) if i%K==j]
+    signals=set(signal_days);init_capital=cfg.initial_capital/K if K>1 else cfg.initial_capital
     def paid_on_tenth(created):
         """Pay date of a general fractional settlement: the tenth session after the effective session, inside the segment."""
         i=positions[created]+10
@@ -154,7 +160,7 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
         elig=eligibility_index(inputs);selector=ClassSelector(cfg,build_price_index(inputs.prices))
     events_by_date=defaultdict(list)
     for e in inputs.events:events_by_date[e.effective_session].append(e)
-    book=DevBook(AccountState(cfg.initial_capital));tables={name:[] for name in ('universe','scores','decisions','trades','daily_equity','benchmark','positions','receivables','cash_flows','corporate_actions','weekly_checks','data_issues','weekly_coverage','daily_contributions','rolling_relative','return_contributions')}
+    book=DevBook(AccountState(init_capital));tables={name:[] for name in ('universe','scores','decisions','trades','daily_equity','benchmark','positions','receivables','cash_flows','corporate_actions','weekly_checks','data_issues','weekly_coverage','daily_contributions','rolling_relative','return_contributions')}
     if _stage4_context is not None:book.fractional_settlements=getattr(_stage4_context,'fractional_settlements',{})
     coverage={r['signal_session_date']:r for r in read_csv(root/paths.WEEKLY_COVERAGE)}
     # Sector keys are needed only by the structured selection rules; the reviewed default path does not read the map.
@@ -177,12 +183,16 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
         'execution_assumption':'next-session raw open is observable allocation quote; whole shares, sell before buy; only swap weeks; no extra settlement delay',
         'fractional_right_assumption':'unverified fractional cash-in-lieu stays a restricted security entitlement at observed child mark; no invented payment',
         'limitations':['survivorship bias from missing historical member quotes','current industry classification','unvalidated engineering defaults']}
+    if tranche:manifest.update(tranche=dict(K=K,j=j,initial_capital=init_capital,schedule_weeks=len(signal_days)),initial_capital_account=init_capital)
+    if raw.get('cap') is not None:manifest.update(single_stock_cap=raw['cap'])
     if raw.get('signal') is not None or raw.get('experiment') is not None:
         manifest.update(signal=signal,signal_key=signal_key(signal),experiment=raw.get('experiment'))
     if _stage4_context is not None:
         manifest.update(stage=4,scope=_stage4_context.scope,stage4_registry_sha256=_stage4_context.registry_hash,
                         rebalance=raw['rebalance'],no_holdout_computed=_stage4_context.scope=='development_only')
     # Entry rules read the short-window percentiles of every signal week up front: one pass keeps one window table loaded.
+    # Matched random controls (plan 9.3(1)) read their match table once: the pool groups and the reference's buys.
+    match_table=load_match_table(raw['selection_params']['match_file']) if raw.get('selection','default') in MATCHED_RULES else {}
     short_pct={}
     if raw.get('selection','default') in {'ent_pos','ent_neg'}:
         if _performance is None:raise ValueError('entry rules need the cached score tables')
@@ -237,13 +247,16 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
                 target=[sid for sid in target if sid not in voided]
                 temp=AccountState(book.account.cash,dict(tradable))
                 opens={sid:px[sid,d].open for sid in set(tradable)|set(target)}
-                if first_trade is None:first_open_value=cfg.initial_capital
+                if first_trade is None:first_open_value=init_capital
                 planner=plan_equal_weight_trades
                 if _stage4_context is not None and raw['rebalance']=='R2':
                     from .execution import plan_exit_cash_trades
                     planner=plan_exit_cash_trades
+                cap=raw.get('cap')
+                if cap is not None and planner is not plan_exit_cash_trades:raise ValueError('single-stock cap is a round 2 option')
+                extra={} if cap is None else dict(cap=cap,marks=marks,total_pre=book.components(marks)['total_equity'])
                 trades=planner(temp,target,opens,cfg.fee_per_trade,cfg.slippage_rate,d,swap,
-                    allocation_slots=max(0,cfg.N-len(frozen)-len(gap_retained)-len(voided_held)))
+                    allocation_slots=max(0,cfg.N-len(frozen)-len(gap_retained)-len(voided_held)),**extra)
                 running_cash=book.account.cash;qs=dict(tradable)
                 for t in trades:
                     old=qs.get(t.security_id,0);new=old+(t.shares if t.side=='buy' else -t.shares)
@@ -337,6 +350,7 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
                 else:
                     params=dict(raw.get('selection_params',{}))
                     aux={'sector':sector_by_sid}
+                    if rule in MATCHED_RULES:aux['match']=match_table[iso]
                     if rule in {'ent_pos','ent_neg'}:aux['short']=short_pct[d]
                     selected=SELECTION_RULES[rule](candidates,held,cfg.N,cfg.k,cfg.b,frozen=frozen_candidates,signal_date=iso,
                         held_meta={sid:(sec[sid].issuer_id,sec[sid].industry) for sid in held},aux=aux,**params)
@@ -388,9 +402,9 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
     v2_counts=Counter(r['severity'] for r in tables['data_issues'] if r['severity'] in {'stale_mark','void_order'})
     if book.fractional_settlements:tables['fractional_cash']=book.fractional_rows
     if stop is None and first_trade is not None:
-        benchmark=build_benchmark(cfg.benchmark_security_id,inputs.prices,inputs.events,dates,cfg.initial_capital,first_trade)
+        benchmark=build_benchmark(cfg.benchmark_security_id,inputs.prices,inputs.events,dates,init_capital,first_trade)
         tables['benchmark']=[dict(session_date=p.session_date.isoformat(),voo_tri=p.voo_tri,benchmark_value=p.benchmark_value) for p in benchmark.points]
-        summary,rolling,dependency=summarize(tables['daily_equity'],tables['benchmark'],tables['trades'],tables['weekly_checks'],contributions,cfg.initial_capital,first_trade,end)
+        summary,rolling,dependency=summarize(tables['daily_equity'],tables['benchmark'],tables['trades'],tables['weekly_checks'],contributions,init_capital,first_trade,end)
         tables['rolling_relative']=rolling;tables['return_contributions']=dependency
         summary.update(slippage_bps=cfg.slippage_bps,held_event_counts=dict(Counter(r['event_type'] for r in book.event_rows)),
             frozen_security_days=sum(r['frozen'] for r in tables['positions']),passive_limit_weeks=sum(r['passive_limit_exceeded'] for r in tables['weekly_checks']),
@@ -410,6 +424,8 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
             summary['experiment_label']='真实数据近似实验：唯一预先选定配置的保留段一次性检验；不再调参'
     if raw.get('selection','default')!='default':manifest['selection_counts']=dict(sorted(selection_counts.items()))
     if gap_exit_count:summary.update(unscorable_price_gap_exits=gap_exit_count)
+    cap_trims=sum(1 for t in tables['trades'] if t['reason']=='cap_trim')
+    if cap_trims:summary.update(single_stock_cap_trims=cap_trims)
     if v2_counts:
         # Rule v2 events are reported only when they occur, so runs without them keep their reviewed bytes.
         summary.update(accounting_rules_version=ACCOUNTING_RULES_VERSION,single_session_stale_marks=v2_counts.get('stale_mark',0),

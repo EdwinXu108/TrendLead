@@ -32,6 +32,7 @@ def audit(folder,root=None,ctx=None,end=None):
     tables={name:(LazyRows(folder/(name+'.csv')) if name in {'scores','universe','decisions'} else read(folder/(name+'.csv'))) for name in ('daily_equity','positions','trades','corporate_actions','receivables','weekly_checks','benchmark','scores','universe','decisions','weekly_coverage','cash_flows','daily_contributions','return_contributions','rolling_relative')}
     summary=json.loads((folder/'summary.json').read_text(encoding='utf-8'))
     manifest=json.loads((folder/'run_manifest.json').read_text(encoding='utf-8'))
+    initial=float(manifest.get('initial_capital_account',100000.))  # a tranche sub-account starts with 1/K of the account
     failures=[];equity=tables['daily_equity'];trades=tables['trades'];actions=tables['corporate_actions']
     if summary['status']!='completed':failures.append('run incomplete')
     max_identity=max(abs(f(r,'cash')+f(r,'tradable_stock_value')+f(r,'frozen_stock_value')+f(r,'receivable_cash')+f(r,'receivable_security_value')-f(r,'total_equity')) for r in equity)
@@ -52,7 +53,7 @@ def audit(folder,root=None,ctx=None,end=None):
     calendar_days=[r['session_date'] for r in read(ROOT/paths.NORMALIZED/'calendar.csv')]
     day_index={x:i for i,x in enumerate(calendar_days)};entitlement_total={}
     fractional_due={};fractional_created=set();fractional_paid=set();fractional_max_error=0.
-    cash=100000.;qty=defaultdict(float);receivable=0.;processed=set();previous_positions={};max_cash_error=max_qty_error=max_mark_error=max_entitlement_error=0.
+    cash=initial;qty=defaultdict(float);receivable=0.;processed=set();previous_positions={};max_cash_error=max_qty_error=max_mark_error=max_entitlement_error=0.
     max_trade_error=0.;frozen_sales=0;frozen_share_changes=0;duplicate_events=0;split_errors=[];spinoff_visible=[];manual=[];cash_receivables={}
     freeze_observations=0
     for day in equity:
@@ -187,6 +188,19 @@ def audit(folder,root=None,ctx=None,end=None):
         for t in tables['trades']:
             if t['side']=='buy' and t['signal_session_date'] in day_index and not window_complete(t['security_id'],t['signal_session_date']):
                 failures.append('buy of a name with a price gap in its scoring window '+t['security_id']+' '+t['signal_session_date'])
+    cap=manifest.get('single_stock_cap')
+    if cap is not None:
+        # Plan 9.4(2), replayed from the run's own holdings and closes: a name held before and after a trading session, and
+        # not frozen, never exceeds cap x total equity of that session (one share of slack for whole-share orders).
+        cap=float(cap);prior={}
+        for day in equity:
+            d=day['session_date'];now={r['security_id']:r for r in positions[d] if r['asset_type']=='actual_shares'}
+            if by_day.get(d):
+                total=f(day,'total_equity')
+                for sid,r in now.items():
+                    if sid in prior and r['frozen']=='0' and f(r,'shares')>0 and f(r,'value')>cap*total*(1+1e-9)+f(r,'mark'):
+                        failures.append('retained name above the single-stock cap '+sid+' '+d)
+            prior=now
     if max(max_cash_error,max_qty_error,max_mark_error,max_entitlement_error,max_trade_error)>TOLERANCE:failures.append('independent ledger/quote replay discrepancy')
     if fractional_max_error>TOLERANCE:failures.append('fractional cash amount mismatch')
     if any(eid not in fractional_paid and due<=END for eid,due in fractional_due.items()):failures.append('fractional cash never paid')
@@ -199,7 +213,7 @@ def audit(folder,root=None,ctx=None,end=None):
     benchmark=tables['benchmark'];first=min(t['session_date'] for t in trades)
     if benchmark[0]['session_date']!=first or benchmark[-1]['session_date']!=END:failures.append('benchmark alignment')
     # Independently reconstruct fractional VOO units from first actual raw OPEN.
-    voo={d:r for (sid,d),r in quotes.items() if sid=='VOO_ETF'};units=100000/float(voo[first]['open']);max_benchmark_error=0.
+    voo={d:r for (sid,d),r in quotes.items() if sid=='VOO_ETF'};units=initial/float(voo[first]['open']);max_benchmark_error=0.
     cash_events=defaultdict(list)
     for r in event_inputs.values():
         if r['security_id']=='VOO_ETF':cash_events[r['effective_session']].append(r)
@@ -220,7 +234,7 @@ def audit(folder,root=None,ctx=None,end=None):
         for key in ('start_date','end_date','comparison_start_session','comparison_end_session'):
             if doc.get(key) and doc[key]>END:failures.append('holdout boundary in output JSON '+key)
     sum_contributions=sum(f(r,'profit_dollars') for r in tables['return_contributions'])
-    contribution_error=abs(sum_contributions-(float(equity[-1]['total_equity'])-100000))
+    contribution_error=abs(sum_contributions-(float(equity[-1]['total_equity'])-initial))
     if contribution_error>TOLERANCE:failures.append('contributions do not reconcile')
     coverage_source={r['signal_session_date']:r for r in read(ROOT/paths.WEEKLY_COVERAGE)}
     coverage_mismatch=sum(r['historical_no_price_ratio']!=coverage_source[r['signal_session_date']]['historical_no_price_ratio'] for r in tables['weekly_coverage'])
@@ -243,6 +257,7 @@ def audit(folder,root=None,ctx=None,end=None):
         'stage2_stage3_score_max_rounding_difference':max_score_error,
         'manual_trade_checks':manual,'failures':failures}
     result.update(fractional_cash_confirmations=len(fractional_created),fractional_cash_payments=len(fractional_paid),fractional_cash_max_error=fractional_max_error)
+    if manifest.get('single_stock_cap') is not None:result.update(single_stock_cap=manifest['single_stock_cap'],single_stock_cap_trims=sum(1 for t in trades if t['reason']=='cap_trim'))
     return result
 
 _SOURCE_QUOTES={}
@@ -276,6 +291,59 @@ def independent_quotes(root,end):
             if p['session_date']<=end:quotes['CHILD:VSCO',p['session_date']]=_Quote(p['open'],p['close'])
     _SOURCE_QUOTES[key]=quotes
     return quotes
+
+def voo_values(root,days,first,initial):
+    """VOO on the whole account as the audit replays it: units bought at the first open of the first trade, dividends reinvested."""
+    quotes=independent_quotes(Path(root),days[-1])
+    voo={d:r for (sid,d),r in quotes.items() if sid=='VOO_ETF'}
+    cash_events=defaultdict(list)
+    for r in read(Path(root)/paths.NORMALIZED/'events.csv'):
+        if r['security_id']=='VOO_ETF':cash_events[r['effective_session']].append(r)
+    units=initial/float(voo[first]['open']);out=[];previous_units=None
+    for d in days:
+        close=float(voo[d]['close']);dividend=0.
+        for e in cash_events[d]:
+            if e['event_type']=='cash_dividend' and previous_units is not None:dividend+=previous_units*float(e['cash_amount_per_share'])
+            elif e['event_type'] in {'split','reverse_split'}:units*=float(e['shares_new_per_old'])
+        units+=dividend/close
+        out.append(units*close);previous_units=units
+    return out
+
+def audit_tranche_group(group,root=None,end=None):
+    """Independent check of one tranche group (plan 9.4(1)). Reads the group folder and its sub-account folders only.
+
+    Each sub-account replays with its own 1/K capital (audit). The merged account equals the sum of the sub-accounts on
+    every session; sub-account j checks only at its own signal weeks (index j mod K); the sub-account capitals add to the
+    account; the merged trade count is the sum of the sub-account counts; the merged benchmark is VOO on the whole account
+    from the first merged trade.
+    """
+    global ROOT
+    if root is not None:ROOT=Path(root)
+    group=Path(group);gm=json.loads((group/'group_manifest.json').read_text(encoding='utf-8'))
+    K=int(gm['K']);subs=[group/x for x in gm['sub_folders']];weeks=gm['signal_weeks'];failures=[];sub_status=[]
+    if len(subs)!=K:failures.append('sub-account count differs from K')
+    for s in subs:
+        r=audit(s,ROOT,end=end);sub_status.append(dict(folder=s.name,status=r['status']))
+        failures.extend(f"{s.name}: {x}" for x in r['failures'])
+    capital=sum(float(json.loads((s/'run_manifest.json').read_text(encoding='utf-8'))['tranche']['initial_capital']) for s in subs)
+    if abs(capital-100000.)>TOLERANCE:failures.append('sub-account capital does not add to the account')
+    for j,s in enumerate(subs):
+        own={r['signal_session_date'] for r in read(s/'weekly_checks.csv')}
+        if own!=set(weeks[j::K]):failures.append(f'{s.name} does not check at its own schedule')
+    merged=read(group/'merged'/'daily_equity.csv');per_sub=[{r['session_date']:float(r['total_equity']) for r in read(s/'daily_equity.csv')} for s in subs]
+    gap=max(abs(sum(p.get(r['session_date'],0.) for p in per_sub)-float(r['total_equity'])) for r in merged) if merged else 0.
+    if gap>TOLERANCE:failures.append('merged equity differs from the sum of sub-accounts')
+    trades=read(group/'merged'/'trades.csv')
+    if len(trades)!=sum(len(read(s/'trades.csv')) for s in subs):failures.append('merged trades differ from the sum of sub-account trades')
+    bench=read(group/'merged'/'benchmark.csv');first=min(t['session_date'] for t in trades) if trades else None
+    benchmark_error=None
+    if first is None or bench[0]['session_date']!=first:failures.append('merged benchmark does not start at the first merged trade')
+    else:
+        expected=voo_values(ROOT,[b['session_date'] for b in bench],first,100000.)
+        benchmark_error=max(abs(v-float(b['benchmark_value'])) for v,b in zip(expected,bench))
+        if benchmark_error>TOLERANCE:failures.append('merged benchmark mismatch')
+    return dict(status='PASS' if not failures else 'FAIL',K=K,subs=sub_status,merged_equity_gap=gap,
+                merged_benchmark_error=benchmark_error,failures=failures)
 
 def baseline_consistency(root,folder,cost):
     original=Path(root)/paths.STAGE3_RESULTS

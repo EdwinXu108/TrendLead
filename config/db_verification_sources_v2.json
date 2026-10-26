@@ -1,0 +1,10 @@
+{
+  "stamp": "20261026T204130Z",
+  "sec_keys": {
+    "https://www.sec.gov/files/company_tickers.json": "https://www.sec.gov/files/company_tickers.json#observed=20261026T204130Z",
+    "https://data.sec.gov/submissions/CIK0002041610.json": "https://data.sec.gov/submissions/CIK0002041610.json#observed=20261026T204130Z",
+    "https://data.sec.gov/submissions/CIK0002115436.json": "https://data.sec.gov/submissions/CIK0002115436.json#observed=20261026T204130Z"
+  },
+  "basic_url": "opend://basic_us/20261026T204130Z",
+  "quota_url": "opend://quota/20261026T204130Z"
+}

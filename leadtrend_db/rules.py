@@ -24,8 +24,25 @@ UTC time returns the latest report period whose version is public by then, and w
 version public by then.
 """
 from __future__ import annotations
+import csv
+import hashlib
+from pathlib import Path
 
-RULE_VERSION = 'top200_v1'
+RULE_VERSION = 'top200_v2'
+EXCLUSIONS_PATH = Path(__file__).resolve().parent.parent / 'config' / 'pool_exclusions_v1.csv'
+PERMANENT_EXCLUSION_REASON = 'investor_permanent_exclusion'
+MERGER_RULE = ('A rename or a single-company fixed-ratio holding-company/redomiciliation succession continues. '
+               'In a merger only the legally surviving continuously listed party continues; acquired parties and '
+               'both predecessors of a newly formed merger issuer are retired. New issuers start with their own holdings.')
+
+
+def permanent_exclusions(path: Path = EXCLUSIONS_PATH) -> dict[str, dict]:
+    with path.open(encoding='utf-8-sig', newline='') as f:
+        rows = list(csv.DictReader(f))
+    result = {r['issuer_id']: r for r in rows}
+    if len(result) != len(rows) or any(not r['issuer_id'].startswith('CIK:') for r in rows):
+        raise ValueError('permanent exclusion IDs must be unique CIK issuer IDs')
+    return result
 TOP_N = 200
 BOUNDARY_RANGE = (180, 220)                 # rank range exported for review
 ELIGIBLE_TYPES = ('common', 'adr')          # security types that may be candidates
@@ -41,6 +58,8 @@ CENT = 100                                  # ranking unit: integer cents
 def describe() -> dict:
     """The rule as data (written to the meta table and to the exports' documentation)."""
     return dict(rule_version=RULE_VERSION, top_n=TOP_N, boundary_range=list(BOUNDARY_RANGE),
+                permanent_exclusions=permanent_exclusions(),
+                pool_exclusions_sha256=hashlib.sha256(EXCLUSIONS_PATH.read_bytes()).hexdigest(),merger_rule=MERGER_RULE,
                 eligible_types=list(ELIGIBLE_TYPES), forbidden_candidate=FORBIDDEN_CANDIDATE,
                 status_cutoff=STATUS_CUTOFF, build_cutoff_utc=BUILD_CUTOFF_UTC, earliest_quarter=EARLIEST_QUARTER,
                 amount_unit='integer cents of reported value_usd', ranking='company amount descending, '

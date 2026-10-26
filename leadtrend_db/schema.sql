@@ -43,6 +43,18 @@ CREATE TABLE issuer_names (
   PRIMARY KEY (issuer_id, name, name_kind, valid_from)
 );
 
+CREATE TABLE pool_exclusions (
+  issuer_id TEXT PRIMARY KEY REFERENCES issuers(issuer_id),
+  name TEXT NOT NULL, reason TEXT NOT NULL, decision_date TEXT NOT NULL, decider TEXT NOT NULL
+);
+
+CREATE TABLE ticker_checks (
+  security_id TEXT PRIMARY KEY REFERENCES securities(security_id), current_ticker TEXT NOT NULL,
+  sec_issuer_id TEXT NOT NULL, opend_code TEXT NOT NULL, opend_stock_id TEXT NOT NULL,
+  sec_result TEXT NOT NULL, opend_result TEXT NOT NULL, checked_at_utc TEXT NOT NULL,
+  sec_source_id TEXT REFERENCES sources(source_id), opend_source_id TEXT REFERENCES sources(source_id)
+);
+
 -- Successor links between issuers (the holdings keep the issuer of their own date; links are for the current view).
 CREATE TABLE issuer_links (
   predecessor_issuer_id TEXT NOT NULL REFERENCES issuers(issuer_id),
@@ -384,4 +396,6 @@ FROM (
   JOIN issuer_resolution res ON res.issuer_id = sp.issuer_id
   JOIN listing_status ls ON ls.issuer_id = res.resolved_issuer_id
   WHERE sp.level = 'security' AND ls.status <> 'delisted'
+    AND sp.issuer_id NOT IN (SELECT issuer_id FROM pool_exclusions)
+    AND res.resolved_issuer_id NOT IN (SELECT issuer_id FROM pool_exclusions)
 ) u;

@@ -39,7 +39,7 @@ from .sources import RawMissing, RawStore, sha256_bytes, utc_now_iso
 from .status import PERIODIC, classify, detect_successors, filing_rows
 
 SCHEMA_FILE = Path(__file__).with_name('schema.sql')
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 PRE_FORMS = ('N-Q', 'N-CSR', 'N-CSRS', 'NPORT-EX')
 KIND = {'N-Q': 'nq', 'N-CSR': 'ncsr', 'N-CSRS': 'ncsrs', 'NPORT-EX': 'other', 'NPORT-P': 'nport'}
 SNAP_PREFIX = {'N-Q': 'NQ', 'N-CSR': 'NCSR', 'N-CSRS': 'NCSRS', 'NPORT-EX': 'NPORTEX', 'NPORT-P': 'NPORT'}
@@ -63,6 +63,7 @@ TYPE_ORDER = ('cvr', 'right', 'warrant', 'etf', 'reit', 'partnership', 'spac', '
 TABLE_COLUMNS = {
     'sources': ['source_id', 'kind', 'url', 'raw_path', 'sha256', 'bytes', 'retrieved_at_utc', 'note'],
     'issuers': ['issuer_id', 'cik', 'name', 'sic', 'sic_description', 'state_of_incorporation', 'lei', 'source_id'],
+    'pool_exclusions': ['issuer_id','name','reason','decision_date','decider'],
     'issuer_names': ['issuer_id', 'name', 'name_kind', 'valid_from', 'valid_to', 'first_seen', 'last_seen', 'source_id'],
     'issuer_links': ['predecessor_issuer_id', 'successor_issuer_id', 'relation', 'confidence', 'via_override',
                      'effective_date', 'evidence', 'source_id'],
@@ -95,6 +96,8 @@ TABLE_COLUMNS = {
     'strategy_securities': ['version_id', 'issuer_id', 'security_id', 'class_code', 'current_security_id',
                             'current_ticker', 'strategy_eligible', 'reason'],
     'quarter_checks': ['version_id', 'check_name', 'status', 'detail'],
+    'ticker_checks': ['security_id','current_ticker','sec_issuer_id','opend_code','opend_stock_id',
+                      'sec_result','opend_result','checked_at_utc','sec_source_id','opend_source_id'],
     'membership_spans': ['level', 'subject_id', 'issuer_id', 'span_no', 'first_as_of', 'last_as_of',
                          'first_available_at_utc', 'last_available_at_utc', 'quarters_present', 'next_absent_as_of'],
     'issuer_resolution': ['issuer_id', 'resolved_issuer_id', 'method'],
@@ -176,6 +179,9 @@ class Build:
                       if r['override_kind'] == 'link' and r['field']}
         self.succ_over = {cik10(r['key'].split('>')[1]): r['field'] for r in self.overrides
                           if r['override_kind'] == 'link' and r['value'] == 'successor_reorganization' and r['field']}
+        # Legal issuer lifetimes are independent of the investor's decision to keep/remove a continuity link.
+        self.ended.update({cik10(r['key']):r['value'] for r in self.overrides if r['override_kind']=='issuer_end'})
+        self.succ_over.update({cik10(r['key']):r['value'] for r in self.overrides if r['override_kind']=='issuer_start'})
 
     def step(self, name: str, detail: str = '') -> None:
         self.steps.append((name, detail))
@@ -955,6 +961,8 @@ class Build:
             if r['override_kind'] != 'link':
                 continue
             pred, succ = (cik10(x) for x in r['key'].split('>'))
+            if issuer_id(pred) in R.permanent_exclusions():
+                raise ValueError('permanently excluded predecessor cannot have a continuity link: '+pred)
             over_links.append(dict(predecessor=pred, successor=succ, relation=r['value'], confidence='high',
                                    via_override=1, effective_date=r['field'],
                                    evidence=f'{r["reason"]} | {r["evidence"]}'))
@@ -1245,6 +1253,8 @@ class Build:
                     issuer_id=issuer_id(cik) if cik else None, security_type=ln.get('type', 'unknown'),
                     map_method=ln.get('map', ('', ''))[0], map_confidence=ln.get('map', ('', ''))[1],
                     unmapped_reason='' if cik else ln.get('why', ''), candidate_issuers=' '.join(cands), source_id=src))
+        t['pool_exclusions'] = [dict(issuer_id=k,name=r['名称'],reason=r['排除理由'],decision_date=r['决定日期'],decider=r['决定者'])
+                                for k,r in sorted(R.permanent_exclusions().items())]
         t['membership_spans'] = self.spans(primary, universe)
         self.security_tickers = {r['security_id']: r['id_value'] for r in t['security_identifiers']
                                  if r['id_type'] == 'ticker'}
@@ -1252,6 +1262,8 @@ class Build:
         extra_tables = top200.compute(self, snaps, primary, info, final, resolved, status_as_of)
         for k, v in extra_tables.items():
             t[k] = v
+        from .ticker_check import verify
+        t['ticker_checks'] = verify(t, self.store)
         for n, r in enumerate(sorted(self.review, key=lambda r: (r['review_type'], r.get('subject_id', ''),
                                                                  r.get('snapshot_id', ''), r.get('detail', ''))), 1):
             src = r.get('source_id') or None
@@ -1339,6 +1351,7 @@ def build(offline: bool = False, log=print, db_path: Path = S.DB_PATH) -> dict:
     build_id = sha256_bytes(f'{manifest_sha}|{commit}|{utc_now_iso()}'.encode())[:16]
     digest = write_db(t, db_path, b.steps + [('write', db_path.name)],
                       dict(build_id=build_id, code_commit=commit, raw_manifest_sha256=manifest_sha,
+                           pool_exclusions_sha256=R.describe()['pool_exclusions_sha256'],
                            content_sha256_scope='all tables and views except meta and build_log',
                            rules=json.dumps(R.describe(), ensure_ascii=False, sort_keys=True)))
     counts = {k: len(v) for k, v in t.items() if isinstance(v, list)}

@@ -52,6 +52,7 @@ def members_as_of(conn: sqlite3.Connection, utc: str) -> dict:
                                 (v['version_id'],)).fetchall()
     return dict(query_utc=utc, version=v, status='ok' if v['quarter_state'] == 'ready' else 'blocked',
                 companies=companies, strategy=strategy,
+                eligible_companies=eligible_companies(conn, v['version_id']) if v['quarter_state']=='ready' else [],
                 eligible_securities=eligible_securities(conn, v['version_id']) if v['quarter_state']=='ready' else [])
 
 
@@ -60,6 +61,13 @@ def eligible_securities(conn, version_id):
     return conn.execute("""select issuer_id,security_id,class_code,current_security_id,current_ticker
                            from strategy_securities where version_id=? and strategy_eligible=1
                            order by issuer_id,security_id""", (version_id,)).fetchall()
+
+
+def eligible_companies(conn, version_id):
+    """Strategy input only; historical Top 200 remains an explicit audit table."""
+    return conn.execute("""select historical_rank,issuer_id,resolved_current_issuer,current_ticker
+                           from strategy_companies where version_id=? and strategy_eligible=1
+                           order by historical_rank""", (version_id,)).fetchall()
 
 
 def quarter(conn: sqlite3.Connection, report_period: str) -> dict:
@@ -72,6 +80,7 @@ def quarter(conn: sqlite3.Connection, report_period: str) -> dict:
                                 from top200_companies where version_id=? order by rank""", (v[0],)).fetchall()
     return dict(report_period=report_period, version_id=v[0], available_at_utc=v[2], quarter_state=v[3],
                 quarter_reason=v[4], companies=companies,
+                eligible_companies=eligible_companies(conn,v[0]) if v[3]=='ready' else [],
                 eligible_securities=eligible_securities(conn,v[0]) if v[3]=='ready' else [])
 
 
@@ -91,6 +100,7 @@ def main_query(db_path: Path, quarter_period: str | None, as_of: str | None) -> 
                 return 1
             print(f"report period {res['report_period']} version {res['version_id']} "
                   f"available {res['available_at_utc']} state {res['quarter_state']}")
+            print('historical audit (includes excluded companies; use eligible_companies/eligible_securities for strategy input)')
             print(format_rows(['rank', 'issuer_id', 'holding_name', 'amount_cents', 'tie_group', 'blocked_members'],
                               res['companies']))
             print(format_rows(['issuer_id','historical_security_id','class','current_security_id','current_ticker'],
@@ -104,6 +114,7 @@ def main_query(db_path: Path, quarter_period: str | None, as_of: str | None) -> 
             v = res['version']
             print(f"query {as_of}: report period {v['report_period']} version {v['version_id']} "
                   f"available {v['available_at_utc']} canonical {v['is_canonical']} state {v['quarter_state']}")
+            print('historical audit (includes excluded companies; use eligible_companies/eligible_securities for strategy input)')
             print(format_rows(['rank', 'issuer_id', 'holding_name', 'amount_cents', 'tie_group', 'blocked_members'],
                               res['companies']))
             if res['strategy']:

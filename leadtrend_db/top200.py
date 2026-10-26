@@ -131,6 +131,7 @@ def current_security(build, sk: str, current_issuer: str) -> tuple[str, str]:
 
 def compute(build, snaps: list[dict], primary: list[dict], info: dict, final: dict, resolved: dict,
             status_as_of: str) -> dict:
+    excluded_ids = set(R.permanent_exclusions())
     out = {k: [] for k in ('pool_versions', 'company_ranks', 'top200_companies', 'top200_securities',
                            'strategy_companies', 'strategy_securities', 'quarter_checks')}
     versions = sorted((s for s in snaps if s['completeness'] == 'full' and s['reconciled']),
@@ -214,7 +215,9 @@ def compute(build, snaps: list[dict], primary: list[dict], info: dict, final: di
             st = final.get(rc_cik, {})
             cur = st.get('status', 'unknown')
             reason_block, reason_excl = '', ''
-            if cur == 'delisted' and (cik in open_succ or rc_cik in open_succ):
+            if issuer_id(cik) in excluded_ids:
+                reason_excl = R.PERMANENT_EXCLUSION_REASON
+            elif cur == 'delisted' and (cik in open_succ or rc_cik in open_succ):
                 reason_block = 'delisted at the cutoff but a successor candidate is open for review (not excluded)'
             elif cur == 'delisted':
                 reason_excl = f'delisted at status cutoff {R.STATUS_CUTOFF}: {st.get("evidence", "")}'
@@ -248,7 +251,8 @@ def compute(build, snaps: list[dict], primary: list[dict], info: dict, final: di
                     current_security_id=current_sk,
                     current_ticker=current_tk,
                     strategy_eligible=int(eligible and not forbidden and same),
-                    reason=(f'blocked: {forbidden}' if forbidden else
+                    reason=(R.PERMANENT_EXCLUSION_REASON if issuer_id(cik) in excluded_ids else
+                            f'blocked: {forbidden}' if forbidden else
                             ('predecessor security; successor security not identified in archive' if not same else
                              ('company not eligible' if not eligible else 'eligible class at the cutoff')))))
         out['quarter_checks'].append(dict(

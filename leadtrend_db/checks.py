@@ -187,6 +187,21 @@ def check_readiness(conn, out: dict) -> list[str]:
             if failed or blocked else [])
 
 
+def check_policy(conn, out):
+    wrong=_rows(conn,"""select sc.version_id,sc.issuer_id from strategy_companies sc join pool_exclusions e using(issuer_id)
+        where sc.strategy_eligible<>0 or sc.excluded_reason<>'investor_permanent_exclusion'""")
+    securities=_rows(conn,"""select ss.version_id,ss.security_id from strategy_securities ss
+        join pool_exclusions e using(issuer_id) where ss.strategy_eligible<>0""")
+    links=_rows(conn,"""select l.predecessor_issuer_id from issuer_links l join pool_exclusions e
+        on e.issuer_id=l.predecessor_issuer_id where relation in ('merger_survivor','successor_reorganization')""")
+    stored={r[0] for r in _rows(conn,'select issuer_id from pool_exclusions')}
+    config=set(R.permanent_exclusions())
+    ticker=_rows(conn,"select security_id from ticker_checks where sec_result<>'pass' or opend_result<>'pass'")
+    out['investor_policy']=dict(excluded_issuers=len(config),incorrect_company_rows=len(wrong),
+        incorrect_security_rows=len(securities),prohibited_links=len(links),ticker_reviews=len(ticker))
+    return ['investor exclusion policy failed'] if wrong or securities or links or stored!=config else []
+
+
 def check_raw_nport(conn, out: dict) -> list[str]:
     """Independent XML traversal: compare every EC row, including identifiers and amounts, with stored facts."""
     import xml.etree.ElementTree as ET
@@ -302,6 +317,7 @@ def run_checks(db_path: Path = S.DB_PATH, rebuild: bool = True, work_db: Path | 
     fails += check_security_boundary(conn, out)
     fails += check_strategy(conn, out)
     fails += check_readiness(conn, out)
+    fails += check_policy(conn, out)
     fails += check_raw_nport(conn, out)
     fails += check_integrity(conn, out)
     check_v05(conn, out, S.RAW_DIR / 'reference' / 'v05' / 'snapshot_members.csv')

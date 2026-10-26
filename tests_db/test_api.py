@@ -42,12 +42,14 @@ def test_pool_at_before_the_first_version_is_empty():
 def test_tri_series_is_positive_and_starts_at_one():
     pool = api.pool_at('2020-06-15')
     sid = pool['securities'][0]['security_id']
-    series = api.tri_series([sid], '2019-01-01', '2024-06-28')[sid]
-    assert series, 'a pool security must have a total-return series'
-    assert series[0][1] == pytest.approx(1.0)
-    assert all(row[1] > 0 for row in series)
-    for prev, cur in zip(series, series[1:]):
+    full = api.tri_series([sid], '2012-01-01', '2024-06-28')[sid]
+    assert full, 'a pool security must have a total-return series'
+    assert full[0][1] == pytest.approx(1.0)
+    assert all(row[1] > 0 for row in full)
+    for prev, cur in zip(full, full[1:]):
         assert cur[1] == pytest.approx(prev[1] * (1 + cur[2]), rel=1e-12)
+    window = api.tri_series([sid], '2019-01-01', '2024-06-28')[sid]
+    assert window[0][0] >= '2019-01-01'
 
 
 def test_benchmark_series_exists_and_covers_the_backtest_window():

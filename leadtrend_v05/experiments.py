@@ -851,5 +851,5 @@ def run_experiment(root, spec_path, workers=1, null_runs=None):
         experiment=experiment, spec=loaded['spec'], attempts=header['attempts'], baseline_check=check,
         grid_points=len(grid), points=len(points), anchors_added=[p['id'] for p in extra], null_runs=n_null,
         confirm_top=loaded['confirm_top'], daily_confirmed_points=len(points),
-        null_points=len(null_points), null_counts=by_id))
+        null_points=len(null_entries), null_counts=by_id))
     return base

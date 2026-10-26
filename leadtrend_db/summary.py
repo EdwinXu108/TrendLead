@@ -12,7 +12,7 @@ def write_summary(db_path: Path, out: Path, log=print) -> None:
     q = lambda s: c.execute(s).fetchall()[0]
     meta = dict(q_ for q_ in c.execute('select key, value from meta').fetchall())
     lines = [
-        '# leadtrend_db v2 counts (rule_version top200_v1)',
+        f'# leadtrend_db schema {meta.get("schema_version")} counts (rule_version {meta.get("rule_version")})',
         '',
         f'- schema_version {meta.get("schema_version")}, rule_version {meta.get("rule_version")}, '
         f'build_id {meta.get("build_id")}, content_sha256 {meta.get("content_sha256")}',

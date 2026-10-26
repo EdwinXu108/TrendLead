@@ -37,6 +37,14 @@ def test_invariants_hold_on_real_data():
     assert out['summary']['strategy']['total_return'] > -1
 
 
+def test_corporate_actions_are_armed_for_real_runs():
+    bt = Backtest(dict(CFG))
+    bt.load()
+    assert bt.action_sids, 'corporate actions must be armed before the daily loop'
+    assert any(row['action_type'] in ('split', 'cash_dividend') for sid in bt.action_sids
+               for row in bt.actions[sid])
+
+
 def test_reserved_segment_is_refused_on_real_data():
     with pytest.raises(HoldoutError):
         Backtest(dict(CFG, end='2024-07-05'))

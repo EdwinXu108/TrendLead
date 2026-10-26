@@ -282,7 +282,7 @@ class Backtest:
         return dict(sells=sells, buys=buys, rank=rank, keeps=keeps, scores=scores)
 
     def _random_orders(self, tranche: Tranche, day: str, pool: dict) -> dict:
-        want = self.plan.get((day, tranche.index), dict(sells=0, buys=0))
+        want = self.plan.get(f'{day}|{tranche.index}', dict(sells=0, buys=0))
         held = list(tranche.positions)
         sells = sorted(held, key=lambda sid: _hash_key(self.seed, day, sid))[:int(want['sells'])]
         in_pool = {s['security_id'] for s in pool['securities']}

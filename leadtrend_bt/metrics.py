@@ -129,9 +129,10 @@ def compute(result: dict, rf_daily: dict[str, float], periods=(PERIOD_A, PERIOD_
     for row in result['positions']:
         by_day[row['date']] = by_day.get(row['date'], 0) + 1
     positions_count = [by_day.get(d, 0) for d in dates]
+    equity_by_day = {row['date']: row['equity'] for row in daily}
     max_weight = 0.0
     for row in result['positions']:
-        eq = next((x['equity'] for x in daily if x['date'] == row['date']), 0.0)
+        eq = equity_by_day.get(row['date'], 0.0)
         if eq:
             max_weight = max(max_weight, row['value'] / eq)
     traded = sum(abs(t['shares'] * t['price']) for t in result['trades'])

@@ -179,13 +179,16 @@ def compute(build, snaps: list[dict], primary: list[dict], info: dict, final: di
         # strategy: the historical list filtered by the status at the cutoff; blocked members kept as blocked
         seen_sec: dict[str, str] = {}
         conflicts: list[str] = []
+        open_succ = {r['subject_id'] for r in build.review if r['review_type'] == 'successor_candidate'}
         for n, cik in enumerate(rk['ranked'][:R.TOP_N], 1):
             rc_cik = resolved.get(cik, (cik, ''))[0]
             rc = f'CIK:{rc_cik}'
             st = final.get(rc_cik, {})
             cur = st.get('status', 'unknown')
             reason_block, reason_excl = '', ''
-            if cur == 'delisted':
+            if cur == 'delisted' and (cik in open_succ or rc_cik in open_succ):
+                reason_block = 'delisted at the cutoff but a successor candidate is open for review (not excluded)'
+            elif cur == 'delisted':
                 reason_excl = f'delisted at status cutoff {R.STATUS_CUTOFF}: {st.get("evidence", "")}'
             elif cur == 'unknown' or st.get('needs_review'):
                 reason_block = f'status {cur} needs review at cutoff {R.STATUS_CUTOFF}'

@@ -62,8 +62,9 @@ LIMIT 1;
 - **historical_top200**：只按当季持仓、当季发行人身份和证券边界选出。`top200_companies` 与 `top200_securities`，
   不因今天是否退市而改变排名。
 - **strategy_top200**：在历史名单上应用构建日 `status_cutoff = 2026-10-26`（`rules.STATUS_CUTOFF`）的存续状态。
-  当前退市（`delisted`）的公司写入 `excluded_reason`，不补位，也不从第 201 名起补充。未知或需复核的公司写入
-  `blocked_reason`，保留在名单中但不可选。`strategy_companies` 每期一行历史成员；`current_status`、
+  当前退市（`delisted`）的公司写入 `excluded_reason`，不补位，也不从第 201 名起补充。退市但仍有未解决的继任候选
+  （核对清单中的 `successor_candidate`，即退市前后 120 天内有 8-K12B 而名称不能确定）的公司不计为退市排除，写入
+  `blocked_reason`，因为其继任身份未能排除；未知或需复核的公司同样写入 `blocked_reason`。被阻断的成员保留在名单中但不可选。`strategy_companies` 每期一行历史成员；`current_status`、
   `resolved_current_issuer`、`current_ticker` 来自现行发行人（继任链之后），与历史代码分开。
 - 策略名单的状态截止只是构建日的过滤，不是历史当时已经知道的事实。
 
@@ -112,7 +113,7 @@ LIMIT 1;
   其合计金额超过第 200 名与第 201 名之间的差距，而这些行没有任何候选 CIK（见第 9 节）。
 
 每季的公司数均为 200；历史证券行（canonical）10,301 行，其中符合候选边界的 10,268 行；策略名单中可选公司 9,560 行
-（每季 164–200 家，少于 200 家的全部由当前退市或状态未知造成，每一项均有 `excluded_reason` 或 `blocked_reason`）；
+（每季 164–200 家；历史名单中未入选的 640 个公司季度行全部有原因：明确退市排除 29 行，退市但继任候选未定而阻断 611 行）；
 策略名单去重后的可选证券为 332 只（`security_union.csv`，每只证券注明所在季度与发行人）。
 
 ## 8. 边界与核验

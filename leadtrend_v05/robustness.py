@@ -144,6 +144,7 @@ def run_offsets(root, base, ids, offsets=OFFSETS, costs=(10,), workers=1):
     root, base = Path(root), Path(base)
     doc = identity(root, 'uniform')
     points = configurations(root, ids)
+    load_cache(root, doc)
     ensure_signal_tables(root, doc, [p['signal'] for p in points])
     payload = dict(points=points, costs=list(COSTS), experiment=dict(id=EXPERIMENT_ID, kind='start_offset'))
     ctx = _context(root, doc, payload)
@@ -173,6 +174,7 @@ def run_issuers(root, base, ids, issuers, costs=COSTS, workers=1):
     if not excluded:
         raise ValueError('no security carries the given issuers: ' + ','.join(issuers))
     points = configurations(root, ids)
+    load_cache(root, doc)
     ensure_signal_tables(root, doc, [p['signal'] for p in points])
     experiment = dict(id=EXPERIMENT_ID, kind='issuer_exclusion', excluded_issuers=issuers, note='robustness run; not an attempt; not for selection')
     payload = dict(points=points, costs=list(COSTS), experiment=experiment)

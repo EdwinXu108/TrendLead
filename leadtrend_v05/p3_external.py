@@ -92,6 +92,58 @@ def parse_holdings_html(raw):
                 total_investment_rows=[row for row in totals][:3])
 
 
+def norm_name(text):
+    """Issuer name for matching: upper case, footnote marks and punctuation removed, corporate words dropped."""
+    t = re.sub(r'\(.*?\)', ' ', text or '')
+    t = re.sub(r'^[\s*]+', '', t)
+    t = re.sub(r'\d+$', '', t.strip())
+    words = re.sub(r'[^A-Z0-9 ]', ' ', t.upper()).split()
+    drop = {'CO', 'CORP', 'CORPORATION', 'INC', 'LTD', 'PLC', 'LP', 'NV', 'SA', 'LIMITED', 'COMPANY', 'CL', 'CLASS',
+            'THE', 'GROUP', 'HOLDINGS', 'HOLDING', 'INCORPORATED', 'SE', 'AG'}
+    return ' '.join(w for w in words if w not in drop)
+
+
+def parse_500_index_schedule(raw):
+    """The Vanguard 500 Index Fund schedule of investments in a 2015 N-Q: holdings (name, shares, value in $000) and the
+    fund's total investments. Only the segment from its heading to the next 'Total Investments' is read."""
+    text = raw.decode('utf-8', errors='replace')
+    head = re.search(r'Vanguard 500 Index Fund\s*(<[^>]+>\s*)*Schedule of Investments', text, re.I)
+    if head is None:
+        return dict(holdings=[], total_investments_thousands=None, note='500 Index Fund schedule not found')
+    rest = text[head.start():]
+    end = re.search(r'Total Investments', rest)
+    segment = rest[:end.end() + 400] if end else rest
+    parser = _Tables()
+    parser.feed(segment)
+    holdings, total = [], None
+    for row in parser.rows:
+        if not row:
+            continue
+        if row[0].lower().startswith('total investments'):
+            nums = [c for c in row if re.fullmatch(r'[0-9][0-9,]*', c)]
+            total = int(nums[-1].replace(',', '')) if nums else None
+            continue
+        if len(row) >= 3 and re.fullmatch(r'[0-9][0-9,]*', row[1] or '') and re.fullmatch(r'[0-9][0-9,]*', row[2] or ''):
+            holdings.append(dict(name=row[0], shares=int(row[1].replace(',', '')), value_thousands=int(row[2].replace(',', ''))))
+    return dict(holdings=holdings, total_investments_thousands=total, note='')
+
+
+def _name_map(root):
+    """Normalised issuer name -> security ids, from the VOO snapshot names and the securities table."""
+    out = {}
+    with (root / 'data/v05/normalized/snapshot_members.csv').open(encoding='utf-8', newline='') as f:
+        for r in csv.DictReader(f):
+            key = norm_name(r.get('original_name', ''))
+            if key:
+                out.setdefault(key, set()).add(r['security_id'])
+    return out
+
+
+def _tickers(root):
+    with (root / 'data/v05/normalized/securities.csv').open(encoding='utf-8', newline='') as f:
+        return {r['security_id']: r.get('ticker', '') for r in csv.DictReader(f)}
+
+
 def _submissions(ua):
     sub = fetch_submissions(TARGET_REG_CIK, ua)
     filings = {k: list(v) for k, v in sub['filings']['recent'].items()}
@@ -127,18 +179,24 @@ def early_history(root, out, opend_host='127.0.0.1', opend_port=11111, sample_ye
         url = f"https://www.sec.gov/Archives/edgar/data/{int(TARGET_REG_CIK)}/{pick['accession'].replace('-', '')}/{pick['document']}"
         raw = _http_get(url, ua)
         (out / f"sample_{sample_year}_{pick['accession']}{Path(pick['document']).suffix}").write_bytes(raw)
-        parsed = parse_holdings_html(raw)
-        cusip_map = _cusip_map(root)
-        sample_sids = {}
+        parsed = parse_500_index_schedule(raw)
+        names, tickers = _name_map(root), _tickers(root)
+        sample_sids, unmatched = {}, []
         for h in parsed['holdings']:
-            if h['cusip'] in cusip_map:
-                sample_sids[h['cusip']] = cusip_map[h['cusip']]
+            sids = names.get(norm_name(h['name']), set())
+            if len(sids) == 1:
+                sid = next(iter(sids))
+                sample_sids[sid] = (sid, tickers.get(sid, ''))
+            else:
+                unmatched.append(h['name'])
+        sample_value = sum(h['value_thousands'] for h in parsed['holdings'])
         report['sample'] = dict(form=pick['form'], filing_date=pick['filing_date'], report_date=pick['report_date'],
-                                accession=pick['accession'], table_rows=parsed['rows'], holdings_with_cusip=len(parsed['holdings']),
-                                shares_header_rows=parsed['shares_header_rows'],
-                                total_investment_lines=[' | '.join(r) for r in parsed['total_investment_rows']],
-                                holdings_matched_to_our_securities=len(sample_sids),
-                                holdings_unmatched=len(parsed['holdings']) - sum(1 for h in parsed['holdings'] if h['cusip'] in cusip_map))
+                                accession=pick['accession'], fund='Vanguard 500 Index Fund schedule',
+                                holdings=len(parsed['holdings']), holdings_value_thousands=sample_value,
+                                total_investments_thousands=parsed['total_investments_thousands'],
+                                cusip_cells_in_filing=len(re.findall(r'CUSIP', raw.decode('utf-8', errors='replace'), re.I)),
+                                matched_by_name_to_our_securities=len(sample_sids), unmatched_names=len(unmatched),
+                                note=parsed['note'])
         report['opend'] = _opend_coverage(root, out, sample_sids, pick['report_date'] or pick['filing_date'], opend_host, opend_port)
         report['leavers'] = _leavers(root, sample_sids)
     (out / 'early_history.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
@@ -167,12 +225,12 @@ def _opend_coverage(root, out, sample_sids, start, host, port):
     fetcher = OpenDPriceFetcher(out / 'opend_cache', host=host, port=int(port))
     results = []
     try:
-        for cusip, (sid, ticker) in sorted(sample_sids.items()):
+        for sid, (_, ticker) in sorted(sample_sids.items()):
             if not ticker:
-                results.append(dict(cusip=cusip, security_id=sid, ok=False, n_bars=0, error='no ticker'))
+                results.append(dict(security_id=sid, ok=False, n_bars=0, error='no ticker'))
                 continue
             res = fetcher.fetch_one(ticker, sid, start, '2019-11-29')
-            results.append(dict(cusip=cusip, security_id=sid, ticker=ticker, ok=res.ok, n_bars=res.n_bars, error=res.error))
+            results.append(dict(security_id=sid, ticker=ticker, ok=res.ok, n_bars=res.n_bars, error=res.error))
     finally:
         fetcher.close()
     return dict(status='answered', requested=len(results), with_bars=sum(1 for r in results if r['ok'] and r['n_bars'] > 0),

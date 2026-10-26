@@ -19,7 +19,7 @@ from .experiments import _metrics_or_none, null_band, reference_exit_counts
 from .diagnostics import benchmark_tri, make_tri_fn, weekly_records
 from .drawdown import load_dtb3
 from .perf_artifacts import read_table
-from .perf_cache import build_context, ensure_signal_tables, identity
+from .perf_cache import build_context, ensure_signal_tables, identity, load_cache
 from .robustness import configurations, run_issuers, _context, _run_jobs
 from .sectors import load_sector_map, sector_key
 
@@ -99,6 +99,7 @@ def run_matched(root, base, run, match_paths, workers=1):
     doc = identity(root, 'uniform')
     points = configurations(root, [OBJECTS[o] for o in MATCH_OBJECTS])
     by_obj = {o: p for o, p in zip(MATCH_OBJECTS, points)}
+    load_cache(root, doc)  # builds the cache for this code identity on first use, as run_experiment does
     ensure_signal_tables(root, doc, [p['signal'] for p in points])
     controls, jobs = [], []
     for obj in MATCH_OBJECTS:
@@ -134,7 +135,7 @@ def matched_summary(run, base):
                     continue
                 vals.append(m['annualized_excess'])
                 manifest = json.loads((folder / 'run_manifest.json').read_text(encoding='utf-8'))
-                for key, count in manifest.get('selection_counts', {}).get(f'{COST}bps', {}).items():
+                for key, count in manifest.get('selection_counts', {}).items():
                     fallbacks[key] += count
             row = _band_row(obj, mode + '_matched', actual, vals)
             row.update({k: round(v / max(1, len(vals)), 3) for k, v in fallbacks.items()})
@@ -200,6 +201,8 @@ def attribution(root, ctx, records, run, out, voo_tri=None):
         d0, d1 = weeks[i], weeks[i + 1]
         if d0 not in recs or d1 not in recs:
             continue
+        if d0 not in bm or d1 not in bm or any(d0 not in series[o] or d1 not in series[o] for o in ATTRIBUTION_OBJECTS):
+            continue  # the strategies and VOO start at the first trade, after the first signal week
         rec = recs[d0]
         days = (date_of(d1) - date_of(d0)).days
         rate = dtb3_on(dtb3, d0)
@@ -306,7 +309,8 @@ def run_issuer_exclusions(root, base, run, workers=1):
     """Each issuer any of the four objects held (in its daily run) removed once; the object and A90 both, paired.
     Then the top-3 and top-5 contributors of each object removed together, with A90 too."""
     root, base, run = Path(root), Path(base), Path(run)
-    held = {obj: held_issuers(root, run, OBJECTS[obj]) for obj in MATCH_OBJECTS}
+    known = {r.get('issuer_id', '') for r in read_table(root / paths.NORMALIZED / 'securities.csv')}
+    held = {obj: held_issuers(root, run, OBJECTS[obj]) & known for obj in MATCH_OBJECTS}
     union = sorted(set().union(*held.values()))
     done = []
     for issuer in union:

@@ -19,7 +19,7 @@ from pathlib import Path
 from . import paths
 from .perf_artifacts import read_table
 from .perf_bench import dump
-from .perf_cache import ensure_signal_tables, identity
+from .perf_cache import ensure_signal_tables, identity, load_cache
 from .perf_runner import safe_output
 from .robustness import COSTS, EXPERIMENT_ID, _context, _run_jobs, configurations
 from .stage3_metrics import longest_drawdown
@@ -105,6 +105,7 @@ def run_variant(root, base, ids, costs=COSTS, *, K=None, cap=None, workers=1):
     root, base = Path(root), Path(base)
     doc = identity(root, 'uniform')
     points = configurations(root, ids)
+    load_cache(root, doc)
     ensure_signal_tables(root, doc, [p['signal'] for p in points])
     label = (f'K{K}' if K else 'plain') + ('' if cap is None else f'_cap{cap}')
     tranche_list = [None] if not K or K == 1 else list(range(K))

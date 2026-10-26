@@ -1,56 +1,30 @@
-# leadtrend_db v1: build summary (counts only)
+# leadtrend_db v2 counts (rule_version top200_v1)
 
-数据库：`data/db/leadtrend_db_v1.sqlite`（不进库）。以下只有计数、日期范围与比例，不含逐只证券数据。
+- schema_version 2, rule_version top200_v1, build_id 35fab419dfae244b, content_sha256 945c9952792fb9231bf53225b535b368a7a3a2aafb77ed2a1b0a21dfe9fab4c1
+- status cutoff 2026-10-26; build cutoff 2026-10-27T00:00:00Z
 
-## 快照
+## Versions and quarters
+- pool versions: 52; canonical quarters: 51
+- canonical quarter state: blocked 6, ready 45
+- alternate (later filing of the same period) versions: 1
 
-| 来源 | 完整性 | 主用 | 快照数 | 持仓日期 | 公开日期 | 行数（最小–最大） | 覆盖率（最小–最大） |
-|---|---|---|---|---|---|---|---|
-| N-CSR | full | 否 | 1 | 2019-12-31–2019-12-31 | 2020-03-02–2020-03-02 | 508–508 | 0.9965–0.9965 |
-| N-CSR | full | 是 | 6 | 2013-12-31–2018-12-31 | 2014-02-28–2019-03-01 | 502–507 | 0.9935–0.9964 |
-| N-CSRS | full | 是 | 6 | 2014-06-30–2019-06-30 | 2014-08-29–2019-08-29 | 504–507 | 0.9940–0.9965 |
-| N-Q | full | 是 | 10 | 2014-03-31–2018-09-30 | 2014-05-29–2018-11-30 | 502–508 | 0.9931–0.9957 |
-| NPORT-EX | full | 是 | 1 | 2019-03-31–2019-03-31 | 2019-05-30–2019-05-30 | 507–507 | 0.9951–0.9951 |
-| NPORT-P | full | 是 | 28 | 2019-09-30–2026-06-30 | 2019-11-27–2026-08-28 | 503–511 | 0.9874–0.9992 |
+## Historical top 200 (canonical versions)
+- company rows: 10200
+- security rows: 10301
+- security rows with candidate_eligible=1: 10268
 
-## 每年进入与离开 VOO 的发行人（发行人段数；进入需前一季度有完整快照，首个季度的成员不计）
+## Strategy list after the status cutoff (canonical versions)
+- strategy company rows: 10200
+- eligible company rows: 9560
+- excluded (delisted at cutoff): 29
+- blocked (status unknown or unresolved): 611
 
-| 年 | 进入 | 离开 |
-|---|---|---|
-| 2014 | 23 | 21 |
-| 2015 | 37 | 33 |
-| 2016 | 35 | 32 |
-| 2017 | 40 | 40 |
-| 2018 | 32 | 28 |
-| 2019 | 23 | 24 |
-| 2020 | 18 | 17 |
-| 2021 | 18 | 21 |
-| 2022 | 15 | 15 |
-| 2023 | 15 | 14 |
-| 2024 | 18 | 18 |
-| 2025 | 20 | 21 |
-| 2026 | 11 | 10 |
+## Holdings and identity
+- securities: 810; issuers: 778
+- holding lines: 26328; stock lines without issuer: 58
+- security issuer spans: 813
+- issuer links: 10; of which via override: 8
+- review items: 180
 
-## 离开者（至少一次离开 VOO 的发行人）
-
-- 离开过 VOO 的发行人：265
-- delisted：146；listed_out_of_index：103；continued_by_successor：5；unknown：0；in_index：11
-- delisted 按原因：acquired_or_merged 116；going_private 2；unknown 28
-
-## 总计
-
-- 曾在 VOO 中的发行人：744；证券：781
-- delisted 发行人：150；continued_by_successor 发行人：5
-- universe_v1 发行人：590；证券：625；其中 eligible_v1=1 的证券：589（段行数 621）
-
-## 复核清单（条数，按类型）
-
-| 类型 | 条数 |
-|---|---|
-| bridge_unmatched | 13 |
-| multiple_complete_snapshots | 1 |
-| nport_security_unmapped | 14 |
-| pre_name_unmapped | 28 |
-| status_review | 1 |
-| successor_candidate | 144 |
-| unidentified_security | 16 |
+## Reserved (empty in v2)
+- prices_daily 0, corporate_actions 0, price_coverage 0, index_changes 0

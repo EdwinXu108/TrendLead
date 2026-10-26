@@ -1,0 +1,16 @@
+{
+  "pool_rows": 103787,
+  "weeks": 240,
+  "buys": {
+    "A90": 343,
+    "SEC3": 252,
+    "SIZE": 360,
+    "G": 347
+  },
+  "buys_outside_pool": {
+    "A90": 0,
+    "SEC3": 0,
+    "SIZE": 0,
+    "G": 0
+  }
+}

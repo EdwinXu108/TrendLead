@@ -1,0 +1,2336 @@
+{
+  "filings_2010_2019": 38,
+  "by_year_and_form": {
+    "2010 N-CSR": 1,
+    "2010 N-CSRS": 1,
+    "2010 N-Q": 2,
+    "2011 N-CSR": 1,
+    "2011 N-CSRS": 1,
+    "2011 N-Q": 2,
+    "2012 N-CSR": 1,
+    "2012 N-CSRS": 1,
+    "2012 N-Q": 2,
+    "2013 N-CSR": 1,
+    "2013 N-CSRS": 1,
+    "2013 N-Q": 2,
+    "2014 N-CSR": 1,
+    "2014 N-CSRS": 1,
+    "2014 N-Q": 2,
+    "2015 N-CSR": 1,
+    "2015 N-CSRS": 1,
+    "2015 N-Q": 2,
+    "2016 N-CSR": 1,
+    "2016 N-CSRS": 1,
+    "2016 N-Q": 2,
+    "2017 N-CSR": 1,
+    "2017 N-CSRS": 1,
+    "2017 N-Q": 2,
+    "2018 N-CSR": 1,
+    "2018 N-CSRS": 1,
+    "2018 N-Q": 2,
+    "2019 N-CSR": 1,
+    "2019 N-CSRS": 1
+  },
+  "document_formats": {
+    ".htm": 38
+  },
+  "sample": {
+    "form": "N-Q",
+    "filing_date": "2015-05-29",
+    "report_date": "2015-03-31",
+    "accession": "0000932471-15-006447",
+    "fund": "Vanguard 500 Index Fund schedule",
+    "holdings": 486,
+    "holdings_value_thousands": 203453238,
+    "total_investments_thousands": 206747893,
+    "cusip_cells_in_filing": 0,
+    "matched_by_name_to_our_securities": 324,
+    "unmatched_names": 162,
+    "note": ""
+  },
+  "opend": {
+    "status": "answered",
+    "requested": 324,
+    "with_bars": 286,
+    "results": [
+      {
+        "security_id": "CUSIP:001055102",
+        "ticker": "AFL",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:00206R102",
+        "ticker": "T",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:002824100",
+        "ticker": "ABT",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:00287Y109",
+        "ticker": "ABBV",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:008252108",
+        "ticker": "AMG",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:00846U101",
+        "ticker": "A",
+        "ok": true,
+        "n_bars": 1176,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:009158106",
+        "ticker": "APD",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:00971T101",
+        "ticker": "AKAM",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:015351109",
+        "ticker": "ALXN",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 ALXN"
+      },
+      {
+        "security_id": "CUSIP:018581108",
+        "ticker": "BFH",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:020002101",
+        "ticker": "ALL",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:02209S103",
+        "ticker": "MO",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:023135106",
+        "ticker": "AMZN",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:02376R102",
+        "ticker": "AAL",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:025537101",
+        "ticker": "AEP",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:025816109",
+        "ticker": "AXP",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:026874784",
+        "ticker": "AIG",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:03027X100",
+        "ticker": "AMT",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:03076C106",
+        "ticker": "AMP",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:031100100",
+        "ticker": "AME",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:031162100",
+        "ticker": "AMGN",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:032654105",
+        "ticker": "ADI",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:036752103",
+        "ticker": "ELV",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:03748R747",
+        "ticker": "AIV",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:037833100",
+        "ticker": "AAPL",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:038222105",
+        "ticker": "AMAT",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:039483102",
+        "ticker": "ADM",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:04621X108",
+        "ticker": "AIZ",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:052769106",
+        "ticker": "ADSK",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:053015103",
+        "ticker": "ADP",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:053332102",
+        "ticker": "AZO",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:053484101",
+        "ticker": "AVB",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 AVB"
+      },
+      {
+        "security_id": "CUSIP:053611109",
+        "ticker": "AVY",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:05722G100",
+        "ticker": "BKR",
+        "ok": true,
+        "n_bars": 607,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:058498106",
+        "ticker": "BALL",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:060505104",
+        "ticker": "BAC",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:064058100",
+        "ticker": "BNY",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:070830104",
+        "ticker": "BBWI",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:071813109",
+        "ticker": "BAX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:075887109",
+        "ticker": "BDX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:086516101",
+        "ticker": "BBY",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:09062X103",
+        "ticker": "BIIB",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:09247X101",
+        "ticker": "9903115D",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 9903115D"
+      },
+      {
+        "security_id": "CUSIP:093671105",
+        "ticker": "HRB",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:097023105",
+        "ticker": "BA",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:099724106",
+        "ticker": "BWA",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:101121101",
+        "ticker": "BXP",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:101137107",
+        "ticker": "BSX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:110122108",
+        "ticker": "BMY",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:125269100",
+        "ticker": "CF",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:12541W209",
+        "ticker": "CHRW",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:125523100",
+        "ticker": "CI",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:12572Q105",
+        "ticker": "CME",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:126408103",
+        "ticker": "CSX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:126650100",
+        "ticker": "CVS",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:127097103",
+        "ticker": "CTRA",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 CTRA"
+      },
+      {
+        "security_id": "CUSIP:134429109",
+        "ticker": "CPB",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:14040H105",
+        "ticker": "COF",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:14149Y108",
+        "ticker": "CAH",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:143130102",
+        "ticker": "KMX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:149123101",
+        "ticker": "CAT",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:151020104",
+        "ticker": "CELG",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 CELG"
+      },
+      {
+        "security_id": "CUSIP:156782104",
+        "ticker": "CERN",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 CERN"
+      },
+      {
+        "security_id": "CUSIP:166764100",
+        "ticker": "CVX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:171798101",
+        "ticker": "XEC",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 XEC"
+      },
+      {
+        "security_id": "CUSIP:172062101",
+        "ticker": "CINF",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:17275R102",
+        "ticker": "CSCO",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:172908105",
+        "ticker": "CTAS",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:172967424",
+        "ticker": "C",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:177376100",
+        "ticker": "CTXS",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 CTXS"
+      },
+      {
+        "security_id": "CUSIP:189054109",
+        "ticker": "CLX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:191216100",
+        "ticker": "KO",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:194162103",
+        "ticker": "CL",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:20030N101",
+        "ticker": "CMCSA",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:200340107",
+        "ticker": "CMA",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 CMA"
+      },
+      {
+        "security_id": "CUSIP:20825C104",
+        "ticker": "COP",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:219350105",
+        "ticker": "GLW",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:22160K105",
+        "ticker": "COST",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:22822V101",
+        "ticker": "CCI",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:231021106",
+        "ticker": "CMI",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:23331A109",
+        "ticker": "DHI",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:235851102",
+        "ticker": "DHR",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:237194105",
+        "ticker": "DRI",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:244199105",
+        "ticker": "DE",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:247361702",
+        "ticker": "DAL",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:25179M103",
+        "ticker": "DVN",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:254687106",
+        "ticker": "DIS",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:254709108",
+        "ticker": "DFS",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 DFS"
+      },
+      {
+        "security_id": "CUSIP:256677105",
+        "ticker": "DG",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:256746108",
+        "ticker": "DLTR",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:260003108",
+        "ticker": "DOV",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:26441C204",
+        "ticker": "DUK",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:26875P101",
+        "ticker": "EOG",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:26884L109",
+        "ticker": "EQT",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:269246401",
+        "ticker": "ETFC",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 ETFC"
+      },
+      {
+        "security_id": "CUSIP:277432100",
+        "ticker": "EMN",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:278642103",
+        "ticker": "EBAY",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:278865100",
+        "ticker": "ECL",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:281020107",
+        "ticker": "EIX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:28176E108",
+        "ticker": "EW",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:285512109",
+        "ticker": "EA",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 EA"
+      },
+      {
+        "security_id": "CUSIP:291011104",
+        "ticker": "EMR",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:294429105",
+        "ticker": "EFX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:29444U700",
+        "ticker": "EQIX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:29476L107",
+        "ticker": "VMRK",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:297178105",
+        "ticker": "ESS",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:30161N101",
+        "ticker": "EXC",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:30212P303",
+        "ticker": "EXPE",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:302130109",
+        "ticker": "EXPD",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:30231G102",
+        "ticker": "XOM",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:302445101",
+        "ticker": "FLIR",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 FLIR"
+      },
+      {
+        "security_id": "CUSIP:302491303",
+        "ticker": "FMC",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:311900104",
+        "ticker": "FAST",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:31428X106",
+        "ticker": "FDX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:315616102",
+        "ticker": "FFIV",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:31620M106",
+        "ticker": "FIS",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:316773100",
+        "ticker": "FITB",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:336433107",
+        "ticker": "FSLR",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:337738108",
+        "ticker": "FISV",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:34354P105",
+        "ticker": "FLS",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:345370860",
+        "ticker": "F",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:354613101",
+        "ticker": "BEN",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:35671D857",
+        "ticker": "FCX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:364760108",
+        "ticker": "GAP",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:369550108",
+        "ticker": "GD",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:369604301",
+        "ticker": "GE",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:370334104",
+        "ticker": "GIS",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:37045V100",
+        "ticker": "GM",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:372460105",
+        "ticker": "GPC",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:375558103",
+        "ticker": "GILD",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:38141G104",
+        "ticker": "GS",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:384802104",
+        "ticker": "GWW",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:40414L109",
+        "ok": false,
+        "n_bars": 0,
+        "error": "no ticker"
+      },
+      {
+        "security_id": "CUSIP:406216101",
+        "ticker": "HAL",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:410345102",
+        "ticker": "HBI",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 HBI"
+      },
+      {
+        "security_id": "CUSIP:412822108",
+        "ticker": "HOG",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:416515104",
+        "ticker": "HIG",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:418056107",
+        "ticker": "HAS",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:423452101",
+        "ticker": "HP",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:427866108",
+        "ticker": "HSY",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:42809H107",
+        "ticker": "HES",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 HES"
+      },
+      {
+        "security_id": "CUSIP:437076102",
+        "ticker": "HD",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:438516205",
+        "ticker": "HON",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:440452100",
+        "ticker": "HRL",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:44107P104",
+        "ticker": "HST",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:444859102",
+        "ticker": "HUM",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:446150104",
+        "ticker": "HBAN",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:452308109",
+        "ticker": "ITW",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:458140100",
+        "ticker": "INTC",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:45866F104",
+        "ticker": "ICE",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:459200101",
+        "ticker": "IBM",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:459506101",
+        "ticker": "IFF",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:460146103",
+        "ticker": "IP",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:460690100",
+        "ticker": "IPG",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 IPG"
+      },
+      {
+        "security_id": "CUSIP:461202103",
+        "ticker": "INTU",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:46120E602",
+        "ticker": "ISRG",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:46284V101",
+        "ticker": "IRM",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:46625H100",
+        "ticker": "JPM",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:469814107",
+        "ticker": "9990213D",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 9990213D"
+      },
+      {
+        "security_id": "CUSIP:478160104",
+        "ticker": "JNJ",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:48203R104",
+        "ticker": "JNPR",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 JNPR"
+      },
+      {
+        "security_id": "CUSIP:485170302",
+        "ticker": "KSU",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 KSU"
+      },
+      {
+        "security_id": "CUSIP:487836108",
+        "ticker": "K",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 K"
+      },
+      {
+        "security_id": "CUSIP:493267108",
+        "ticker": "KEY",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:494368103",
+        "ticker": "KMB",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:49446R109",
+        "ticker": "KIM",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:49456B101",
+        "ticker": "KMI",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:500255104",
+        "ticker": "KSS",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:501044101",
+        "ticker": "KR",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:50540R409",
+        "ticker": "9980328D",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 9980328D"
+      },
+      {
+        "security_id": "CUSIP:512807306",
+        "ticker": "LRCX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:524660107",
+        "ticker": "LEG",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 LEG"
+      },
+      {
+        "security_id": "CUSIP:532457108",
+        "ticker": "LLY",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:534187109",
+        "ticker": "LNC",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:539830109",
+        "ticker": "LMT",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:540424108",
+        "ticker": "L",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:548661107",
+        "ticker": "LOW",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:550241103",
+        "ticker": "LUMN",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:55261F104",
+        "ticker": "MTB",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:554382101",
+        "ticker": "MAC",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:55616P104",
+        "ticker": "M",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:565849106",
+        "ticker": "MRO",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 MRO"
+      },
+      {
+        "security_id": "CUSIP:56585A102",
+        "ticker": "MPC",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:571748102",
+        "ticker": "MRSH",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:573284106",
+        "ticker": "MLM",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:574599106",
+        "ticker": "MAS",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:579780206",
+        "ticker": "MKC",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:580135101",
+        "ticker": "MCD",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:58155Q103",
+        "ticker": "MCK",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:58933Y105",
+        "ticker": "MRK",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:59156R108",
+        "ticker": "MET",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:594918104",
+        "ticker": "MSFT",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:595017104",
+        "ticker": "MCHP",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:595112103",
+        "ticker": "MU",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:608190104",
+        "ticker": "MHK",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:61174X109",
+        "ticker": "MNST",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:615369105",
+        "ticker": "MCO",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:617446448",
+        "ticker": "MS",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:61945C103",
+        "ticker": "MOS",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:620076307",
+        "ticker": "MSI",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:62955J103",
+        "ticker": "NOV",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:64110D104",
+        "ticker": "NTAP",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:64110L106",
+        "ticker": "NFLX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:65339F101",
+        "ticker": "NEE",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:655044105",
+        "ticker": "NBL",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 NBL"
+      },
+      {
+        "security_id": "CUSIP:655664100",
+        "ticker": "JWN",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 JWN"
+      },
+      {
+        "security_id": "CUSIP:655844108",
+        "ticker": "NSC",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:665859104",
+        "ticker": "NTRS",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:666807102",
+        "ticker": "NOC",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:668771108",
+        "ticker": "GEN",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:670346105",
+        "ticker": "NUE",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:67066G104",
+        "ticker": "NVDA",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:67103H107",
+        "ticker": "ORLY",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:674599105",
+        "ticker": "OXY",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:681919106",
+        "ticker": "OMC",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:682680103",
+        "ticker": "OKE",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:68389X105",
+        "ticker": "ORCL",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:69331C108",
+        "ticker": "PCG",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:693475105",
+        "ticker": "PNC",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:693506107",
+        "ticker": "PPG",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:69351T106",
+        "ticker": "PPL",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:693656100",
+        "ticker": "PVH",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:693718108",
+        "ticker": "PCAR",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:701094104",
+        "ticker": "PH",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:704326107",
+        "ticker": "PAYX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:712704105",
+        "ticker": "PBCT",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 PBCT"
+      },
+      {
+        "security_id": "CUSIP:713448108",
+        "ticker": "PEP",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:714046109",
+        "ticker": "RVTY",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:717081103",
+        "ticker": "PFE",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:718172109",
+        "ticker": "PM",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:718546104",
+        "ticker": "PSX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:723787107",
+        "ticker": "PXD",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 PXD"
+      },
+      {
+        "security_id": "CUSIP:74144T108",
+        "ticker": "TROW",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:74251V102",
+        "ticker": "PFG",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:742718109",
+        "ticker": "PG",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:743315103",
+        "ticker": "PGR",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:74340W103",
+        "ticker": "PLD",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:744320102",
+        "ticker": "PRU",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:744573106",
+        "ticker": "PEG",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:74460D109",
+        "ticker": "PSA",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:745867101",
+        "ticker": "PHM",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:747525103",
+        "ticker": "QCOM",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:74762E102",
+        "ticker": "PWR",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:74834L100",
+        "ticker": "DGX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:755111507",
+        "ticker": "RTN",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 RTN"
+      },
+      {
+        "security_id": "CUSIP:75513E101",
+        "ticker": "RTX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:75886F107",
+        "ticker": "REGN",
+        "ok": true,
+        "n_bars": 1176,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:7591EP100",
+        "ticker": "RF",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:770323103",
+        "ticker": "RHI",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:773903109",
+        "ticker": "ROK",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:778296103",
+        "ticker": "ROST",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:79466L302",
+        "ticker": "CRM",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:80004C200",
+        "ticker": "SNDK",
+        "ok": true,
+        "n_bars": 0,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:806407102",
+        "ticker": "HSIC",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:806857108",
+        "ticker": "SLB",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:808513105",
+        "ticker": "SCHW",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:81211K100",
+        "ticker": "SEE",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 SEE"
+      },
+      {
+        "security_id": "CUSIP:816851109",
+        "ticker": "SRE",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:824348106",
+        "ticker": "SHW",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:828806109",
+        "ticker": "SPG",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:83088M102",
+        "ticker": "SWKS",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:832696405",
+        "ticker": "SJM",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:833034101",
+        "ticker": "SNA",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:842587107",
+        "ticker": "SO",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:844741108",
+        "ticker": "LUV",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:854502101",
+        "ticker": "SWK",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:855244109",
+        "ticker": "SBUX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:857477103",
+        "ticker": "STT",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:863667101",
+        "ticker": "SYK",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:867914103",
+        "ticker": "2370058D",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 2370058D"
+      },
+      {
+        "security_id": "CUSIP:871829107",
+        "ticker": "SYY",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:872540109",
+        "ticker": "TJX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:87612E106",
+        "ticker": "TGT",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:882508104",
+        "ticker": "TXN",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:883203101",
+        "ticker": "TXT",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:883556102",
+        "ticker": "TMO",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:88579Y101",
+        "ticker": "MMM",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:886547108",
+        "ticker": "2078185D",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 2078185D"
+      },
+      {
+        "security_id": "CUSIP:892356106",
+        "ticker": "TSCO",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:89417E109",
+        "ticker": "TRV",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:896945201",
+        "ticker": "TRIP",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:89832Q109",
+        "ticker": "TFC",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:902973304",
+        "ticker": "USB",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:907818108",
+        "ticker": "UNP",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:911363109",
+        "ticker": "URI",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:91324P102",
+        "ticker": "UNH",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:91529Y106",
+        "ticker": "UNM",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:918204108",
+        "ticker": "VFC",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:91913Y100",
+        "ticker": "VLO",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:92220P105",
+        "ticker": "VAR",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 VAR"
+      },
+      {
+        "security_id": "CUSIP:92276F100",
+        "ticker": "VTR",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:92343E102",
+        "ticker": "VRSN",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:92343V104",
+        "ticker": "VZ",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:92532F100",
+        "ticker": "VRTX",
+        "ok": true,
+        "n_bars": 1176,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:929042109",
+        "ticker": "VNO",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:929160109",
+        "ticker": "VMC",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:931427108",
+        "ticker": "WBA",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 WBA"
+      },
+      {
+        "security_id": "CUSIP:94106L109",
+        "ticker": "WM",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:941848103",
+        "ticker": "WAT",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:949746101",
+        "ticker": "WFC",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:958102105",
+        "ticker": "WDC",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:959802109",
+        "ticker": "WU",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:962166104",
+        "ticker": "WY",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:963320106",
+        "ticker": "WHR",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:969457100",
+        "ticker": "WMB",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:983134107",
+        "ticker": "WYNN",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:983919101",
+        "ticker": "XLNX",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 XLNX"
+      },
+      {
+        "security_id": "CUSIP:98419M100",
+        "ticker": "XYL",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:98421M106",
+        "ticker": "XRX",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:988498101",
+        "ticker": "YUM",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:98978V103",
+        "ticker": "ZTS",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:G0176J109",
+        "ticker": "ALLE",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:G2004J103",
+        "ticker": "CCL",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:G29183103",
+        "ticker": "ETN",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:G491BT108",
+        "ticker": "IVZ",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:G5960L103",
+        "ticker": "MDT",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:G6518L108",
+        "ticker": "NLSN",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 NLSN"
+      },
+      {
+        "security_id": "CUSIP:G7S00T104",
+        "ticker": "PNR",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:G87052109",
+        "ticker": "TEL",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:G97822103",
+        "ticker": "PRGO",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:H1467J104",
+        "ticker": "CB",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:H2906T109",
+        "ticker": "GRMN",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      },
+      {
+        "security_id": "CUSIP:N59465109",
+        "ticker": "MYL",
+        "ok": false,
+        "n_bars": 0,
+        "error": "未知股票 MYL"
+      },
+      {
+        "security_id": "CUSIP:V7780T103",
+        "ticker": "RCL",
+        "ok": true,
+        "n_bars": 1177,
+        "error": ""
+      }
+    ]
+  },
+  "leavers": {
+    "snapshot": "NPORT_2019-09-30_0001752724-19-184504",
+    "sample_matched": 324,
+    "left_the_index": 4,
+    "left_security_ids": [
+      "CUSIP:26884L109",
+      "CUSIP:80004C200",
+      "CUSIP:336433107",
+      "CUSIP:69331C108"
+    ]
+  }
+}

@@ -233,6 +233,10 @@ def finalize(actions: dict, action_raw: dict, prices: dict, code_of: dict, log=p
             factor = _num(vendor.get('spin_off_ratio'))
             if factor is None and _num(vendor.get('spin_off_base')) and _num(vendor.get('spin_off_ert')):
                 factor = _num(vendor['spin_off_ert']) / _num(vendor['spin_off_base'])
+            if factor is None and _num(vendor.get('split_base')) and _num(vendor.get('split_ert')):
+                # the vendor encoded this distribution as a split (DELL/VMware 2021-11-02): its price factor is the
+                # retained share of the parent, which is what the spinoff value needs
+                factor = _num(vendor.get('forward_adj_factorA'))
             row['vendor_factor'] = factor
             if row['action_type'] == 'class_distribution':
                 if _num(vendor.get('split_base')) and _num(vendor.get('split_ert')):

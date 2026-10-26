@@ -13,6 +13,7 @@ recomputes the pool, the total-return index or the calendar.
 from __future__ import annotations
 import bisect
 import csv
+import json
 import sqlite3
 from functools import lru_cache
 from pathlib import Path
@@ -23,7 +24,8 @@ DTB3_PATH = ROOT / 'data' / 'v05' / 'raw' / 'external' / 'DTB3.csv'
 _CONN: dict[str, sqlite3.Connection] = {}
 
 
-def connect(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
+def connect(db_path: Path | str | None = None) -> sqlite3.Connection:
+    db_path = DB_PATH if db_path is None else db_path
     key = str(Path(db_path).resolve())
     if key not in _CONN:
         conn = sqlite3.connect(f'file:{Path(db_path).as_posix()}?mode=ro', uri=True)
@@ -185,3 +187,28 @@ def pool_amounts(version_id: str, db_path: Path | str = DB_PATH) -> dict[str, di
                            where ts.version_id = ? and ts.candidate_eligible = 1
                            order by ts.amount_cents desc, ts.security_id""", (version_id,))
     return {r['security_id']: dict(r) for r in rows}
+
+
+@lru_cache(maxsize=1)
+def _benchmark_bars() -> dict[str, dict[str, float]]:
+    """VOO original daily bars from the archived benchmark responses (the benchmark is not in prices_daily)."""
+    from .sources import RawStore
+    config = ROOT / 'config' / 'db_benchmark_v1.json'
+    if not config.exists():
+        return {}
+    cfg = json.loads(config.read_text(encoding='utf8'))
+    store = RawStore(offline=True)
+    index = json.loads(store._read(cfg['index_url']))
+    bars: dict[str, dict[str, float]] = {}
+    for url in index['kline']:
+        payload = json.loads(store._read(url))
+        for row in payload.get('data') or []:
+            day = str(row.get('time_key', ''))[:10]
+            if day:
+                bars[day] = dict(open=float(row['open']), close=float(row['close']))
+    return bars
+
+
+def benchmark_bars(start: str, end: str) -> dict[str, dict[str, float]]:
+    """VOO original bars inside [start, end]; used for the benchmark entry price and mark to market."""
+    return {day: bar for day, bar in _benchmark_bars().items() if start <= day <= end}

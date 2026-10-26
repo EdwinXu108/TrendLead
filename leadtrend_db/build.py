@@ -392,6 +392,15 @@ class Build:
                               isin=isin, openfigi_type=ev.get('openfigi_type', ''), name=r.get('original_name', ''))
         return out
 
+    def v05_alias_map(self) -> dict[str, str]:
+        """v05 security aliases (prep/stage2_security_aliases.csv): an old identifier and the canonical security it was
+        merged into (an identifier succession confirmed in v05). Kept as v05 has it; never split again."""
+        src = S.ROOT / 'data' / 'v05' / 'prep' / 'stage2_security_aliases.csv'
+        data = self.store.import_local('local:data/v05/prep/stage2_security_aliases.csv',
+                                       'reference/v05/stage2_security_aliases.csv', 'other', src,
+                                       'copied from data/v05/prep/stage2_security_aliases.csv')
+        return {r['old_security_id']: r['security_id'] for r in csv.DictReader(io.StringIO(data.decode('utf-8')))}
+
     def v05_reference(self, name: str) -> bytes:
         """Archived copy of a v05 normalized table: the build reads the copy, not data/v05."""
         return self.store.import_local(f'local:data/v05/normalized/{name}', f'reference/v05/{name}', 'other',
@@ -445,6 +454,7 @@ class Build:
             'SEC cik-lookup-data.txt (names to CIK)').decode('utf-8', errors='replace'))
         v05 = self.v05_securities()
         self.tickers, self.v05 = tickers, v05
+        self.alias = self.v05_alias_map()
 
         # 1. security key of every N-PORT equity line; placeholders never become keys
         first_date: dict[str, str] = {}
@@ -466,6 +476,9 @@ class Build:
                     key, how = cusip_security(cusip), 'v05_isin_match'
                 elif isin:
                     key, how = isin_security(isin), 'isin_only'
+                if key in self.alias:       # v05's confirmed merge: the old identifier is the same security as the canonical
+                    key, how = self.alias[key], how + '+v05_alias'
+                    cusip = key[6:] if key.startswith('CUSIP:') else cusip
                 ln['sec_key'], ln['sec_how'], ln['cusip_valid'], ln['isin_valid'] = key, how, cusip, isin
                 if key:
                     first_date.setdefault(key, snap['report_date'])

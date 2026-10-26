@@ -88,6 +88,18 @@ def test_split_name_and_share_in_name_cell_are_joined():
     assert res['total_common_stocks_usd'] == 775313000 and res['total_investments_usd'] == 775314000
 
 
+def test_company_name_beginning_with_total_is_joined_across_rows():
+    """Failure: 'Total System' + 'Services Inc.' (split over two rows) lost its first half because names starting with
+    'total' were never joined; 'Services Inc.' then stood as a holding of its own."""
+    html = ('<html><body><p>Vanguard 500 Index Fund</p><p>Schedule of Investments</p><table>'
+            '<tr><td>Common Stocks (99.6%)</td></tr>'
+            '<tr><td>Total System</td></tr><tr><td>Services Inc.</td><td>1,851,193</td><td>70,623</td></tr>'
+            '<tr><td>Total Common Stocks (Cost $1)</td><td>70,623</td></tr>'
+            '<tr><td>Total Investments (100.0%)</td><td>70,624</td></tr></table></body></html>').encode('utf-8')
+    res = parse_500_schedule(html)
+    assert [r['name'] for r in res['stock_rows']] == ['Total System Services Inc.']
+
+
 def test_running_head_fragment_is_not_a_company_name():
     """Failure: a page-head 'Shares' cell was joined onto the next company name ('Shares Amphenol Corp.')."""
     html = ('<html><body><p>Vanguard 500 Index Fund</p><p>Schedule of Investments</p><table>'

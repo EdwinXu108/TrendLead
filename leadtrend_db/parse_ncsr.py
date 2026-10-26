@@ -131,8 +131,8 @@ def _run(text: str, start: int) -> dict:
             name, carry = f'{carry} {name}', None
         else:
             carry = None
-        if not numbers and section == 'common' and '%' not in name and not lead.startswith(('total', 'common')) \
-                and lead not in PAGE_HEAD_WORDS:
+        if not numbers and section == 'common' and '%' not in name and not SUBTOTAL.match(lead) \
+                and not lead.startswith('common stocks') and lead not in PAGE_HEAD_WORDS:
             carry = name                                   # first half of a split name; its amounts follow
             continue
         if lead.startswith('total investments'):

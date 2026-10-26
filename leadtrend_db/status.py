@@ -108,7 +108,7 @@ def detect_successors(info: dict[str, dict], delisted: dict[str, date], window_d
     succ_forms = []
     for cik, d in info.items():
         for f in d['filings']:
-            if f['form'] == SUCCESSOR_FORM:
+            if f['form'] in ('8-K12B', '8-K12G3'):
                 succ_forms.append((cik, _d(f['filing_date'])))
     links, reviews = [], []
     for pred in sorted(delisted):

@@ -25,7 +25,7 @@ CUSIP_SHAPE = re.compile(r'^[0-9A-Z]{9}$')
 ISIN_SHAPE = re.compile(r'^[A-Z]{2}[0-9A-Z]{9}[0-9]$')
 TICKER_SHAPE = re.compile(r'^[A-Z]{1,5}(\.[A-Z]{1,2})?$')
 OVERRIDE_KINDS = ('cusip_cik', 'name_cik', 'link', 'status', 'security_type', 'security_cusip', 'security_end',
-                  'security_ticker')
+                  'security_ticker', 'external_issuer', 'successor_review', 'security_class', 'security_link')
 
 # security type evidence, most specific first
 TYPE_RULES = [
@@ -51,10 +51,14 @@ _LEGAL_WORDS = {'INC', 'INCORPORATED', 'CORP', 'CORPORATION', 'CO', 'COMPANY', '
 
 
 def issuer_id(cik: str | int) -> str:
+    if str(cik).startswith('LEI:'):
+        return str(cik)
     return f'CIK:{int(cik):010d}'
 
 
 def cik10(cik: str | int) -> str:
+    if str(cik).startswith('LEI:'):
+        return str(cik)
     return f'{int(cik):010d}'
 
 
@@ -67,6 +71,8 @@ def isin_security(isin: str) -> str:
 
 
 def cikcls_security(cik: str, class_code: str) -> str:
+    if str(cik).startswith('LEI:'):
+        return f'LEICLS:{str(cik)[4:]}:{class_code}'
     return f'CIKCLS:{cik10(cik)}:{class_code}'
 
 
@@ -132,6 +138,9 @@ def valid_ticker(text: str | None) -> str:
 
 
 def class_code_from_text(text: str) -> str:
+    special = re.search(r'\bSpecial\s+Class\s+([A-Z])\b|\bClass\s+([A-Z])\s+Special\b', text or '', re.I)
+    if special:
+        return f'CL_{(special.group(1) or special.group(2)).upper()}_SPECIAL'
     m = CLASS_LETTER.search(text or '')
     return f'CL_{m.group(1)}' if m else 'COM'
 

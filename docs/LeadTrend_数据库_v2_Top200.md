@@ -1,5 +1,7 @@
 # LeadTrend 数据库 v2：各季度策略可用 Top 200 股票池（rule_version top200_v1）
 
+> 历史版本。当前实现与修正后的验收口径见 `LeadTrend_数据库_v3_Top200.md`。本文件中的 ready、证券联集、阻断和测试数字不再代表当前正式库。
+
 本文档是当前有效的数据库说明。它取代 `docs/LeadTrend_数据库_v1.md` 的口径（v1 文档已加更正说明）。数字以数据库、
 `data/db/exports/top200_v1/` 的 CSV 与 `research/db_v1/summary.md`（只含计数）为准；核对明细见
 `work/top200_v1/checks.json`（构建过程文件，不进库）。

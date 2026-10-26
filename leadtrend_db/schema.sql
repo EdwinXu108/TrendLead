@@ -1,4 +1,4 @@
--- leadtrend_db v2, schema_version 2 (see docs/LeadTrend_数据库_v1.md and rules.py for rule_version top200_v1).
+-- schema_version 3: dated historical membership and a complete current-security projection.
 -- Conventions: dates ISO 8601 (YYYY-MM-DD); timestamps UTC ISO 8601 with trailing Z; '' = unknown text;
 -- NULL = no direct single source or not applicable. Foreign keys are enforced at build time (PRAGMA foreign_keys=ON)
 -- and must have zero violations (checks.py). Every fact table carries source_id pointing at the raw file it came from.
@@ -22,7 +22,7 @@ CREATE TABLE sources (
 
 CREATE TABLE issuers (
   issuer_id            TEXT PRIMARY KEY,           -- 'CIK:' + 10-digit CIK
-  cik                  TEXT NOT NULL,
+  cik                  TEXT NOT NULL,             -- empty only for verified non-SEC banks keyed by disclosed LEI
   name                 TEXT NOT NULL DEFAULT '',   -- SEC current name (submissions); '' if the submissions file is missing
   sic                  TEXT NOT NULL DEFAULT '',
   sic_description      TEXT NOT NULL DEFAULT '',
@@ -65,7 +65,7 @@ CREATE TABLE securities (
   security_type TEXT NOT NULL CHECK (security_type IN ('common','adr','reit','partnership','preferred','right','warrant','cvr','etf','spac','other','unknown')),
   type_basis    TEXT NOT NULL DEFAULT '',
   name          TEXT NOT NULL DEFAULT '',
-  id_scheme     TEXT NOT NULL CHECK (id_scheme IN ('CUSIP','ISIN','CIKCLS')),
+  id_scheme     TEXT NOT NULL CHECK (id_scheme IN ('CUSIP','ISIN','CIKCLS','LEICLS')),
   notes         TEXT NOT NULL DEFAULT '',
   source_id     TEXT REFERENCES sources(source_id)
 );

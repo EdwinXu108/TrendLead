@@ -86,6 +86,7 @@ def export_all(db_path: Path = S.DB_PATH, out_dir: Path | None = None, log=print
                 from strategy_companies sc join pool_versions p using(version_id)
                      join strategy_companies th on th.version_id=sc.version_id and th.issuer_id=sc.issuer_id
                      join issuers hi on hi.issuer_id=sc.issuer_id join issuers ri on ri.issuer_id=sc.resolved_current_issuer
+                where p.is_canonical=1
                 order by p.report_period, sc.historical_rank""")
     counts['strategy_top200_companies.csv'] = _write(
         out_dir / 'strategy_top200_companies.csv',
@@ -93,14 +94,29 @@ def export_all(db_path: Path = S.DB_PATH, out_dir: Path | None = None, log=print
          'current_status', 'resolved_current_issuer', 'current_sec_name', 'current_ticker', 'strategy_eligible',
          'blocked_reason', 'excluded_reason'], strat)
 
-    ssec = q("""select p.report_period, ss.version_id, ss.issuer_id, ss.security_id, ss.class_code,
-                      ss.current_security_id, ss.current_ticker, ss.strategy_eligible, ss.reason
+    ssec = q("""select p.report_period, ss.version_id, p.available_at_utc, t.rank, ss.issuer_id,
+                      t.issuer_name_at_period, ci.name, ss.security_id, ss.class_code,
+                      ss.current_security_id, ss.current_ticker, ss.strategy_eligible, ss.reason, p.quarter_state
                from strategy_securities ss join pool_versions p using(version_id)
-               order by p.report_period, ss.issuer_id, ss.security_id""")
+               join top200_companies t on t.version_id=ss.version_id and t.issuer_id=ss.issuer_id
+               join strategy_companies sc on sc.version_id=ss.version_id and sc.issuer_id=ss.issuer_id
+               join issuers ci on ci.issuer_id=sc.resolved_current_issuer
+               where p.is_canonical=1
+               order by p.report_period, t.rank, ss.security_id""")
     counts['strategy_top200_securities.csv'] = _write(
         out_dir / 'strategy_top200_securities.csv',
-        ['report_period', 'version_id', 'issuer_id', 'security_id', 'class_code', 'current_security_id',
-         'current_ticker', 'strategy_eligible', 'reason'], ssec)
+        ['report_period', 'version_id', 'available_at_utc', 'company_rank', 'issuer_id', 'historical_name',
+         'current_name', 'security_id', 'class_code', 'current_security_id',
+         'current_ticker', 'strategy_eligible', 'reason', 'quarter_state'], ssec)
+    eligible = [r for r in ssec if r[11] == 1]
+    counts['eligible_quarterly_stocks.csv'] = _write(out_dir/'eligible_quarterly_stocks.csv',
+        ['report_period','version_id','available_at_utc','company_rank','issuer_id','historical_name','current_name',
+         'security_id','class_code','current_security_id','current_ticker','strategy_eligible','reason','quarter_state'], eligible)
+    latest = max((r[0] for r in eligible), default='')
+    counts['latest_eligible_stocks.csv'] = _write(out_dir/'latest_eligible_stocks.csv',
+        ['report_period','version_id','available_at_utc','company_rank','issuer_id','historical_name','current_name',
+         'security_id','class_code','current_security_id','current_ticker','strategy_eligible','reason','quarter_state'],
+        [r for r in eligible if r[0] == latest])
 
     bound = q("""select p.report_period, rk.version_id, rk.rank, rk.issuer_id, i.name, rk.amount_cents, rk.in_top200,
                         rk.boundary_status, rk.tie_group, rk.unresolved_lines, rk.candidate_bound_cents

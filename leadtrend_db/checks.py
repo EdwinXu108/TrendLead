@@ -85,7 +85,7 @@ def _next_quarter(d: str) -> str:
 def check_ranking(conn, out: dict) -> list[str]:
     """Independent SQL recount of every canonical quarter: company amounts (cents), order, the 200th and 201st."""
     fails = []
-    canon = _rows(conn, "select version_id, report_period from pool_versions where is_canonical=1 order by 2")
+    canon = _rows(conn, "select version_id, report_period from pool_versions order by 2,available_at_utc")
     mismatches = []
     boundary = {}
     for vid, period in canon:
@@ -93,7 +93,7 @@ def check_ranking(conn, out: dict) -> list[str]:
             select h.issuer_id, sum(cast(round(h.value_usd*100) as integer)) as cents
             from holdings h join snapshots s on s.snapshot_id=h.snapshot_id
             where s.snapshot_id=? and h.line_kind='stock' and h.issuer_id is not null
-              and h.security_type in ('common','adr')
+              and h.security_type in ('common','adr') and h.value_usd>0
             group by h.issuer_id
             order by cents desc, h.issuer_id""", (vid,))
         db_rows = _rows(conn, "select issuer_id, amount_cents from company_ranks where version_id=? order by rank", (vid,))
@@ -104,7 +104,7 @@ def check_ranking(conn, out: dict) -> list[str]:
             mismatches.append(vid + ':top200')
         if len(sql_rows) > R.TOP_N:
             boundary[vid] = (sql_rows[R.TOP_N - 1][1], sql_rows[R.TOP_N][1])
-    out['ranking'] = dict(canonical_quarters=len(canon), independent_mismatches=mismatches[:20],
+    out['ranking'] = dict(versions_checked=len(canon), independent_mismatches=mismatches[:20],
                           boundary_cents_200_201={k: list(v) for k, v in list(boundary.items())[:3]})
     if mismatches:
         fails.append(f'ranking: {len(mismatches)} quarters differ from the independent SQL recount')
@@ -162,7 +162,58 @@ def check_strategy(conn, out: dict) -> list[str]:
         fails.append('strategy: a delisted or unknown company is eligible, or an exclusion has no reason')
     if n_hist[0][0] != n_strat[0][0]:
         fails.append('strategy: the strategy list does not keep one row per historical member')
+    orphan = _rows(conn, """select sc.version_id, sc.issuer_id from strategy_companies sc
+        where sc.strategy_eligible=1 and not exists(select 1 from strategy_securities ss
+        where ss.version_id=sc.version_id and ss.issuer_id=sc.issuer_id and ss.strategy_eligible=1)""")
+    blank = _rows(conn, """select version_id,security_id from strategy_securities where strategy_eligible=1
+                           and (current_ticker='' or current_security_id='')""")
+    invalid = _rows(conn, """select ss.version_id,ss.security_id from strategy_securities ss
+        join strategy_companies sc on sc.version_id=ss.version_id and sc.issuer_id=ss.issuer_id
+        left join securities cs on cs.security_id=ss.current_security_id
+        where ss.strategy_eligible=1 and (cs.security_id is null or cs.issuer_id<>sc.resolved_current_issuer
+        or sc.strategy_eligible<>1)""")
+    out['strategy'].update(eligible_companies_without_security=len(orphan), eligible_blank_ticker=len(blank),
+                           invalid_current_security=len(invalid))
+    if orphan or blank or invalid:
+        fails.append(f'strategy: incomplete security projection: orphan={len(orphan)} blank={len(blank)} invalid={len(invalid)}')
     return fails
+
+
+def check_readiness(conn, out: dict) -> list[str]:
+    failed = _rows(conn, "select version_id,check_name,detail from quarter_checks where status='fail'")
+    blocked = _rows(conn, "select version_id,quarter_reason from pool_versions where quarter_state<>'ready'")
+    out['readiness'] = dict(failed_checks=failed, blocked_versions=blocked)
+    return ([f'readiness: {len(failed)} failed quarter checks, {len(blocked)} blocked versions']
+            if failed or blocked else [])
+
+
+def check_raw_nport(conn, out: dict) -> list[str]:
+    """Independent XML traversal: compare every EC row, including identifiers and amounts, with stored facts."""
+    import xml.etree.ElementTree as ET
+    from collections import Counter
+    def local(tag):
+        return tag.rsplit('}', 1)[-1]
+    checked, differences = 0, []
+    for sid, path in _rows(conn, """select s.snapshot_id, r.raw_path from snapshots s
+        join sources r using(source_id) where s.form='NPORT-P'"""):
+        root = ET.fromstring((S.RAW_DIR/path).read_bytes())
+        raw = []
+        for el in root.iter():
+            if local(el.tag) != 'invstOrSec':
+                continue
+            fields = {local(ch.tag):(ch.text or '').strip() for ch in el}
+            if fields.get('assetCat') != 'EC':
+                continue
+            isin = next((e.attrib['value'] for e in el.iter() if local(e.tag)=='isin' and 'value' in e.attrib), '')
+            raw.append((fields.get('name',''), fields.get('cusip',''), isin, fields.get('lei',''),
+                        float(fields.get('balance') or 0), float(fields.get('valUSD') or 0)))
+        stored = _rows(conn, """select raw_name,cusip_reported,isin_reported,lei_reported,shares,value_usd
+                                from holdings where snapshot_id=? and line_kind='stock'""", (sid,))
+        checked += len(raw)
+        if Counter(raw) != Counter(stored):
+            differences.append(sid)
+    out['raw_nport'] = dict(rows_checked=checked, snapshots_with_differences=differences)
+    return [f'raw N-PORT: {len(differences)} snapshots differ from archived XML'] if differences else []
 
 
 def check_v05(conn, out: dict, v05_members: Path) -> None:
@@ -244,9 +295,15 @@ def run_checks(db_path: Path = S.DB_PATH, rebuild: bool = True, work_db: Path | 
     fails += check_bound(conn, out)
     fails += check_security_boundary(conn, out)
     fails += check_strategy(conn, out)
+    fails += check_readiness(conn, out)
+    fails += check_raw_nport(conn, out)
     fails += check_integrity(conn, out)
     check_v05(conn, out, S.RAW_DIR / 'reference' / 'v05' / 'snapshot_members.csv')
     digest = _rows(conn, "select value from meta where key='content_sha256'")[0][0]
+    from .build import content_hash
+    actual_digest = content_hash(conn)
+    if actual_digest != digest:
+        fails.append('integrity: stored content hash does not match actual database content')
     out['content_sha256'] = digest
     conn.close()
     if rebuild:

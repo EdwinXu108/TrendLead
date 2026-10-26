@@ -173,12 +173,16 @@ def _version_db(tmp_path) -> sqlite3.Connection:
     c.execute('create table strategy_companies (version_id text, historical_rank int, issuer_id text, current_status '
               'text, resolved_current_issuer text, current_ticker text, strategy_eligible int, blocked_reason text, '
               'excluded_reason text)')
+    c.execute('create table strategy_securities(version_id text,issuer_id text,security_id text,class_code text,'
+              'current_security_id text,current_ticker text,strategy_eligible int,reason text)')
     c.executemany('insert into pool_versions values (?,?,?,?,?,?)', [
-        ('A', '2019-12-31', '2020-02-20T10:00:00Z', 'N-CSR', 0, 'alternate_version'),
+        ('A', '2019-12-31', '2020-02-20T10:00:00Z', 'N-CSR', 0, 'ready'),
         ('B', '2019-12-31', '2020-03-15T10:00:00Z', 'NPORT-P', 1, 'ready'),
         ('C', '2020-03-31', '2020-05-01T10:00:00Z', 'NPORT-P', 1, 'ready')])
     c.executemany('insert into top200_companies values (?,?,?,?,?,?,?,?)', [
         ('A', 1, 'CIK:1', 'x', 1, 0.1, 0, 0), ('B', 1, 'CIK:2', 'y', 1, 0.1, 0, 0), ('C', 1, 'CIK:3', 'z', 1, 0.1, 0, 0)])
+    c.execute("insert into strategy_companies values ('A',1,'CIK:1','in_index','CIK:1','X',1,'','')")
+    c.execute("insert into strategy_securities values ('A','CIK:1','S:A','COM','S:A','X',1,'eligible')")
     c.commit()
     return c
 
@@ -199,9 +203,10 @@ def test_late_revision_of_an_older_period_is_not_visible_before_it_was_public(tm
     assert version_as_of(c, '2020-05-01T10:00:00Z')['version_id'] == 'C'        # the newer period replaces it
 
 
-def test_strategy_list_only_for_canonical_versions(tmp_path):
+def test_strategy_list_available_for_a_public_noncanonical_version(tmp_path):
     c = _version_db(tmp_path)
-    assert members_as_of(c, '2020-02-20T10:00:00Z')['strategy'] == []
+    assert len(members_as_of(c, '2020-02-20T10:00:00Z')['strategy']) == 1
+    assert len(members_as_of(c, '2020-02-20T10:00:00Z')['eligible_securities']) == 1
 
 
 # -- helpers --------------------------------------------------------------------------------------------------------

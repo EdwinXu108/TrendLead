@@ -9,12 +9,13 @@ Public-time rule. A version is known from its available_at_utc (the SEC acceptan
 If no version is public by T the answer is 'no list yet'. A missing newer filing never empties the list: the last
 public version is still returned.
 
-Historical membership comes from top200_companies (any version). The strategy list (after the status cutoff) exists
-for canonical versions only; a time query returns it when the chosen version is canonical.
+Historical and strategy members exist for every public version. A blocked version is returned for inspection with
+status='blocked' and a failing CLI exit code; it is never silently passed to a strategy as a usable pool.
 """
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import rules as R
@@ -26,6 +27,10 @@ def _connect(db_path: Path) -> sqlite3.Connection:
 
 def version_as_of(conn: sqlite3.Connection, utc: str) -> dict | None:
     """The version that was public at UTC time utc ('YYYY-MM-DDTHH:MM:SSZ'), or None before the first list."""
+    d = datetime.fromisoformat(utc.replace('Z', '+00:00'))
+    if d.tzinfo is None:
+        raise ValueError('query time must include a UTC offset')
+    utc = d.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     row = conn.execute("""select version_id, report_period, available_at_utc, is_canonical, quarter_state, form
                           from pool_versions where available_at_utc <= ?
                           order by report_period desc, available_at_utc desc, version_id desc limit 1""", (utc,)).fetchone()
@@ -37,17 +42,24 @@ def version_as_of(conn: sqlite3.Connection, utc: str) -> dict | None:
 def members_as_of(conn: sqlite3.Connection, utc: str) -> dict:
     v = version_as_of(conn, utc)
     if v is None:
-        return dict(query_utc=utc, version=None, status='no list public yet', companies=[], strategy=[])
+        return dict(query_utc=utc, version=None, status='no list public yet', companies=[], strategy=[], eligible_securities=[])
     companies = conn.execute("""select rank, issuer_id, issuer_name_at_period, amount_cents, fund_weight_raw, tie_group,
                                        blocked_members from top200_companies where version_id=? order by rank""",
                              (v['version_id'],)).fetchall()
-    strategy = []
-    if v['is_canonical']:
-        strategy = conn.execute("""select historical_rank, issuer_id, current_status, resolved_current_issuer,
+    strategy = conn.execute("""select historical_rank, issuer_id, current_status, resolved_current_issuer,
                                           current_ticker, strategy_eligible, blocked_reason, excluded_reason
                                    from strategy_companies where version_id=? order by historical_rank""",
                                 (v['version_id'],)).fetchall()
-    return dict(query_utc=utc, version=v, status='ok', companies=companies, strategy=strategy)
+    return dict(query_utc=utc, version=v, status='ok' if v['quarter_state'] == 'ready' else 'blocked',
+                companies=companies, strategy=strategy,
+                eligible_securities=eligible_securities(conn, v['version_id']) if v['quarter_state']=='ready' else [])
+
+
+def eligible_securities(conn, version_id):
+    """Historical security keys are the strategy input; current identifiers are a separate display/projection."""
+    return conn.execute("""select issuer_id,security_id,class_code,current_security_id,current_ticker
+                           from strategy_securities where version_id=? and strategy_eligible=1
+                           order by issuer_id,security_id""", (version_id,)).fetchall()
 
 
 def quarter(conn: sqlite3.Connection, report_period: str) -> dict:
@@ -59,7 +71,8 @@ def quarter(conn: sqlite3.Connection, report_period: str) -> dict:
     companies = conn.execute("""select rank, issuer_id, issuer_name_at_period, amount_cents, tie_group, blocked_members
                                 from top200_companies where version_id=? order by rank""", (v[0],)).fetchall()
     return dict(report_period=report_period, version_id=v[0], available_at_utc=v[2], quarter_state=v[3],
-                quarter_reason=v[4], companies=companies)
+                quarter_reason=v[4], companies=companies,
+                eligible_securities=eligible_securities(conn,v[0]) if v[3]=='ready' else [])
 
 
 def format_rows(header: list[str], rows: list[tuple]) -> str:
@@ -80,7 +93,9 @@ def main_query(db_path: Path, quarter_period: str | None, as_of: str | None) -> 
                   f"available {res['available_at_utc']} state {res['quarter_state']}")
             print(format_rows(['rank', 'issuer_id', 'holding_name', 'amount_cents', 'tie_group', 'blocked_members'],
                               res['companies']))
-            return 0 if res['companies'] else 1
+            print(format_rows(['issuer_id','historical_security_id','class','current_security_id','current_ticker'],
+                              res['eligible_securities']))
+            return 0 if res['companies'] and res['quarter_state'] == 'ready' else 1
         if as_of:
             res = members_as_of(conn, as_of)
             if res['version'] is None:
@@ -96,7 +111,9 @@ def main_query(db_path: Path, quarter_period: str | None, as_of: str | None) -> 
                 print(format_rows(['historical_rank', 'issuer_id', 'current_status', 'resolved_current_issuer',
                                    'current_ticker', 'strategy_eligible', 'blocked_reason', 'excluded_reason'],
                                   res['strategy']))
-            return 0
+            print(format_rows(['issuer_id','historical_security_id','class','current_security_id','current_ticker'],
+                              res['eligible_securities']))
+            return 0 if res['status'] == 'ok' else 1
     finally:
         conn.close()
     return 2

@@ -1,0 +1,10 @@
+{
+  "seeds": 100,
+  "seeds_with_all_5_controls": 100,
+  "actual_best_excess_10bps": 0.04080077804807192,
+  "percentile_of_actual_best": 99.0,
+  "actual_best_paired_10bps": 0.006699384512873108,
+  "percentile_of_actual_best_paired": 99.0,
+  "null_best_excess_median": -0.026776511362044952,
+  "null_best_paired_median": -0.05729620172939953
+}

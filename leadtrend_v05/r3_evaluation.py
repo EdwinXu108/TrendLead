@@ -291,7 +291,7 @@ def criteria(root, run, robust, ids, noise, exclusion):
         mean5_paired = r['paired5_mean']
         a90 = by['A90']
         range_ok = r['range_k0_4'] < a90['range_k0_4']
-        excl = ex.get((name, ids['A90']))
+        excl = ex.get((name, ids[name]))  # the structure's own row: its paired difference against A90 with the same exclusion
         pair3 = excl['paired_vs_A90_excluded'] if excl else None
         c1 = mean10_paired is not None and mean5_paired is not None and mean10_paired >= -THRESHOLD and mean5_paired >= -THRESHOLD
         c3 = pair3 is not None and pair3 > 0
@@ -305,14 +305,17 @@ def criteria(root, run, robust, ids, noise, exclusion):
     for name in ADD_NAMES:
         r = by[name]
         t4 = by['T4']
-        paired = [r[f'paired10_k{k}'] for k in range(5)]
+        # 10.5 compares with T4 at each of the five starts (not with the structure's own anchor)
+        paired = [None if r[f'excess10_k{k}'] is None or t4[f'excess10_k{k}'] is None else r[f'excess10_k{k}'] - t4[f'excess10_k{k}']
+                  for k in range(5)]
         ok = [p for p in paired if p is not None]
-        s1 = r['paired10_mean'] is not None and r['paired10_mean'] >= THRESHOLD
+        mean_vs_t4 = sum(ok) / len(ok) if len(ok) == 5 else None
+        s1 = mean_vs_t4 is not None and mean_vs_t4 >= THRESHOLD
         s2 = sum(1 for p in ok if p > 0) >= 4
         p_a = _period_diff(root, run, ids, name, 'high_missing_excess')
         p_b = _period_diff(root, run, ids, name, 'lower_missing_excess')
         s3 = p_a is not None and p_b is not None and (p_a > 0) == (p_b > 0)
-        add_rows.append(dict(structure=name, anchor='T4', mean10_paired_vs_T4=r['paired10_mean'], positive_starts=sum(1 for p in ok if p > 0),
+        add_rows.append(dict(structure=name, anchor='T4', mean10_paired_vs_T4=mean_vs_t4, positive_starts=sum(1 for p in ok if p > 0),
                              period_a_paired=p_a, period_b_paired=p_b, s1=s1, s2=s2, s3=s3, all_three=s1 and s2 and s3,
                              base_is_T4=base == 'T4'))
     admitted = None

@@ -1,0 +1,8 @@
+name,anchor,weeks,point_annualized_diff,p05,p95,method
+T4,A90,239,0.005060172611003252,-0.03742355177885857,0.04982846919376184,"moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory"
+N20,A90,239,-0.04931297947758762,-0.10723320075653696,0.003633084905210707,"moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory"
+CAP15,A90,239,-0.0038942832354103073,-0.006618121255012188,-0.0008125483743350045,"moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory"
+T4_SEC3,SEC3,239,-0.04930404967689439,-0.08725806423888725,-0.009314352651562822,"moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory"
+T4_G,G,239,-0.006227939165947996,-0.04539082959531242,0.036627720316384324,"moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory"
+T4_SEC3,T4,239,-0.002392404874560591,-0.045874428645790194,0.033584839108953476,"moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory"
+T4_G,T4,239,0.002649426200162894,-0.06682536282088657,0.06619378381443565,"moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory"

@@ -1,0 +1,3 @@
+structure,anchor,mean10_paired_vs_T4,positive_starts,period_a_paired,period_b_paired,s1,s2,s3,all_three,base_is_T4
+T4_SEC3,T4,-0.007503889590056411,0,-0.03654489266073435,0.021857725809805828,False,False,False,False,True
+T4_G,T4,0.0033203973955558295,4,0.016502787460326962,0.0028861274289724292,False,True,True,False,True

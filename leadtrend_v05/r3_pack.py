@@ -22,6 +22,14 @@ def _r(v, nd=2):
     return '' if v in (None, '') else f'{float(v):.{nd}f}'
 
 
+def _null_cell(r):
+    """Random-control percentile as 'point (lower-upper)', as the scorecard's markdown writes it."""
+    if r.get('null_percentile_low') in (None, ''):
+        return ''
+    point = '无完成运行' if r.get('null_percentile') in (None, '') else f"{float(r['null_percentile']):.1f}%"
+    return f"{point}（{float(r['null_percentile_low']):.1f}%–{float(r['null_percentile_high']):.1f}%）"
+
+
 def _md(headers, rows):
     lines = ['| ' + ' | '.join(headers) + ' |', '|' + '---|' * len(headers)]
     lines += ['| ' + ' | '.join('' if v is None else str(v) for v in r) + ' |' for r in rows]
@@ -73,7 +81,7 @@ def evaluate(root, run, robust, out):
         if r is None:
             continue
         rows.append([n, ids[n], anchors.get(n, ''), _p(r['annualized_excess_10bps'], 2), _p(r['annualized_excess_5bps'], 2),
-                     _p(r['paired_vs_anchor_10bps'], 2), _p(r['paired_vs_anchor_5bps'], 2), r['null_cell'], r['null_completed']])
+                     _p(r['paired_vs_anchor_10bps'], 2), _p(r['paired_vs_anchor_5bps'], 2), _null_cell(r), r['null_completed']])
     lines += [_md(head, rows)]
 
     lines += ['## 2. 风险与回撤（第 9.2 节全部项目，10 bp，含同期 VOO 与夏普比）', '']
@@ -167,6 +175,13 @@ def evaluate(root, run, robust, out):
               '- 单股上限（CAP15）：减仓股数按上一交易日收盘价与上一交易日总权益计算，拆股当日前收盘价按拆股比例调整。',
               '- 随机对照：每个子账户用自己 10 bp 探索档的退出只数各自抽签（种子 0–99），合并为一个账户后比较。',
               '- 夏普比扣除 DTB3（FRED 三个月国库券利率）；VOO 数字同样口径。',
+              '- 10.5 第一组条件（底座，对照 A90，5 个起点 k=0–4）：条件1 为 10 bp 平均配对差与 5 bp 平均配对差，各需 ≥ −1pp；'
+              '条件2 为 10 bp 超额在 5 个起点的极差（最大减最小），需小于 A90 的极差；条件3 为剔除本配置前 3 名发行人（A90 同样剔除）后的 10 bp 配对差，需 > 0。',
+              '- 底座选择：三条全部满足的结构中，取 5 个起点 10 bp 平均超额最高者；都不满足则底座仍为 A90。',
+              '- 第二组条件（SEC3 或 G，对照 T4）：条件1 为 5 个起点的 10 bp 平均配对差 ≥ +1pp；条件2 为 5 个起点中配对差为正的至少 4 个；'
+              '条件3 为 k=0 时两个时段的配对差同号。只有底座为 T4 时才可加入；两者都满足时取平均配对差较高者。',
+              '- 逐个起点的配对差：各起点的结构与其锚点都在同一起点运行（k 相同）；T4_SEC3、T4_G 的第二组配对差在同一起点相对 T4。',
+              '- 块自助区间为每周收益配对差的周均值乘以 52（年化），块长 8 周，2000 次，种子 20261026；它与全期配对差口径不同，不直接比较。',
               '- 开发段结束于 2024-06-28；未使用保留段。']
 
     (out / 'discussion_pack.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')

@@ -126,3 +126,65 @@ SEC 与 OpenD 的本次原始观察由 `config/db_verification_sources_v2.json` 
 ### 本批实际计数
 
 51季度、52公开版本均ready；canonical可选公司季度行9536，可选历史证券联集337。原始日线1,124,521行、340个历史/当前证券键；覆盖及252日回看同时完整9707/9789，其余82条留有明确缺口。13,883条公司行动中60条同日现金项目标记needs_review。34条未被公司行动解释的40%变动保留；v05重叠608,004个证券交易日比较差异0。详细事实见work/handoff/codex_top200_v2.md（本地交付报告）。
+
+## schema 6（2026-10-27）：行动收尾、总回报序列、基准与查询接口
+
+规则版本仍为 `top200_v2`；schema 升到 6。新增内容不改变名单、排名、排除与策略资格口径，只补齐公司行动、加入总回报序列与基准、加入只读查询接口，并把"可选期内没有任何行情"的证券季度移出策略名单。
+
+### 收购方延续（投资者 2026-10-27 补充规则）
+
+收购方股东按固定比例（通常 1:1）换成新设控股公司的股票、且上市代码与行情延续的，收购方算延续；被收购方仍算退市。据此恢复两条继任链接，写在 `config/db_overrides_v1.csv`：
+
+- `CIK:0000701221`（Cigna Holding Co，旧 Cigna）→ `CIK:0001739940`（Cigna Group），2018-12-20，比例 1:1；
+- `CIK:0001441634`（Avago Technologies）→ `CIK:0001649338`（Broadcom Ltd，新加坡），2016-02-01，比例 1:1；再经已有链接到 `CIK:0001730168`（Broadcom Inc）。
+
+被收购方 Express Scripts（`CIK:0001532063`）与 Broadcom Corp（`CIK:0001054374`）仍在投资者永久排除名单内，保持退市，不恢复。恢复前用数据库原始收盘核对：当前代码 CI 与 AVGO 的日线在旧主体各季度连续覆盖，事件日前后单日收盘变动绝对值均小于 20%。
+
+### 公司行动（`corporate_actions` 新列）
+
+| 列 | 含义 |
+|---|---|
+| `sub_ticker` | 分拆出的子公司代码，多个用逗号分隔；无法确定时为空 |
+| `vendor_factor` | 富途复权记录中该分拆的价格因子（母公司保留的比例），仅作估值证据 |
+| `spin_value` | 除权日每股母公司分得的子公司价值（美元），= 比例 × 子公司当日收盘价 |
+| `resolution` | 该行金额或比例所用的判定方法（见下） |
+
+判定顺序（投资者 2026-10-27 要求）：先看富途 rehab 的每股现金字段；同日多条金额时，候选为端点合计、常规、特别、两者之和，取与富途自身价格调整最接近（2% 以内）的一个；仍不能确定的用复权因子隐含金额。支付日未知留空，总回报序列只用除权日。股票分红叙述（`1股派0.00275股`）解析为 1.00275 的拆股。分拆优先用 v05 归一化档案中"每股子公司股数 × 子公司收盘价"，与复权因子隐含价值相差 20% 以上时改用复权因子。复权记录完全缺失的四个分拆（BAX 2015-07-01、EBAY 2015-07-20、HPQ 2015-11-02、YUM 2016-11-01）登记在 `config/spinoff_overrides_v1.csv`，按除权日开盘缺口估值。
+
+每交易日的"原始收盘比 vs 复权因子隐含调整"逐条比对，差异超过 2% 的写入 `review_items`（`price_action_scan`）。
+
+### 总回报序列（`tri_daily`，method `event_v1`）
+
+字段：`security_id, session_date, close, tri, daily_return, method, flags`。首日 `tri = 1`，其后
+
+```
+daily_return_t = (close_t × 拆股因子_t + 现金分红_t + 分拆价值_t) ÷ close_{t−1} − 1
+```
+
+拆股与合股在除权日按比例还原前一日价格；现金分红按上节确定的金额在除权日计入；分拆按 `spin_value`，缺失时用复权因子隐含价值（flags `vendor_factor`），再缺失时用除权日开盘缺口（flags `price_drop_implied`）。非交易日的行动顺延到该证券的下一个交易日。缺日的证券日标 `gap`。
+
+`security_id` 为 `securities.security_id`，基准为 `BENCH:VOO`（VOO 不进股票池、不写 `prices_daily`）。
+
+验证：(a) 与富途复权因子推出的调整后收盘逐日比较；(b) 2019-05 起与 `data/v05/normalized` 按同一公式逐日比较。结果见交付报告与 `work/bt_v1/tri_validation.json`。
+
+### 无行情证券季度
+
+可选期内一个价格都没有的"证券 × 季度"从策略名单移除：`strategy_securities.reason = no_price_data`，公司若因此没有可用类别则 `strategy_companies.excluded_reason = no_price_data`，不补位。只是回看期不足 252 日的证券保留，仅在 `price_quarter_coverage` 标 `incomplete`。
+
+### 相关性分组（`corr_methods`、`corr_groups`）
+
+`corr_groups(version_id, method_id, security_id, group_id)` 记录每个股票池版本生效日的描述性分组。`method_id = corr_v1`，参数写在 `corr_methods.definition`：504 个交易日窗口、至少 252 个观测、按当日可选证券等权平均去市场、距离 = 1 − 相关系数、平均连接、12 组。分组只用于描述，不进入任何策略或交易。
+
+### 查询接口（`leadtrend_db/api.py`）
+
+全部只读（SQLite `mode=ro`）：
+
+| 函数 | 返回 |
+|---|---|
+| `pool_at(day)` | 该交易日生效的可选证券与公司、版本号、生效区间 |
+| `tri_series(ids, start, end)` | 每只证券的总回报序列 `(日期, tri, 日收益)` |
+| `open_prices(ids, day)` / `open_series(ids, start, end)` | 原始开盘价（次日开盘成交用） |
+| `trading_days(start, end)` | NYSE 交易日 |
+| `friday_signal_days(start, end)` | 每周最后一个交易日 |
+| `rf_daily(start, end)` | DTB3 日利率（百分比 / 100 / 360，按日历日） |
+| `pool_windows(start, end)` / `pool_amounts(version_id)` | 版本生效区间与基金持仓金额（权重组合用） |

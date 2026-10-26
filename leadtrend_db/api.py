@@ -1,0 +1,187 @@
+"""Read-only query interface of leadtrend_db for research code (backtest, diagnostics).
+
+Every function opens the database read-only (URI mode=ro) and never writes. The database is a file; nothing here
+recomputes the pool, the total-return index or the calendar.
+
+    pool_at(day)                     eligible securities and companies effective on a NYSE session
+    tri_series(ids, start, end)      total-return index rows per security (lineage is already continuous per key)
+    open_prices(ids, day)            raw opening price of one session, for next-open execution
+    trading_days(start, end)         NYSE sessions from price_calendar
+    friday_signal_days(start, end)   last session of each ISO week
+    rf_daily(start, end)             DTB3 3-month bill, daily rate = percent/100/360 per calendar day
+"""
+from __future__ import annotations
+import bisect
+import csv
+import sqlite3
+from functools import lru_cache
+from pathlib import Path
+
+from .sources import DB_PATH, ROOT
+
+DTB3_PATH = ROOT / 'data' / 'v05' / 'raw' / 'external' / 'DTB3.csv'
+_CONN: dict[str, sqlite3.Connection] = {}
+
+
+def connect(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
+    key = str(Path(db_path).resolve())
+    if key not in _CONN:
+        conn = sqlite3.connect(f'file:{Path(db_path).as_posix()}?mode=ro', uri=True)
+        conn.row_factory = sqlite3.Row
+        _CONN[key] = conn
+    return _CONN[key]
+
+
+def close(db_path: Path | str = DB_PATH) -> None:
+    key = str(Path(db_path).resolve())
+    conn = _CONN.pop(key, None)
+    if conn is not None:
+        conn.close()
+
+
+def trading_days(start: str, end: str, db_path: Path | str = DB_PATH) -> list[str]:
+    rows = connect(db_path).execute(
+        'select session_date from price_calendar where session_date between ? and ? order by 1', (start, end))
+    return [r[0] for r in rows]
+
+
+def friday_signal_days(start: str, end: str, db_path: Path | str = DB_PATH) -> list[str]:
+    """The last session of each ISO week (a week cut short by a holiday uses its last session)."""
+    out: list[str] = []
+    seen = None
+    for day in trading_days(start, end, db_path):
+        from datetime import date
+        key = date.fromisoformat(day).isocalendar()[:2]
+        if key != seen:
+            out.append(day)
+            seen = key
+        else:
+            out[-1] = day
+    return out
+
+
+def pool_at(day: str, db_path: Path | str = DB_PATH) -> dict:
+    """Eligible securities and companies of the pool version effective on `day` (a NYSE session)."""
+    conn = connect(db_path)
+    windows = conn.execute("""select version_id, min(active_from) as first, max(active_to) as last
+                              from price_quarter_coverage group by version_id""").fetchall()
+    pick = None
+    for row in windows:
+        if row['first'] <= day <= row['last']:
+            pick = row['version_id']
+            break
+    if pick is None:
+        return dict(version_id='', report_period='', effective_from='', effective_to='', securities=[], companies=[])
+    meta = conn.execute('select report_period, available_at_utc from pool_versions where version_id=?', (pick,)).fetchone()
+    securities = [dict(r) for r in conn.execute("""
+        select ss.security_id, ss.issuer_id, ss.class_code, ss.current_security_id, ss.current_ticker,
+               s.security_type, i.name as company
+        from strategy_securities ss
+        join securities s on s.security_id = ss.security_id
+        left join issuers i on i.issuer_id = ss.issuer_id
+        where ss.version_id = ? and ss.strategy_eligible = 1
+        order by ss.security_id""", (pick,))]
+    companies = [dict(r) for r in conn.execute("""
+        select issuer_id, historical_rank, current_ticker, resolved_current_issuer
+        from strategy_companies where version_id = ? and strategy_eligible = 1
+        order by historical_rank""", (pick,))]
+    window = next(r for r in windows if r['version_id'] == pick)
+    return dict(version_id=pick, report_period=meta['report_period'], available_at_utc=meta['available_at_utc'],
+                effective_from=window['first'], effective_to=window['last'], securities=securities,
+                companies=companies)
+
+
+def tri_series(ids, start: str, end: str, db_path: Path | str = DB_PATH) -> dict[str, list[tuple[str, float, float]]]:
+    """{security_id: [(session_date, tri, daily_return), ...]} for the requested ids inside [start, end]."""
+    if isinstance(ids, str):
+        ids = [ids]
+    conn = connect(db_path)
+    out: dict[str, list[tuple[str, float, float]]] = {}
+    for sid in ids:
+        rows = conn.execute("""select session_date, tri, daily_return from tri_daily
+                               where security_id = ? and session_date between ? and ? order by session_date""",
+                            (sid, start, end))
+        out[sid] = [(r[0], r[1], r[2]) for r in rows]
+    return out
+
+
+def open_prices(ids, day: str, db_path: Path | str = DB_PATH) -> dict[str, float]:
+    """Raw opening price of one session; a security without a bar that day is absent from the result."""
+    if isinstance(ids, str):
+        ids = [ids]
+    conn = connect(db_path)
+    out: dict[str, float] = {}
+    for sid in ids:
+        row = conn.execute("select open from prices_daily where security_id=? and session_date=? and source='opend_none'",
+                           (sid, day)).fetchone()
+        if row is not None and row[0]:
+            out[sid] = float(row[0])
+    return out
+
+
+@lru_cache(maxsize=1)
+def _dtb3() -> tuple[list[str], list[float]]:
+    days: list[str] = []
+    values: list[float] = []
+    with DTB3_PATH.open(encoding='utf-8-sig', newline='') as f:
+        for row in csv.DictReader(f):
+            text = (row.get('DTB3') or '').strip()
+            if not text:
+                continue
+            days.append(row['observation_date'])
+            values.append(float(text))
+    order = sorted(range(len(days)), key=lambda i: days[i])
+    return [days[i] for i in order], [values[i] for i in order]
+
+
+def rf_daily(start: str, end: str, db_path: Path | str = DB_PATH) -> dict[str, float]:
+    """Daily risk-free rate per calendar day (DTB3 percent / 100 / 360), forward filled to every NYSE session."""
+    days, values = _dtb3()
+    out: dict[str, float] = {}
+    for day in trading_days(start, end, db_path):
+        i = bisect.bisect_right(days, day) - 1
+        if i < 0:
+            continue
+        out[day] = values[i] / 100.0 / 360.0
+    return out
+
+
+def open_series(ids, start: str, end: str, db_path: Path | str = DB_PATH) -> dict[str, dict[str, float]]:
+    """{security_id: {session_date: open}} for raw opening prices inside [start, end]."""
+    if isinstance(ids, str):
+        ids = [ids]
+    conn = connect(db_path)
+    out: dict[str, dict[str, float]] = {}
+    for sid in ids:
+        rows = conn.execute("""select session_date, open from prices_daily
+                               where security_id=? and source='opend_none' and session_date between ? and ?
+                               order by session_date""", (sid, start, end))
+        out[sid] = {r[0]: float(r[1]) for r in rows if r[1]}
+    return out
+
+
+def pool_windows(start: str, end: str, db_path: Path | str = DB_PATH) -> list[dict]:
+    """Pool versions whose effective window overlaps [start, end], in effective order."""
+    conn = connect(db_path)
+    rows = conn.execute("""select version_id, min(active_from) as effective_from, max(active_to) as effective_to,
+                                  count(*) as securities
+                           from price_quarter_coverage group by version_id
+                           having max(active_to) >= ? and min(active_from) <= ?
+                           order by effective_from""", (start, end)).fetchall()
+    periods = {r['version_id']: r for r in conn.execute('select version_id, report_period from pool_versions')}
+    out = []
+    for row in rows:
+        item = dict(row)
+        item['report_period'] = periods[row['version_id']]['report_period']
+        out.append(item)
+    return out
+
+
+def pool_amounts(version_id: str, db_path: Path | str = DB_PATH) -> dict[str, dict]:
+    """{security_id: {issuer_id, amount_cents}} of the eligible securities of one version."""
+    conn = connect(db_path)
+    rows = conn.execute("""select ts.security_id, ts.issuer_id, ts.amount_cents, ts.class_code
+                           from top200_securities ts
+                           where ts.version_id = ? and ts.candidate_eligible = 1
+                           order by ts.amount_cents desc, ts.security_id""", (version_id,))
+    return {r['security_id']: dict(r) for r in rows}

@@ -142,15 +142,13 @@ issuer_end,0000029915,2017-08-31,,保留原历史发行人有效期；与是否�
 issuer_start,0001666700,2017-08-31,,新主体只能从实际成立/上市生效日起归属持仓，不继承被排除前身,"SEC 8-K12B of DowDuPont Inc (CIK 1666700) for the event of August 31, 2017 (accession 0001193125-17-274834; archived evidence/dowdupont_8k12b_1666700.htm): DowDuPont established as successor issuer to Dow and DuPont under Rule 12g-3(c); merger effective August 31, 2017"
 continuity_ratio,0001001039>0001744489,1,2019-03-20,官方申报的同一上市证券一对一持股公司/迁册继任；历史行情仍须用申报持仓和事件日核对,https://www.sec.gov/Archives/edgar/data/1744489/000095015719000301/form8k-12b.htm
 continuity_ratio,0000006769>0001841666,1,2021-03-01,官方申报的同一上市证券一对一持股公司/迁册继任；历史行情仍须用申报持仓和事件日核对,https://www.sec.gov/Archives/edgar/data/1841666/000119312521063695/d127090d8k12b.htm
-link_rejected,0001441634>0001649338,successor_reorganization,2016-02-01,合并规则：申报明确为两家发行人合并后新成立的公司，旧主体视为退市,https://www.sec.gov/Archives/edgar/data/1649338/000119312516446865/d47106d8k12b.htm
-issuer_end,0001441634,2016-02-01,,保留原历史发行人有效期；与是否允许继任延续分开,https://www.sec.gov/Archives/edgar/data/1649338/000119312516446865/d47106d8k12b.htm
+link,0001441634>0001649338,successor_reorganization,2016-02-01,"Investor rule 2026-10-27: Avago shareholders exchanged into Broadcom Ltd (Singapore) at 1:1 with the AVGO code and price series continuing, so the acquirer continues; Broadcom Corp stays retired.",https://www.sec.gov/Archives/edgar/data/1649338/000119312516446865/d47106d8k12b.htm
 successor_review,0001441634,closed,,合并规则：申报明确为两家发行人合并后新成立的公司，旧主体视为退市,https://www.sec.gov/Archives/edgar/data/1649338/000119312516446865/d47106d8k12b.htm
 link_rejected,0001054374>0001649338,successor_reorganization,2016-02-01,投资者永久排除,https://www.sec.gov/Archives/edgar/data/1649338/000119312516446865/d47106d8k12b.htm
 issuer_end,0001054374,2016-02-01,,保留原历史发行人有效期；与是否允许继任延续分开,https://www.sec.gov/Archives/edgar/data/1649338/000119312516446865/d47106d8k12b.htm
 issuer_start,0001649338,2016-02-01,,新主体只能从实际成立/上市生效日起归属持仓，不继承被排除前身,https://www.sec.gov/Archives/edgar/data/1649338/000119312516446865/d47106d8k12b.htm
 continuity_ratio,0001649338>0001730168,1,2018-04-04,官方申报的同一上市证券一对一持股公司/迁册继任；历史行情仍须用申报持仓和事件日核对,https://www.sec.gov/Archives/edgar/data/1730168/000119312518107559/d562806d8k12b.htm
-link_rejected,0000701221>0001739940,successor_reorganization,2018-12-20,合并规则：申报明确为两家发行人合并后新成立的公司，旧主体视为退市,https://www.sec.gov/Archives/edgar/data/1739940/000114036118045479/form8k12b.htm
-issuer_end,0000701221,2018-12-20,,保留原历史发行人有效期；与是否允许继任延续分开,https://www.sec.gov/Archives/edgar/data/1739940/000114036118045479/form8k12b.htm
+link,0000701221>0001739940,successor_reorganization,2018-12-20,"Investor rule 2026-10-27: the acquiring companys shareholders exchanged into the new holding company at a fixed 1:1 ratio and the listed code and price series continue, so the acquirer continues; the acquired party stays retired.",https://www.sec.gov/Archives/edgar/data/1739940/000114036118045479/form8k12b.htm
 successor_review,0000701221,closed,,合并规则：申报明确为两家发行人合并后新成立的公司，旧主体视为退市,https://www.sec.gov/Archives/edgar/data/1739940/000114036118045479/form8k12b.htm
 link_rejected,0001532063>0001739940,successor_reorganization,2018-12-20,投资者永久排除,https://www.sec.gov/Archives/edgar/data/1739940/000114036118045479/form8k12b.htm
 issuer_end,0001532063,2018-12-20,,保留原历史发行人有效期；与是否允许继任延续分开,https://www.sec.gov/Archives/edgar/data/1739940/000114036118045479/form8k12b.htm
@@ -185,3 +183,5 @@ security_ticker_span,CUSIP:H1467J104,CB,2016-01-15..,同一存续发行人的官
 security_ticker_span,CUSIP:G51502105,TYC,..2016-09-02,同一存续发行人的官方换代码日期；OpenD 当前代码历史仍须逐期价格身份核验,https://www.sec.gov/Archives/edgar/data/833444/000110465916143068/a16-17941_18k.htm
 security_ticker_span,CUSIP:G51502105,JCI,2016-09-06..,同一存续发行人的官方换代码日期；OpenD 当前代码历史仍须逐期价格身份核验,https://www.sec.gov/Archives/edgar/data/833444/000110465916143068/a16-17941_18k.htm
 continuity_ratio,CUSIP:G51502105,0.955,2016-09-06,Tyco 同一发行人每 1 股原普通股换 0.955 股新普通股，股票交易代码于9月6日生效；不使用被收购旧JCI历史,https://www.sec.gov/Archives/edgar/data/833444/000110465916143068/a16-17941_18k.htm
+continuity_ratio,0000701221>0001739940,1,2018-12-20,fixed 1:1 exchange into the new holding company; code and price series continue,SEC 8-K12B of Cigna Group CIK 1739940 (accession 0001140361-18-045479)
+continuity_ratio,0001441634>0001649338,1,2016-02-01,fixed 1:1 exchange into the new holding company; code and price series continue,SEC 8-K12B of Broadcom Ltd CIK 1649338 (accession 0001193125-16-446865)

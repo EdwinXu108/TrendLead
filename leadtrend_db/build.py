@@ -39,7 +39,7 @@ from .sources import RawMissing, RawStore, sha256_bytes, utc_now_iso
 from .status import PERIODIC, classify, detect_successors, filing_rows
 
 SCHEMA_FILE = Path(__file__).with_name('schema.sql')
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 PRE_FORMS = ('N-Q', 'N-CSR', 'N-CSRS', 'NPORT-EX')
 KIND = {'N-Q': 'nq', 'N-CSR': 'ncsr', 'N-CSRS': 'ncsrs', 'NPORT-EX': 'other', 'NPORT-P': 'nport'}
 SNAP_PREFIX = {'N-Q': 'NQ', 'N-CSR': 'NCSR', 'N-CSRS': 'NCSRS', 'NPORT-EX': 'NPORTEX', 'NPORT-P': 'NPORT'}
@@ -104,6 +104,9 @@ TABLE_COLUMNS = {
     'listing_status': ['issuer_id', 'status', 'status_as_of', 'delisting_date', 'reason', 'counterparty', 'evidence',
                        'method', 'needs_review', 'source_id'],
     'review_items': ['review_id', 'review_type', 'subject_id', 'snapshot_id', 'detail', 'source_id'],
+    'tri_daily': ['security_id', 'session_date', 'close', 'tri', 'daily_return', 'method', 'flags'],
+    'corr_methods': ['method_id', 'definition'],
+    'corr_groups': ['version_id', 'method_id', 'security_id', 'group_id'],
 }
 
 
@@ -1326,7 +1329,10 @@ def write_db(tables: dict, path: Path, steps: list, meta: dict) -> str:
             if not rows:
                 continue
             sql = f'INSERT INTO {name} ({",".join(cols)}) VALUES ({",".join("?" * len(cols))})'
-            conn.executemany(sql, [tuple(r[c] for c in cols) for r in rows])
+            try:
+                conn.executemany(sql, [tuple(r[c] for c in cols) for r in rows])
+            except sqlite3.IntegrityError as exc:
+                raise sqlite3.IntegrityError(f'{name}: {exc}') from None
         conn.executemany('INSERT INTO build_log (step_no, ts_utc, step, detail) VALUES (?,?,?,?)',
                          [(i, utc_now_iso(), s, d) for i, (s, d) in enumerate(steps, 1)])
         conn.commit()
@@ -1359,6 +1365,12 @@ def build(offline: bool = False, log=print, db_path: Path = S.DB_PATH) -> dict:
     extra = t.pop('_extra')
     from . import price_data
     t.update(price_data.assemble(t,store,b))
+    action_stats=t.pop('_action_stats',{})
+    no_price=t.pop('_no_price_data',[])
+    calendar=[r['session_date'] for r in t['price_calendar']]
+    from . import corr
+    methods,groups,corr_stats=corr.build(t,t['tri_daily'],calendar,log=log)
+    t['corr_methods'],t['corr_groups']=methods,groups
     manifest = S.RAW_DIR / 'manifest.jsonl'
     manifest_sha = sha256_bytes(manifest.read_bytes()) if manifest.exists() else ''
     commit = _code_commit()
@@ -1368,6 +1380,9 @@ def build(offline: bool = False, log=print, db_path: Path = S.DB_PATH) -> dict:
                            pool_exclusions_sha256=R.describe()['pool_exclusions_sha256'],
                            price_stage='raw_opend_v1' if price_data.CONFIG.exists() else 'not_fetched',
                            content_sha256_scope='all tables and views except meta and build_log',
+                           action_triage=json.dumps(action_stats, sort_keys=True),
+                           no_price_data=json.dumps(dict(rows=len(no_price), detail=no_price), ensure_ascii=False),
+                           corr_groups=json.dumps(corr_stats, sort_keys=True),
                            rules=json.dumps(R.describe(), ensure_ascii=False, sort_keys=True)))
     counts = {k: len(v) for k, v in t.items() if isinstance(v, list)}
     return dict(content_sha256=digest, network_requests=store.stats.requests, retries=store.stats.retries,

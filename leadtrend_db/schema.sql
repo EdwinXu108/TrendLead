@@ -320,7 +320,10 @@ CREATE TABLE prices_daily (
   PRIMARY KEY (security_id, session_date, source)
 );
 
--- Reserved for corporate actions (not filled).
+-- Corporate actions. ratio = new shares per old share (splits) or the documented shares of the spun-off company
+-- per parent share (spinoffs, '' when no documented share ratio exists). cash_amount = USD per entitled share on
+-- the ex-date. vendor_factor = the vendor's own price factor for a spinoff (value of the parent retained), used when
+-- no subsidiary price is available. resolution records which rule of the 2026-10-27 action triage produced the row.
 CREATE TABLE corporate_actions (
   action_id   INTEGER PRIMARY KEY,
   security_id TEXT NOT NULL REFERENCES securities(security_id),
@@ -332,7 +335,11 @@ CREATE TABLE corporate_actions (
   currency    TEXT NOT NULL DEFAULT 'USD',
   source      TEXT NOT NULL,
   source_id   TEXT REFERENCES sources(source_id),
-  notes       TEXT NOT NULL DEFAULT ''
+  notes       TEXT NOT NULL DEFAULT '',
+  sub_ticker  TEXT NOT NULL DEFAULT '',
+  vendor_factor REAL,
+  spin_value  REAL,
+  resolution  TEXT NOT NULL DEFAULT ''
 );
 
 -- Reserved: coverage of prices per security and price source (not filled).
@@ -419,3 +426,31 @@ CREATE TABLE price_comparison(security_id TEXT NOT NULL REFERENCES securities(se
 CREATE TABLE price_continuity(security_id TEXT NOT NULL REFERENCES securities(security_id),event_date TEXT NOT NULL,
  ratio REAL NOT NULL,previous_close REAL,current_close REAL,status TEXT NOT NULL,detail TEXT NOT NULL,
  source_id TEXT REFERENCES sources(source_id),PRIMARY KEY(security_id,event_date));
+
+-- Total return index (schema 6, method event_v1). One row per security and session with a raw close.
+-- daily_return_t = (close_t * split_factor_t + cash_t + spinoff_value_t) / close_{t-1} - 1; tri starts at 1.
+-- security_id is a securities.security_id, or 'BENCH:VOO' for the benchmark only (VOO is never a pool member and
+-- never enters prices_daily). checks.py verifies every other value exists in securities.
+CREATE TABLE tri_daily (
+  security_id  TEXT NOT NULL,
+  session_date TEXT NOT NULL,
+  close        REAL NOT NULL,
+  tri          REAL NOT NULL,
+  daily_return REAL,
+  method       TEXT NOT NULL,
+  flags        TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (security_id, session_date)
+);
+
+-- Descriptive correlation grouping (never a trading input). method_id names the parameter set in corr_methods.
+CREATE TABLE corr_methods (
+  method_id  TEXT PRIMARY KEY,
+  definition TEXT NOT NULL
+);
+CREATE TABLE corr_groups (
+  version_id  TEXT NOT NULL REFERENCES pool_versions(version_id),
+  method_id   TEXT NOT NULL REFERENCES corr_methods(method_id),
+  security_id TEXT NOT NULL REFERENCES securities(security_id),
+  group_id    INTEGER NOT NULL,
+  PRIMARY KEY (version_id, method_id, security_id)
+);

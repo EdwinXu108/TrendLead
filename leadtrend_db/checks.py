@@ -202,6 +202,64 @@ def check_policy(conn, out):
     return ['investor exclusion policy failed'] if wrong or securities or links or stored!=config else []
 
 
+def check_tri(conn, out: dict) -> list[str]:
+    """The total-return index must cover every stored price row, start at 1 and compound exactly."""
+    if not _rows(conn, "select 1 from sqlite_master where name='tri_daily'"):
+        return []
+    fails = []
+    rows = _rows(conn, 'select count(*) from tri_daily')[0][0]
+    missing = _rows(conn, """select count(*) from prices_daily p where not exists(
+        select 1 from tri_daily t where t.security_id=p.security_id and t.session_date=p.session_date)""")[0][0]
+    unknown = _rows(conn, """select count(*) from tri_daily t where t.security_id<>'BENCH:VOO'
+        and not exists(select 1 from securities s where s.security_id=t.security_id)""")[0][0]
+    bench = _rows(conn, "select count(*) from tri_daily where security_id='BENCH:VOO'")[0][0]
+    bad_start = _rows(conn, """select count(*) from (select security_id, min(session_date) d from tri_daily
+        group by security_id) m join tri_daily t on t.security_id=m.security_id and t.session_date=m.d
+        where abs(t.tri-1.0)>1e-12""")[0][0]
+    bad_value = _rows(conn, 'select count(*) from tri_daily where tri<=0 or daily_return is null and tri<>1')[0][0]
+    bad_chain = _rows(conn, """select count(*) from tri_daily t join tri_daily p
+        on p.security_id=t.security_id and p.session_date=(select max(session_date) from tri_daily x
+        where x.security_id=t.security_id and x.session_date<t.session_date)
+        where t.daily_return is not null and abs(t.tri - p.tri*(1+t.daily_return)) > 1e-9*p.tri""")[0][0]
+    out['tri'] = dict(rows=rows, bench_rows=bench, prices_without_tri=missing, unknown_security=unknown,
+                      series_not_starting_at_one=bad_start, invalid_values=bad_value, broken_chain=bad_chain,
+                      securities=_rows(conn, 'select count(distinct security_id) from tri_daily')[0][0])
+    if missing or unknown or bad_start or bad_value or bad_chain or bench < 3000:
+        fails.append(f'tri: coverage or arithmetic failed (missing={missing}, unknown={unknown}, start={bad_start}, '
+                     f'value={bad_value}, chain={bad_chain}, bench={bench})')
+    return fails
+
+
+def check_pool_price_data(conn, out: dict) -> list[str]:
+    """No eligible security of a version may be without a single price in that version's active window."""
+    if not _rows(conn, "select 1 from sqlite_master where name='price_quarter_coverage'"):
+        return []
+    bad = _rows(conn, """select count(*) from strategy_securities ss join price_quarter_coverage c
+        using(version_id, security_id) where ss.strategy_eligible=1 and c.present_sessions=0""")[0][0]
+    companies = _rows(conn, "select count(*) from strategy_companies where excluded_reason='no_price_data'")[0][0]
+    out['pool_price_data'] = dict(eligible_without_price=bad, companies_excluded_for_missing_price=companies)
+    return ['pool price data: an eligible security has no price in its active window'] if bad else []
+
+
+def check_corr_groups(conn, out: dict) -> list[str]:
+    if not _rows(conn, "select 1 from sqlite_master where name='corr_groups'"):
+        return []
+    fails = []
+    methods = _rows(conn, 'select method_id, definition from corr_methods')
+    rows = _rows(conn, 'select count(*) from corr_groups')[0][0]
+    bad_security = _rows(conn, """select count(*) from corr_groups g where not exists
+        (select 1 from securities s where s.security_id=g.security_id)""")[0][0]
+    bad_group = _rows(conn, 'select count(*) from corr_groups where group_id<1 or group_id>12')[0][0]
+    bad_method = _rows(conn, """select count(*) from corr_groups g where not exists
+        (select 1 from corr_methods m where m.method_id=g.method_id)""")[0][0]
+    out['corr_groups'] = dict(methods=len(methods), rows=rows, unknown_security=bad_security,
+                              group_out_of_range=bad_group, unknown_method=bad_method,
+                              versions=_rows(conn, 'select count(distinct version_id) from corr_groups')[0][0])
+    if bad_security or bad_group or bad_method or not methods:
+        fails.append('corr_groups: inconsistent rows')
+    return fails
+
+
 def check_raw_nport(conn, out: dict) -> list[str]:
     """Independent XML traversal: compare every EC row, including identifiers and amounts, with stored facts."""
     import xml.etree.ElementTree as ET
@@ -319,6 +377,9 @@ def run_checks(db_path: Path = S.DB_PATH, rebuild: bool = True, work_db: Path | 
     fails += check_readiness(conn, out)
     fails += check_policy(conn, out)
     fails += check_prices(conn, out)
+    fails += check_tri(conn, out)
+    fails += check_pool_price_data(conn, out)
+    fails += check_corr_groups(conn, out)
     fails += check_raw_nport(conn, out)
     fails += check_integrity(conn, out)
     check_v05(conn, out, S.RAW_DIR / 'reference' / 'v05' / 'snapshot_members.csv')

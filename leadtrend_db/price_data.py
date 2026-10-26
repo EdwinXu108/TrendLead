@@ -13,7 +13,7 @@ CONFIG=ROOT/'config/db_prices_v1.json'
 CALENDAR_CONFIG=ROOT/'config/db_nyse_calendar_v1.json'
 COLS={
  'prices_daily':['security_id','session_date','source','open','high','low','close','adj_close','volume','turnover','source_id'],
- 'corporate_actions':['action_id','security_id','action_date','action_type','ratio','cash_amount','needs_review','currency','source','source_id','notes'],
+ 'corporate_actions':['action_id','security_id','action_date','action_type','ratio','cash_amount','needs_review','currency','source','source_id','notes','sub_ticker','vendor_factor','spin_value','resolution'],
  'price_coverage':['security_id','source','first_date','last_date','n_days','status','source_id','detail'],
  'price_lineage':['security_id','opend_code','first_date','last_date','status','detail','source_id'],
  'price_quarter_coverage':['version_id','security_id','active_from','active_to','expected_sessions','present_sessions',
@@ -22,6 +22,7 @@ COLS={
  'price_comparison':['security_id','session_date','differences','source_id'],
  'price_calendar':['session_date','session_type','source_id'],
  'price_continuity':['security_id','event_date','ratio','previous_close','current_close','status','detail','source_id'],
+ 'tri_daily':['security_id','session_date','close','tri','daily_return','method','flags'],
 }
 
 def finite(v):
@@ -86,7 +87,7 @@ def assemble(t,store,build):
     # The only alias-only class in the pool converted one-for-one on this evidenced date.
     aliases={'CMCSA':[('CMCSK',start,'2015-12-10')],'JCI':[('TYC',start,'2016-09-02')],
              'BNY':[('BK',start,'2026-05-20')],'CB':[('ACE',start,'2016-01-14')]}
-    frames={};frame_sources={};action_raw={};action_sources={}
+    frames={};frame_sources={};action_raw={};action_sources={};code_of={}
     for code,entry in sorted(index['entries'].items()):
         bars={};sources={}
         for u in sorted(set(entry.get('reused',[]))):
@@ -147,6 +148,7 @@ def assemble(t,store,build):
                 if first<=d<=last:combined[d]=b;srcs[d]=frame_sources[old][d];chosen[d]=old
         # Class C and Class A prices are never substituted. Special A is used only for its own historical security.
         for sid in sorted(sids):
+            code_of[sid]=code
             bars=dict(combined);sources=dict(srcs);which=dict(chosen)
             if code=='CMCSA' and securities[sid]['class_code']!='CL_A_SPECIAL':
                 bars=dict(frames.get(code,{}));sources=dict(frame_sources.get(code,{}));which={d:code for d in bars}
@@ -261,10 +263,21 @@ def assemble(t,store,build):
                 out['price_continuity'].append(dict(security_id=sid,event_date=ex,ratio=ratio,previous_close=prev,
                     current_close=now,status=status,detail=detail,source_id=src))
                 if status!='pass':review('price_continuity',sid,ex+': '+detail,src)
-    for n,r in enumerate(sorted((x for rows in all_actions.values() for x in rows),key=lambda x:(x['security_id'],x['action_date'],x['action_type'],x['cash_amount'] or 0)),1):out['corporate_actions'].append(dict(action_id=n,**r))
+    # Action triage (2026-10-27): one amount per ex-date, missing cash and spinoffs restored, vendor cross-check.
+    from . import actions_v2,tri
+    final_actions,action_stats,action_reviews=actions_v2.finalize(all_actions,action_raw,all_prices,code_of)
+    reviews+=action_reviews
+    for n,r in enumerate(sorted(final_actions,key=lambda x:(x['security_id'],x['action_date'],x['action_type'],x['cash_amount'] or 0)),1):
+        out['corporate_actions'].append(dict(action_id=n,**{k:r.get(k) for k in COLS['corporate_actions'] if k!='action_id'}))
+    tri_rows=tri.build_all(all_prices,final_actions,dates,start,end)
+    try:tri_rows+=tri.build_benchmark(store,dates,start,end)
+    except Exception as exc:review('tri_benchmark',tri.BENCH_ID,'benchmark TRI not built: '+type(exc).__name__+': '+str(exc))
+    out['tri_daily']=tri_rows
+    out['_action_stats']=action_stats
     for sid,bars in sorted(all_prices.items()):
         ds=sorted(bars);ca=defaultdict(list)
-        for r in all_actions[sid]:ca[r['action_date']].append(r)
+        for r in final_actions:
+            if r['security_id']==sid:ca[r['action_date']].append(r)
         for prev,d in zip(ds,ds[1:]):
             ratio=bars[d][0]['close']/bars[prev][0]['close']
             if abs(ratio-1)>.4:
@@ -293,6 +306,26 @@ def assemble(t,store,build):
                  expected_sessions=len(expected),present_sessions=len(expected)-len(missing),warmup_expected=len(warm),warmup_present=wp,
                  status='complete' if not missing and len(warm)==252 and wp==252 and not any(x['security_id']==sid and x['status']!='pass' and (warm[0] if warm else first)<=x['event_date']<=last for x in out['price_continuity']) else 'incomplete',
                  missing_dates=json.dumps(dict(active=missing,warmup=[d for d in warm if d not in bars])),source_id=sid_of(cfg['index_url'])))
+    # A4 (2026-10-27): a security with no price at all inside a version's active window cannot be held in that
+    # version. It leaves the strategy list with reason no_price_data; a company whose every eligible class is
+    # removed leaves the list as well, and no rank is refilled. Short warm-up history is kept and only flagged.
+    empty={(r['version_id'],r['security_id']) for r in out['price_quarter_coverage'] if r['present_sessions']==0}
+    dropped=[]
+    for r in t['strategy_securities']:
+        if r['strategy_eligible'] and (r['version_id'],r['security_id']) in empty:
+            r['strategy_eligible']=0;r['reason']='no_price_data'
+            dropped.append(dict(version_id=r['version_id'],security_id=r['security_id'],level='security'))
+    usable=defaultdict(int)
+    for r in t['strategy_securities']:
+        if r['strategy_eligible']:usable[(r['version_id'],r.get('issuer_id',''))]+=1
+    for r in t.get('strategy_companies',[]):
+        if r['strategy_eligible'] and not usable.get((r['version_id'],r['issuer_id'])):
+            r['strategy_eligible']=0;r['excluded_reason']='no_price_data';r['blocked_reason']=''
+            dropped.append(dict(version_id=r['version_id'],issuer_id=r['issuer_id'],level='company'))
+    for c in t.get('quarter_checks',[]):
+        if c['check_name']=='strategy_complete' and c['status']=='pass':
+            c['detail']+=f'; no_price_data removals in this version: '+str(sum(1 for d in dropped if d['version_id']==c['version_id']))
+    out['_no_price_data']=dropped
     # v05 normalized is a comparison reference only; never a source for price rows.
     compared=defaultdict(int)
     ref=cfg.get('comparison_url')
@@ -319,7 +352,9 @@ def assemble(t,store,build):
           warmup_missing_sessions=sum(x['warmup_expected']-x['warmup_present'] for x in qs))
         row['detail']=json.dumps(detail,ensure_ascii=False,sort_keys=True)
     maxid=max((r['review_id'] for r in t['review_items']),default=0)
-    for n,r in enumerate(sorted(reviews,key=lambda x:(x['review_type'],x['subject_id'],x['detail'])),maxid+1):t['review_items'].append(dict(review_id=n,**r))
+    for n,r in enumerate(sorted(reviews,key=lambda x:(x['review_type'],x['subject_id'],x['detail'])),maxid+1):
+        r=dict(r);r['source_id']=r.get('source_id') or None
+        t['review_items'].append(dict(review_id=n,**r))
     return out
 
 

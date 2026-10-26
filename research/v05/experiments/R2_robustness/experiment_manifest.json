@@ -1,0 +1,305 @@
+{
+  "experiment": {
+    "id": "R2_robustness",
+    "registration_commit": "0af77457c20b52cb466a5612cdbcea0af0a9435a",
+    "spec_sha256": "cbaa41eae7043ca1d0bff49b90adc7404daf1dcdb088cc3a3d910f6e6f2a190f"
+  },
+  "spec": {
+    "id": "R2_robustness",
+    "created_date": "2026-10-26",
+    "hypothesis": "第二轮稳健性（R2_robustness）：检验第一轮的赢家 SIZE、G、SEC3 是否为真实效应，还是路径与样本的运气。12 个配置在 N=8、10、12 与 L=90、126 的设定中重复，相对各自锚点在 10 bp 下比较；按方案第 8.3 节的标准判定，不加入任何新想法，不更换默认策略。",
+    "baseline": {
+      "id": "L090_N08_b2_R2",
+      "L": 90,
+      "N": 8,
+      "k": 2,
+      "b": 2,
+      "rebalance": "R2"
+    },
+    "costs_bps": [
+      5,
+      10
+    ],
+    "null_runs": 100,
+    "confirm_top": 12,
+    "registration_note": "12 个配置在方案第 8 节中确定，未根据第二轮的任何结果调整。",
+    "grid": [
+      {
+        "points": [
+          {
+            "signal": {
+              "kind": "size_tilt",
+              "L": 90,
+              "weight": 0.1
+            },
+            "N": 10,
+            "b": 2,
+            "rebalance": "R2",
+            "selection": "sector_cap",
+            "selection_params": {
+              "sector_k": 3
+            },
+            "anchor": "L090_N10_b2_R2_sector_cap_dcda083d",
+            "name": "C_SEC3_SIZE"
+          },
+          {
+            "signal": {
+              "kind": "sector_demeaned",
+              "L": 90
+            },
+            "N": 10,
+            "b": 2,
+            "rebalance": "R2",
+            "selection": "sector_cap",
+            "selection_params": {
+              "sector_k": 3
+            },
+            "anchor": "L090_N10_b2_R2_sector_cap_dcda083d",
+            "name": "C_SEC3_G"
+          },
+          {
+            "signal": {
+              "kind": "size_tilt",
+              "L": 126,
+              "weight": 0.1
+            },
+            "N": 10,
+            "b": 2,
+            "rebalance": "R2",
+            "anchor": "L126_N10_b2_R2",
+            "name": "R_SIZE_L126"
+          },
+          {
+            "signal": {
+              "kind": "sector_demeaned",
+              "L": 126
+            },
+            "N": 10,
+            "b": 2,
+            "rebalance": "R2",
+            "anchor": "L126_N10_b2_R2",
+            "name": "R_G_L126"
+          },
+          {
+            "signal": {
+              "kind": "momentum",
+              "L": 126,
+              "skip": 0
+            },
+            "N": 10,
+            "b": 2,
+            "rebalance": "R2",
+            "selection": "sector_cap",
+            "selection_params": {
+              "sector_k": 3
+            },
+            "anchor": "L126_N10_b2_R2",
+            "name": "R_SEC_L126"
+          },
+          {
+            "signal": {
+              "kind": "size_tilt",
+              "L": 90,
+              "weight": 0.1
+            },
+            "N": 8,
+            "b": 2,
+            "rebalance": "R2",
+            "anchor": "L090_N08_b2_R2",
+            "name": "R_SIZE_N8"
+          },
+          {
+            "signal": {
+              "kind": "sector_demeaned",
+              "L": 90
+            },
+            "N": 8,
+            "b": 2,
+            "rebalance": "R2",
+            "anchor": "L090_N08_b2_R2",
+            "name": "R_G_N8"
+          },
+          {
+            "signal": {
+              "kind": "momentum",
+              "L": 90,
+              "skip": 0
+            },
+            "N": 8,
+            "b": 2,
+            "rebalance": "R2",
+            "selection": "sector_cap",
+            "selection_params": {
+              "sector_k": 2
+            },
+            "anchor": "L090_N08_b2_R2",
+            "name": "R_SEC_N8"
+          },
+          {
+            "signal": {
+              "kind": "size_tilt",
+              "L": 90,
+              "weight": 0.1
+            },
+            "N": 12,
+            "b": 2,
+            "rebalance": "R2",
+            "anchor": "L090_N12_b2_R2",
+            "name": "R_SIZE_N12"
+          },
+          {
+            "signal": {
+              "kind": "sector_demeaned",
+              "L": 90
+            },
+            "N": 12,
+            "b": 2,
+            "rebalance": "R2",
+            "anchor": "L090_N12_b2_R2",
+            "name": "R_G_N12"
+          },
+          {
+            "signal": {
+              "kind": "momentum",
+              "L": 90,
+              "skip": 0
+            },
+            "N": 12,
+            "b": 2,
+            "rebalance": "R2",
+            "selection": "sector_cap",
+            "selection_params": {
+              "sector_k": 4
+            },
+            "anchor": "L090_N12_b2_R2",
+            "name": "R_SEC_N12"
+          },
+          {
+            "signal": {
+              "kind": "momentum",
+              "L": 90,
+              "skip": 0
+            },
+            "N": 10,
+            "b": 2,
+            "rebalance": "R2",
+            "selection": "sector_cap",
+            "selection_params": {
+              "sector_k": 4
+            },
+            "anchor": "L090_N10_b2_R2",
+            "name": "SEC4"
+          }
+        ]
+      }
+    ],
+    "references": [
+      "S7a7dc02d2f2e_L090_N10_b2_R2",
+      "L090_N10_b2_R2_sector_cap_f4e419ba",
+      "Sd3dcdf21323b_L090_N10_b2_R2",
+      "Sa1d1bf7bce5a_L090_N10_b2_R2"
+    ],
+    "pairs": [
+      [
+        "C_SEC3_SIZE",
+        "SEC3"
+      ],
+      [
+        "C_SEC3_G",
+        "SEC3"
+      ],
+      [
+        "R_SIZE_L126",
+        "A126"
+      ],
+      [
+        "R_G_L126",
+        "A126"
+      ],
+      [
+        "R_SEC_L126",
+        "A126"
+      ],
+      [
+        "R_SIZE_N8",
+        "BASE_N08"
+      ],
+      [
+        "R_G_N8",
+        "BASE_N08"
+      ],
+      [
+        "R_SEC_N8",
+        "BASE_N08"
+      ],
+      [
+        "R_SIZE_N12",
+        "BASE_N12"
+      ],
+      [
+        "R_G_N12",
+        "BASE_N12"
+      ],
+      [
+        "R_SEC_N12",
+        "BASE_N12"
+      ],
+      [
+        "SEC4",
+        "A90"
+      ]
+    ],
+    "results_seen_before_registration": [
+      "第四阶段 72 个配置的正式结果（research/v05/results/stage4_unified/）",
+      "E0 自检成绩单（research/v05/experiments/E0_selfcheck/）",
+      "诊断 D0（research/v05/diagnostics/D0/）与 D1R（research/v05/diagnostics/D1R/）",
+      "R1_mechanisms 的全部结果：成绩单、配对表、实验级随机对照、区间估计与压力测试（research/v05/experiments/R1_mechanisms/）",
+      "Claude 补算的第一轮风险表（docs/LeadTrend_策略优化方案_v1.md 第 7.2 节）"
+    ]
+  },
+  "attempts": 96,
+  "baseline_check": {
+    "5bps": "PASS",
+    "10bps": "PASS"
+  },
+  "grid_points": 12,
+  "points": 21,
+  "anchors_added": [
+    "L090_N08_b2_R2",
+    "L090_N10_b2_R2",
+    "L090_N10_b2_R2_sector_cap_dcda083d",
+    "L090_N12_b2_R2",
+    "L126_N10_b2_R2",
+    "S7a7dc02d2f2e_L090_N10_b2_R2",
+    "L090_N10_b2_R2_sector_cap_f4e419ba",
+    "Sd3dcdf21323b_L090_N10_b2_R2",
+    "Sa1d1bf7bce5a_L090_N10_b2_R2"
+  ],
+  "null_runs": 100,
+  "confirm_top": 12,
+  "daily_confirmed_points": 21,
+  "null_points": 2100,
+  "null_counts": {
+    "Sd3dcdf21323b_L090_N10_b2_R2_sector_cap_dcda083d": "100/100",
+    "Sa1d1bf7bce5a_L090_N10_b2_R2_sector_cap_dcda083d": "100/100",
+    "S49342fac1c95_L126_N10_b2_R2": "100/100",
+    "S202bb68b5d63_L126_N10_b2_R2": "100/100",
+    "L126_N10_b2_R2_sector_cap_dcda083d": "100/100",
+    "Sd3dcdf21323b_L090_N08_b2_R2": "100/100",
+    "Sa1d1bf7bce5a_L090_N08_b2_R2": "100/100",
+    "L090_N08_b2_R2_sector_cap_f4e419ba": "100/100",
+    "Sd3dcdf21323b_L090_N12_b2_R2": "100/100",
+    "Sa1d1bf7bce5a_L090_N12_b2_R2": "100/100",
+    "L090_N12_b2_R2_sector_cap_2e94a6a2": "100/100",
+    "L090_N10_b2_R2_sector_cap_2e94a6a2": "100/100",
+    "L090_N08_b2_R2": "100/100",
+    "L090_N10_b2_R2": "100/100",
+    "L090_N10_b2_R2_sector_cap_dcda083d": "100/100",
+    "L090_N12_b2_R2": "100/100",
+    "L126_N10_b2_R2": "100/100",
+    "S7a7dc02d2f2e_L090_N10_b2_R2": "100/100",
+    "L090_N10_b2_R2_sector_cap_f4e419ba": "100/100",
+    "Sd3dcdf21323b_L090_N10_b2_R2": "100/100",
+    "Sa1d1bf7bce5a_L090_N10_b2_R2": "100/100"
+  }
+}

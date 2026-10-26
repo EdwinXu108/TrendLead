@@ -24,6 +24,7 @@ from leadtrend_db import api
 LAST_ALLOWED_END = '2024-06-28'
 BENCH = 'BENCH:VOO'
 POOL_MODES = ('pool_ew', 'pool_cw', 'top10_cw')
+_MARKET_CACHE: dict[tuple, dict] = {}      # read-only market data shared by runs with the same window
 
 
 class HoldoutError(ValueError):
@@ -85,6 +86,8 @@ class Backtest:
         self.decisions: list[dict] = []
         self.trades: list[dict] = []
         self.daily: list[dict] = []
+        self.position_rows: list[dict] = []
+        self.positions_today: list[dict] = []
         self.pending: list[dict] = []
         self.applied: dict[str, int] = defaultdict(int)
         self.bench_units = 0.0
@@ -92,7 +95,38 @@ class Backtest:
         self.first_trade_day = None
 
     # -- data ---------------------------------------------------------------------------------------------------
+    def _cache_key(self):
+        family = 'pool' if self.mode in POOL_MODES else ('voo' if self.mode == 'voo' else 'signal')
+        return (str(self.db_path), self.start, self.end, family)
+
     def load(self) -> None:
+        if self.market is not None:
+            self._load()
+            return
+        key = self._cache_key()
+        cached = _MARKET_CACHE.get(key)
+        if cached is not None:
+            self.calendar = cached['calendar']
+            self.full_calendar = cached['full_calendar']
+            self.signal_days = cached['signal_days']
+            self.pools = cached['pools']
+            self.pool_days = cached['pool_days']
+            self.tri = cached['tri']
+            self.opens = cached['opens']
+            self.closes = cached['closes']
+            self.issuer = cached['issuer']
+            self.actions = cached['actions']
+            self.action_sids = list(cached['action_sids'])
+            self.spin_value = cached['spin_value']
+            return
+        self._load()
+        _MARKET_CACHE[key] = dict(calendar=self.calendar, full_calendar=self.full_calendar,
+                                  signal_days=self.signal_days, pools=self.pools, pool_days=self.pool_days,
+                                  tri=self.tri, opens=self.opens, closes=self.closes, issuer=self.issuer,
+                                  actions=self.actions, action_sids=list(self.action_sids),
+                                  spin_value=self.spin_value)
+
+    def _load(self) -> None:
         if self.market is not None:
             self.calendar = list(self.market['calendar'])
             self.full_calendar = list(self.market.get('full_calendar', self.market['calendar']))
@@ -147,6 +181,7 @@ class Backtest:
         bars = api.benchmark_bars(self.full_calendar[0], self.end)     # VOO is not in prices_daily
         self.opens[BENCH] = {d: b['open'] for d, b in bars.items()}
         self.closes[BENCH] = {d: b['close'] for d, b in bars.items()}
+        self._prepare_actions()
 
     def _load_closes(self, ids: list[str], db) -> None:
         conn = api.connect(db) if db else api.connect()
@@ -414,6 +449,7 @@ class Backtest:
         target = self._pool_targets(day)
         if not target:
             return
+        self.pending = [o for o in self.pending if o['tranche'] != tranche.index or o['side'] == 'sell']
         for sid in sorted(tranche.positions):
             self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid, action='sell',
                                        rank='', score=''))
@@ -470,7 +506,12 @@ class Backtest:
         value = 0.0
         for tranche in self.tranches:
             for sid, shares in tranche.positions.items():
-                value += shares * (self.close_on(sid, day) or 0.0)
+                close = self.close_on(sid, day)
+                value += shares * (close or 0.0)
+                if close:
+                    self.positions_today.append(dict(date=day, tranche=tranche.index, security_id=sid,
+                                                     shares=round(shares, 8), close=close,
+                                                     value=round(shares * close, 6)))
         if self.bench_units == 0.0 and self.first_trade_day is not None and day == self.first_trade_day:
             tri = self.tri.get(BENCH, {}).get(day)
             close = self.closes.get(BENCH, {}).get(day)
@@ -480,6 +521,8 @@ class Backtest:
                 self.bench_units = self.capital / (tri * open_price / close)
         bench = self.bench_units * self.tri.get(BENCH, {}).get(day, 0.0) if self.bench_units else 0.0
         self.daily.append(dict(date=day, cash=cash, positions_value=value, equity=cash + value, benchmark=bench))
+        self.position_rows.extend(self.positions_today)
+        self.positions_today = []
 
     def result(self) -> dict:
         pnl: dict[str, float] = defaultdict(float)
@@ -492,7 +535,7 @@ class Backtest:
                 issuer = tranche.issuer_of.get(sid, '')
                 pnl[issuer] += shares * (self.close_on(sid, last_day) or 0.0) - tranche.cost.get(sid, 0.0)
         return dict(daily=self.daily, trades=self.trades, decisions=self.decisions, pnl=dict(pnl),
-                    positions=self._positions(), config=self.cfg)
+                    positions=self.position_rows, config=self.cfg)
 
     def _positions(self) -> list[dict]:
         rows = []

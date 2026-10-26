@@ -184,7 +184,9 @@ def pool_amounts(version_id: str, db_path: Path | str = DB_PATH) -> dict[str, di
     conn = connect(db_path)
     rows = conn.execute("""select ts.security_id, ts.issuer_id, ts.amount_cents, ts.class_code
                            from top200_securities ts
-                           where ts.version_id = ? and ts.candidate_eligible = 1
+                           join strategy_securities ss on ss.version_id = ts.version_id
+                                                        and ss.security_id = ts.security_id
+                           where ts.version_id = ? and ts.candidate_eligible = 1 and ss.strategy_eligible = 1
                            order by ts.amount_cents desc, ts.security_id""", (version_id,))
     return {r['security_id']: dict(r) for r in rows}
 

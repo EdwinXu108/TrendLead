@@ -81,7 +81,16 @@ def series_metrics(dates: list[str], values: list[float], rf_annual: dict[str, f
     rf_avg = sum(rf) / len(rf) if rf else 0.0
     drawdown = _drawdown(dates, values)
     annual = _annual(dates, values)
+    intra = {}
+    for year in ('2020', '2022'):
+        idx = [i for i, d in enumerate(dates) if d[:4] == year]
+        if len(idx) > 1:
+            sub = [values[i] for i in idx]
+            intra[year] = _drawdown([dates[i] for i in idx], sub)['max_drawdown']
+        else:
+            intra[year] = float('nan')
     out = dict(start=dates[0], end=dates[-1], sessions=sessions, total_return=values[-1] / values[0] - 1,
+               max_drawdown_2020=intra['2020'], max_drawdown_2022=intra['2022'],
                cagr=cagr, volatility=vol, sharpe=(cagr - rf_avg) / vol if vol else float('nan'),
                rf_annual_average=rf_avg, **drawdown, annual_returns=annual,
                worst_year=min(annual.items(), key=lambda kv: kv[1]) if annual else ('', float('nan')))

@@ -46,6 +46,7 @@ def plan_exit_cash_trades(account, target_ids, open_prices, fee_per_trade,
         trades.append(Trade(session_date,sid,'sell',qty,ref,fill,fee_per_trade,delta,'exit'))
     if cap is not None:
         for sid in sorted(held&targets):
+            if sid not in marks:continue  # no previous close: not held before this session, so not retained
             qty=account.shares_of(sid);keep=min(qty,int(cap*total_pre//marks[sid]))
             if qty-keep<=0:continue
             ref=open_prices[sid];fill=adverse_fill(ref,'sell',slippage_rate)

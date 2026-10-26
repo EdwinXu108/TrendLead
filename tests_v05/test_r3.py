@@ -28,8 +28,17 @@ def test_cap_marks_are_the_previous_close_with_the_split_ratio_applied():
     assert cap_reference_marks({'A': 10.0, 'B': 20.0}, ['A', 'B'], [split, dividend]) == {'A': 5.0, 'B': 20.0}
     reverse = SimpleNamespace(event_type='reverse_split', security_id='A', shares_new_per_old=0.1)
     assert cap_reference_marks({'A': 10.0}, ['A'], [reverse]) == {'A': pytest.approx(100.0)}
-    with pytest.raises(ValueError):
-        cap_reference_marks({}, ['A'], [])
+    assert cap_reference_marks({}, ['A'], []) == {}  # a spin-off child: no previous close, no cap that session
+
+
+def test_a_name_without_a_previous_close_is_not_trimmed():
+    # C was distributed on the execution session (no previous close): it is held, but not retained, so no cap applies.
+    held = AccountState(0.0, {'A': 80, 'C': 50})
+    marks = cap_reference_marks({'A': 10.0}, ['A', 'C'], [])
+    trades = plan_exit_cash_trades(held, ['A', 'C'], {'A': 10.0, 'C': 10.0}, 1.0, 0.0, date(2020, 1, 3), True,
+                                   cap=0.5, marks=marks, total_pre=1000.0)
+    assert [(t.security_id, t.reason, t.shares) for t in trades if t.reason == 'cap_trim'] == [('A', 'cap_trim', 30)]
+    assert held.shares_of('C') == 50
 
 
 def test_a_rally_on_the_execution_day_does_not_trim_under_the_prior_close_rule():

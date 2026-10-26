@@ -35,11 +35,10 @@ ACCOUNTING_RULES_VERSION='v2'
 
 def cap_reference_marks(prior_marks, held, events):
     """Plan 9.4(2) prior-close rule: each held name's close on the previous session, divided by the split ratio of a
-    split effective on the execution session (its shares were already split). No other corporate action changes it."""
-    marks={}
-    for sid in held:
-        if sid not in prior_marks:raise ValueError('single-stock cap: no previous close for held name '+sid)
-        marks[sid]=float(prior_marks[sid])
+    split effective on the execution session (its shares were already split). No other corporate action changes it.
+    A held name with no previous close (a spin-off child distributed on the execution session) was not held before that
+    session, so it is not retained and is left out: no cap applies to it that session."""
+    marks={sid:float(prior_marks[sid]) for sid in held if sid in prior_marks}
     for e in events:
         if e.event_type in {'split','reverse_split'} and e.security_id in marks:marks[e.security_id]=marks[e.security_id]/float(e.shares_new_per_old)
     return marks
@@ -426,7 +425,7 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
     if _stage4_context is not None:
         if book.fractional_settlements:
             summary.update(fractional_cash_approximation_total=sum(r['amount'] for r in book.fractional_rows if r['fractional_cash_valuation']=='approximation'),
-                fractional_cash_events=book.fractional_rows,fractional_cash_over_0_1_percent=[r for r in book.fractional_rows if r['exceeds_0_1_percent']])
+                fractional_cash_events=book.fractional_rows,fractional_cash_over_0_1_percent=[r for r in book.fractional_rows if r.get('exceeds_0_1_percent')])
             manifest.update(fractional_right_assumption='authorized fallback: first regular-way raw close, no fee, receivable then available on tenth following trading session',
                 supplemental_data_sha256=sha256_file(root/paths.DATA_VERSION))
         summary.update(no_parameter_search=False,stage4_configuration_id=raw['configuration_id'],rebalance=raw['rebalance'],

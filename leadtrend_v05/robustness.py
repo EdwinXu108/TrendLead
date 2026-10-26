@@ -24,6 +24,7 @@ from .perf_bench import Timer, available_physical, dump
 from .perf_cache import ensure_signal_tables, identity, load_cache, worker_cache
 from .perf_runner import accepted, auto_workers, run_key, safe_output, WORKER_PEAK_BYTES
 from .stage4_registry import verify
+from .tranche_merge import merge_points, point_jobs
 
 OFFSETS = (0, 1, 2, 3, 4)  # signal weeks after the development start; 0 is the start itself
 COSTS = (5, 10)
@@ -148,16 +149,21 @@ def run_offsets(root, base, ids, offsets=OFFSETS, costs=(10,), workers=1):
     ensure_signal_tables(root, doc, [p['signal'] for p in points])
     payload = dict(points=points, costs=list(COSTS), experiment=dict(id=EXPERIMENT_ID, kind='start_offset'))
     ctx = _context(root, doc, payload)
-    weeks = ctx.signal_weeks()
+    weeks = [str(w) for w in ctx.signal_weeks()]
     jobs = []
     for k in offsets:
         if k not in range(len(OFFSETS)):
             raise ValueError('offset must be one of 0 to 4: ' + str(k))
+        experiment = dict(id=EXPERIMENT_ID, kind='start_offset', offset=k)
         for p in points:
             for cost in costs:
-                job = dict(p, start_date=weeks[k], experiment=dict(id=EXPERIMENT_ID, kind='start_offset', offset=k))
-                jobs.append((job, cost, str(base / f'offset_{k}' / p['id'] / f'cost_{cost}bps'), 'explore', False, 'explore'))
+                folder = base / f'offset_{k}' / p['id'] / f'cost_{cost}bps'
+                jobs.extend(point_jobs(p, cost, folder, 'explore', 'explore', experiment, start_date=weeks[k]))
     executed = _run_jobs(jobs, ctx, workers, payload, None)
+    for k in offsets:
+        # A tranche schedule starts with the offset: sub-account j checks at the j-th signal week from weeks[k].
+        merge_points(points, lambda p, c, k=k: base / f'offset_{k}' / p['id'] / f'cost_{c}bps', costs, weeks[k:],
+                     root, ctx.segment['end'], 'explore')
     return dict(starts={k: weeks[k] for k in offsets}, executed=executed)
 
 
@@ -182,8 +188,10 @@ def run_issuers(root, base, ids, issuers, costs=COSTS, workers=1):
     jobs = []
     for p in points:
         for cost in costs:
-            jobs.append((dict(p, experiment=experiment), cost, str(base / p['id'] / f'cost_{cost}bps'), 'explore', False, 'explore'))
+            jobs.extend(point_jobs(p, cost, base / p['id'] / f'cost_{cost}bps', 'explore', 'explore', experiment))
     executed = _run_jobs(jobs, ctx, workers, payload, excluded)
+    weeks = [str(w) for w in ctx.signal_weeks()]
+    merge_points(points, lambda p, c: base / p['id'] / f'cost_{c}bps', costs, weeks, root, ctx.segment['end'], 'explore')
     return dict(issuers=issuers, excluded_securities=len(excluded), executed=executed)
 
 

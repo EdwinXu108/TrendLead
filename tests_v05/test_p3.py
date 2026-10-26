@@ -197,16 +197,20 @@ def _raw(p, **changes):
 
 
 def test_robustness_authorization_admits_only_valid_tranche_and_cap_values():
-    p = make_point({'kind': 'momentum', 'L': 90, 'skip': 0}, 10, 2, 'R2')
+    p = make_point({'kind': 'momentum', 'L': 90, 'skip': 0}, 10, 2, 'R2', tranche=3)
     ctx = _ctx([p])
-    ctx.authorize(_raw(p, tranche={'K': 3, 'j': 2}, cap=1.0), None)
-    ctx.authorize(_raw(p, tranche={'K': 1, 'j': 0}), None)
-    for bad in ({'K': 0, 'j': 0}, {'K': 13, 'j': 0}, {'K': 2, 'j': 2}, {'K': 2}):
+    ctx.authorize(_raw(p, tranche={'K': 3, 'j': 2}), None)
+    for bad in ({'K': 0, 'j': 0}, {'K': 13, 'j': 0}, {'K': 2, 'j': 2}, {'K': 2}, {'K': 2, 'j': 0}):
         with pytest.raises(ValueError, match='tranche'):
             ctx.authorize(_raw(p, tranche=bad), None)
-    for bad in (0.0, 1.5, -0.2):
+    capped = make_point({'kind': 'momentum', 'L': 90, 'skip': 0}, 10, 2, 'R2', cap=0.15)
+    ctx = _ctx([p, capped])
+    ctx.authorize(_raw(capped, cap=0.15), None)
+    for bad in (0.0, 1.5, -0.2, 0.2):
         with pytest.raises(ValueError, match='cap'):
-            ctx.authorize(_raw(p, cap=bad), None)
+            ctx.authorize(_raw(capped, cap=bad), None)
+    with pytest.raises(ValueError, match='tranche'):
+        ctx.authorize(_raw(p, tranche={'K': 2, 'j': 0}), None)  # K must equal the registration's
 
 
 def test_drawdown_record_gives_the_largest_drawdown_its_dates_and_the_longest_spell():

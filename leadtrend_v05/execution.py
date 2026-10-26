@@ -31,9 +31,10 @@ def plan_exit_cash_trades(account, target_ids, open_prices, fee_per_trade,
                           slippage_rate, session_date, is_swap_week, cap=None, marks=None, total_pre=None, **kwargs):
     """R2: exits finance additions; retained positions are not resized unless a single-stock cap is given.
 
-    cap (plan 9.4(2)): in a trading week, a retained name above cap x total equity (total_pre, at the execution
-    session's closing marks before any order) is cut to the largest whole-share holding within the cap. The sale
-    proceeds join the cash that the additions split. cap=None leaves the trades exactly as before.
+    cap (plan 9.4(2)): in a trading week, a retained name above cap x total_pre is cut to the largest whole-share
+    holding within the cap, valued at marks[sid]. Both are the previous session's closes and total equity (the prior-close
+    rule, so nothing of the execution session is used); the caller builds them. The sale proceeds join the cash that the
+    additions split. cap=None leaves the trades exactly as before.
     """
     if not is_swap_week:return []
     targets=set(target_ids);held={s for s,q in account.positions.items() if q>0}

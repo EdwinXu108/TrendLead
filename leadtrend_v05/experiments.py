@@ -28,6 +28,7 @@ from .stage4_registry import digest, points as stage4_points, verify
 from .stage4_summary import interval
 from .perf_cache import OptimizedContext
 from .drawdown import load_dtb3, risk_profile
+from .tranche_merge import merge_folder, merge_points, point_jobs, result_folder
 
 EXPERIMENTS = 'research/v05/experiments'
 BASELINE = {'id': 'L090_N08_b2_R2', 'L': 90, 'N': 8, 'k': 2, 'b': 2, 'rebalance': 'R2'}
@@ -54,7 +55,11 @@ def selection_key(selection, params):
     return hashlib.sha256(blob.encode('utf-8')).hexdigest()[:8]
 
 
-def make_point(signal, N, b, rebalance, selection='default', selection_params=None, anchor=None):
+def make_point(signal, N, b, rebalance, selection='default', selection_params=None, anchor=None, tranche=None, cap=None):
+    """A configuration. tranche = K sub-accounts (plan 9.4(1)); cap = single-stock cap c in (0, 1) (plan 9.4(2)).
+
+    Both enter the ID only when given, so every configuration registered before keeps its ID.
+    """
     sig = normalize(signal)
     L = main_L(sig)
     base_id = f'L{L:03d}_N{N:02d}_b{b}_{rebalance}'
@@ -68,17 +73,25 @@ def make_point(signal, N, b, rebalance, selection='default', selection_params=No
         if unknown:
             raise ValueError(f'{selection} does not take parameters {sorted(unknown)}')
         point.update(id=f'{pid}_{selection}_{selection_key(selection, params)}', selection=selection, selection_params=params)
+    if tranche is not None:
+        if isinstance(tranche, bool) or not isinstance(tranche, int) or not 2 <= tranche <= 12:
+            raise ValueError('tranche must be an integer K from 2 to 12')
+        point.update(id=point['id'] + f'_K{tranche}', tranche=tranche)
+    if cap is not None:
+        if isinstance(cap, bool) or not isinstance(cap, (int, float)) or not 0 < cap < 1:
+            raise ValueError('single-stock cap must be a number in (0, 1)')
+        point.update(id=point['id'] + f'_cap{round(100 * cap):02d}', cap=float(cap))
     if anchor is not None:
         point['anchor'] = anchor
     return point
 
 
 def _point_from_item(item):
-    unknown = set(item) - {'signal', 'N', 'b', 'rebalance', 'selection', 'selection_params', 'anchor', 'name'}
+    unknown = set(item) - {'signal', 'N', 'b', 'rebalance', 'selection', 'selection_params', 'anchor', 'name', 'tranche', 'cap'}
     if unknown:
         raise ValueError('grid point has unknown keys: ' + ','.join(sorted(unknown)))
     p = make_point(item['signal'], item['N'], item['b'], item['rebalance'], item.get('selection', 'default'),
-                   item.get('selection_params'), item.get('anchor'))
+                   item.get('selection_params'), item.get('anchor'), item.get('tranche'), item.get('cap'))
     if item.get('name') is not None:
         p['name'] = item['name']  # a label for reports only; not part of the identity
     return p
@@ -155,9 +168,15 @@ def registration_commit(root, spec_path):
 
 
 def attempt_key(point):
-    """One configuration is one attempt: normalised signal, N, k, b, rebalance, selection rule and its parameters."""
-    return (canonical(point['signal']), point['N'], point['k'], point['b'], point['rebalance'],
-            point.get('selection', 'default'), json.dumps(point.get('selection_params') or {}, sort_keys=True))
+    """One configuration is one attempt: normalised signal, N, k, b, rebalance, selection rule and its parameters, and
+    (when given) the tranche count and the single-stock cap."""
+    key = (canonical(point['signal']), point['N'], point['k'], point['b'], point['rebalance'],
+           point.get('selection', 'default'), json.dumps(point.get('selection_params') or {}, sort_keys=True))
+    if point.get('tranche') is not None:
+        key += (('tranche', point['tranche']),)
+    if point.get('cap') is not None:
+        key += (('cap', point['cap']),)
+    return key
 
 
 def registered_attempts(root):
@@ -348,16 +367,20 @@ def position_shares(folder, sectors, equity_by_day):
                 sector_over_50_share=sum(1 for v in daily_sector if v > 0.50) / n)
 
 
-def _run_folder(base, point, cost, phase):
+def _cost_folder(base, point, cost, phase):
+    """The folder of one point at one cost: the single run, or the sub-accounts of a tranche point (merged beside them)."""
     return Path(base) / phase / point['id'] / f'cost_{cost}bps'
+
+
+def _run_folder(base, point, cost, phase):
+    return result_folder(_cost_folder(base, point, cost, phase), point)
 
 
 def _jobs(ctx_points, base, phase, mode, level, costs, experiment):
     jobs = []
     for p in ctx_points:
-        p = dict(p, experiment=experiment)
         for cost in costs:
-            jobs.append((p, cost, str(_run_folder(base, p, cost, phase)), mode, False, level))
+            jobs.extend(point_jobs(p, cost, _cost_folder(base, p, cost, phase), mode, level, experiment))
     return jobs
 
 
@@ -382,6 +405,18 @@ class ExperimentContext(OptimizedContext):
             raise ValueError('signal does not match the registration')
         if raw.get('selection', 'default') != p.get('selection', 'default') or raw.get('selection_params') != p.get('selection_params'):
             raise ValueError('selection does not match the registration')
+        tranche = raw.get('tranche')
+        if tranche is not None and tranche['K'] == 1:
+            tranche = None  # K = 1 is the ordinary run (plan 9.4(1)), as in the reviewed K = 1 gate
+        if (tranche or {}).get('K') != p.get('tranche'):
+            raise ValueError('tranche does not match the registration')
+        if tranche is not None and not 0 <= tranche.get('j', -1) < tranche['K']:
+            raise ValueError('tranche index out of range')
+        cap = raw.get('cap')
+        if cap == 1:
+            cap = None  # a cap of 1 never triggers: the ordinary run, as in the reviewed cap = 1 gate
+        if cap != p.get('cap'):
+            raise ValueError('single-stock cap does not match the registration')
         if raw.get('slippage_bps') not in self.costs:
             raise ValueError('unregistered cost')
         if raw.get('initial_capital') != 100000 or raw.get('fee_per_trade') != 1:
@@ -511,6 +546,7 @@ SCORECARD_COLUMNS = [
     ('VOO 2020年最大回撤', 'voo_dd_2020', _pct), ('VOO 2022年最大回撤', 'voo_dd_2022', _pct),
     ('VOO最差自然年收益', 'voo_worst_year_return', _pct), ('VOO最差年份', 'voo_worst_year', str),
     ('VOO收益/最大回撤', 'voo_ret_over_dd', _ratio2), ('VOO夏普比(扣DTB3)', 'voo_sharpe_dtb3', _ratio2),
+    ('分批数K', 'tranche', str), ('单股上限c', 'cap', str),
 ]
 
 
@@ -673,6 +709,7 @@ def run_experiment(root, spec_path, workers=1, null_runs=None):
     payload = dict(points=points, costs=COSTS, experiment=experiment)
     ctx = _experiment_ctx(root, doc, payload)
     _run_jobs(_jobs(points, base, 'explore', 'explore', 'explore', COSTS, experiment), ctx, workers, payload)
+    weeks = [str(w) for w in ctx.signal_weeks()]
     check = check_baseline(root, base)
     excess10, complete = {}, {}
     for p in points:
@@ -680,39 +717,56 @@ def run_experiment(root, spec_path, workers=1, null_runs=None):
         complete[p['id']] = m is not None
         excess10[p['id']] = m['annualized_excess'] if m else None
     order, means = rank_points(points, excess10, complete)
+    merge_points(points, lambda p, c: _cost_folder(base, p, c, 'explore'), COSTS, weeks, root, DEV_END, 'explore')
     # Every configuration gets a daily verified run at both costs: positions and decisions come from it.
     _run_jobs(_jobs(points, base, 'daily', 'lean', 'daily', COSTS, experiment), ctx, workers, payload)
-    # Null controls: per configuration, random picks that make the same full exits each week as its own explore run
-    # (10 bp). Each configuration has its own group; groups share no runs.
-    null_points = []
+    merge_points(points, lambda p, c: _cost_folder(base, p, c, 'daily'), COSTS, weeks, root, DEV_END, 'daily')
+    # Null controls: per configuration and seed, random picks that make the same full exits each week as its own explore run
+    # (10 bp). A tranche configuration draws one control per sub-account, from that sub-account's own exits, and the seed's
+    # controls form one merged account. Each configuration has its own group; groups share no runs.
+    null_entries, null_jobs, null_units = [], [], []
     for p in points:
         if _metrics_or_none(_run_folder(base, p, 10, 'explore')) is None:
             raise ValueError('reference explore run incomplete; its null controls cannot be matched: ' + p['id'])
-        exits = reference_exit_counts(_run_folder(base, p, 10, 'explore'))
+        K = p.get('tranche') or 0
+        cost_folder = _cost_folder(base, p, 10, 'explore')
+        parts = list(range(K)) if K else [None]
+        exits = {j: reference_exit_counts(cost_folder if j is None else cost_folder / f'sub_{j}') for j in parts}
         sector_k = (p.get('selection_params') or {}).get('sector_k') if p.get('selection') == 'sector_cap' else None
         for seed in range(n_null):
-            params = dict(seed=seed, exit_counts=exits)
-            if sector_k is not None:
-                params['sector_k'] = sector_k
-            null_points.append(dict(id=f'NULL_{p["id"]}_s{seed:03d}', signal=p['signal'], L=p['L'], N=p['N'], k=p['k'],
-                                    b=p['b'], rebalance=p['rebalance'], selection='random_matched', selection_params=params,
-                                    _group=p['id']))
-    null_jobs = []
-    for q in null_points:
-        q2 = {k: v for k, v in q.items() if k != '_group'}
-        null_jobs.append((dict(q2, experiment=experiment), 10,
-                          str(base / 'null' / q['_group'] / q['id'] / 'cost_10bps'), 'explore', False, 'explore'))
-    payload = dict(points=points + [{k: v for k, v in q.items() if k != '_group'} for q in null_points],
-                   costs=COSTS, experiment=experiment)
+            unit = f'NULL_{p["id"]}_s{seed:03d}'
+            unit_folder = base / 'null' / p['id'] / unit / 'cost_10bps'
+            null_units.append(dict(group=p['id'], folder=unit_folder, K=K))
+            for j in parts:
+                params = dict(seed=seed, exit_counts=exits[j])
+                if sector_k is not None:
+                    params['sector_k'] = sector_k
+                entry = dict(id=unit if j is None else f'{unit}_j{j}', signal=p['signal'], L=p['L'], N=p['N'], k=p['k'],
+                             b=p['b'], rebalance=p['rebalance'], selection='random_matched', selection_params=params)
+                if p.get('cap') is not None:
+                    entry['cap'] = p['cap']
+                if K:
+                    entry['tranche'] = K
+                null_entries.append(entry)
+                job = dict(entry, experiment=experiment)
+                folder = unit_folder
+                if j is not None:
+                    job['tranche'] = dict(K=K, j=j)
+                    folder = unit_folder / f'sub_{j}'
+                null_jobs.append((job, 10, str(folder), 'explore', False, 'explore'))
+    payload = dict(points=points + null_entries, costs=COSTS, experiment=experiment)
     ctx = _experiment_ctx(root, doc, payload)
     _run_jobs(null_jobs, ctx, workers, payload)
+    for u in null_units:
+        if u['K']:
+            merge_folder(u['folder'], u['K'], weeks, root, DEV_END, 'explore')
     null_values, null_turnover = defaultdict(list), defaultdict(list)
-    totals = Counter(q['_group'] for q in null_points)
-    for q in null_points:
-        m = _metrics_or_none(base / 'null' / q['_group'] / q['id'] / 'cost_10bps')
+    totals = Counter(u['group'] for u in null_units)
+    for u in null_units:
+        m = _metrics_or_none(result_folder(u['folder'], dict(tranche=u['K'])))
         if m is not None:
-            null_values[q['_group']].append(m['annualized_excess'])
-            null_turnover[q['_group']].append(m['turnover'])
+            null_values[u['group']].append(m['annualized_excess'])
+            null_turnover[u['group']].append(m['turnover'])
     base_metrics = {p['id']: _metrics_or_none(_run_folder(base, p, 10, 'explore')) for p in points}
     base_metrics5 = {p['id']: _metrics_or_none(_run_folder(base, p, 5, 'explore')) for p in points}
     sector_map = load_sector_map(root)
@@ -783,7 +837,7 @@ def run_experiment(root, spec_path, workers=1, null_runs=None):
             dd_vs_WGT=_diff(m10 and m10['max_drawdown'], wgt_m and wgt_m['max_drawdown']),
             ret_over_vol_vs_WGT=_diff(risk.get('ret_vol'), wgt_risk.get('ret_vol')),
             **_profile_cells(profiles.get(p['id'], {})),
-            null_cell='', **nulls, daily_confirmed='yes'))
+            null_cell='', **nulls, daily_confirmed='yes', tranche=p.get('tranche') or '', cap=p.get('cap') or ''))
     base.mkdir(parents=True, exist_ok=True)
     by_id = {p['id']: f"{len(null_values.get(p['id'], []))}/{totals[p['id']]}" for p in points}
     header = dict(id=spec_id, attempts=registered_attempts(root), registration_commit=commit,

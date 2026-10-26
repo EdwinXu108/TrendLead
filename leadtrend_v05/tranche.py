@@ -11,89 +11,16 @@ Usage (the gates use these; no registration, no attempt):
     python -X utf8 -m leadtrend_v05.tranche run --ids ID --cap 1.0 --costs 10 --out work/runs/tranche/gate_cap1
 """
 import argparse
-import csv
 import json
-from datetime import date
 from pathlib import Path
 
 from . import paths
-from .perf_artifacts import read_table
 from .perf_bench import dump
 from .perf_cache import ensure_signal_tables, identity, load_cache
 from .perf_runner import safe_output
 from .robustness import COSTS, EXPERIMENT_ID, _context, _run_jobs, configurations
-from .stage3_metrics import longest_drawdown
-from .stage4_acceptance import voo_values
-from .stage4_summary import interval
 
-INITIAL = 100000.0
-MERGE_FIELDS_SKIP = {'session_date'}
-
-
-def _write(path, rows):
-    rows = list(rows)
-    fields = list(dict.fromkeys(k for r in rows for k in r))
-    with Path(path).open('w', encoding='utf-8', newline='') as f:
-        w = csv.DictWriter(f, fieldnames=fields)
-        w.writeheader()
-        w.writerows(rows)
-
-
-def merge_group(group, sub_names, signal_weeks, K, root, end):
-    """Merge the sub-account folders of one group into group/merged and write group/group_manifest.json."""
-    group = Path(group)
-    subs = [group / s for s in sub_names]
-    tables = [read_table(s / 'daily_equity.csv') for s in subs]
-    sessions = [r['session_date'] for r in tables[0]]
-    for t in tables[1:]:
-        if [r['session_date'] for r in t] != sessions:
-            raise ValueError('sub-account sessions differ; the group cannot be merged')
-    common = set(tables[0][0])
-    for t in tables[1:]:
-        common &= set(t[0])
-    numeric = sorted(k for k in common if k not in MERGE_FIELDS_SKIP)
-    daily = []
-    for i, d in enumerate(sessions):
-        row = {'session_date': d}
-        for k in numeric:
-            row[k] = sum(float(t[i][k]) for t in tables)
-        daily.append(row)
-    trades, checks = [], []
-    for j, s in enumerate(subs):
-        for r in read_table(s / 'trades.csv'):
-            trades.append(dict(r, account=j))
-        for r in read_table(s / 'weekly_checks.csv'):
-            checks.append(dict(r, account=j))
-    trades.sort(key=lambda r: (r['session_date'], r['account'], r['security_id']))
-    first = min(r['session_date'] for r in trades)
-    days = [r['session_date'] for r in daily if r['session_date'] >= first and r['session_date'] <= end]
-    values = voo_values(root, days, first, INITIAL)
-    bench = [dict(session_date=d, benchmark_value=v) for d, v in zip(days, values)]
-    merged = group / 'merged'
-    merged.mkdir(parents=True, exist_ok=True)
-    _write(merged / 'daily_equity.csv', daily)
-    _write(merged / 'benchmark.csv', bench)
-    _write(merged / 'trades.csv', trades)
-    _write(merged / 'weekly_checks.csv', checks)
-    equity_rows = [dict(session_date=r['session_date'], total_equity=r['total_equity']) for r in daily]
-    full = interval(equity_rows, bench, 'opening', end, first, INITIAL)
-    values_from_first = [float(r['total_equity']) for r in daily if r['session_date'] >= first]
-    dates_from_first = [r['session_date'] for r in daily if r['session_date'] >= first]
-    drawdown = longest_drawdown([INITIAL] + values_from_first,
-                                [date.fromisoformat(d) for d in [first] + dates_from_first])
-    sub_summaries = [json.loads((s / 'summary.json').read_text(encoding='utf-8')) for s in subs]
-    turnover = sum(float(x['annual_turnover_one_way_half_two_sided']) for x in sub_summaries) / K
-    summary = dict(status='completed', scope='development_only', tranche_K=K, comparison_start_session=first,
-                   annualized_return=full['strategy_annualized'], drawdown=drawdown,
-                   annual_turnover_one_way_half_two_sided=turnover,
-                   n_trades=sum(int(x['n_trades']) for x in sub_summaries),
-                   fees_total=sum(float(x['fees_total']) for x in sub_summaries),
-                   note='merged account: K sub-accounts with 1/K capital each; turnover is the mean of the sub-accounts')
-    dump(merged / 'summary.json', summary)
-    dump(group / 'group_manifest.json', dict(K=K, sub_folders=list(sub_names), signal_weeks=list(signal_weeks),
-                                             first_trade=first, merged_folder='merged',
-                                             sub_annualized_return=[x['annualized_return'] for x in sub_summaries]))
-    return merged
+from .tranche_merge import INITIAL, merge_group
 
 
 def run_variant(root, base, ids, costs=COSTS, *, K=None, cap=None, workers=1):

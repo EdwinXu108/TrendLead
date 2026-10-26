@@ -33,6 +33,17 @@ EXPLORE_TABLES=('daily_equity','benchmark','trades','weekly_checks')
 # receivables valued at the first regular-way close and paid on the tenth following session.
 ACCOUNTING_RULES_VERSION='v2'
 
+def cap_reference_marks(prior_marks, held, events):
+    """Plan 9.4(2) prior-close rule: each held name's close on the previous session, divided by the split ratio of a
+    split effective on the execution session (its shares were already split). No other corporate action changes it."""
+    marks={}
+    for sid in held:
+        if sid not in prior_marks:raise ValueError('single-stock cap: no previous close for held name '+sid)
+        marks[sid]=float(prior_marks[sid])
+    for e in events:
+        if e.event_type in {'split','reverse_split'} and e.security_id in marks:marks[e.security_id]=marks[e.security_id]/float(e.shares_new_per_old)
+    return marks
+
 def guard_development(config, registry, end_override=None):
     start=date.fromisoformat(config['start_date']);end=date.fromisoformat(end_override or config['end_date'])
     registered=date.fromisoformat(registry['development']['end'])
@@ -167,7 +178,7 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
     sector_by_sid=None;selection_counts=Counter();gap_exit_count=0
     if raw.get('selection','default')!='default':
         sector_map=load_sector_map(root);sector_by_sid={sid:sector_key(r.industry,sector_map)[0] for sid,r in sec.items()}
-    pending=None;first_trade=None;first_open_value=None;contributions=defaultdict(float);previous_assets={};last_marks={};stop=None
+    pending=None;first_trade=None;first_open_value=None;contributions=defaultdict(float);previous_assets={};last_marks={};last_total=None;stop=None
     # Strategy signal: absent means the existing momentum rule on cfg.L, so grid outputs are unchanged.
     signal=normalize_signal(raw['signal']) if raw.get('signal') is not None else {'kind':'momentum','L':cfg.L,'skip':0}
     if raw.get('signal') is not None and _performance is None:raise ValueError('signals need the cached score tables')
@@ -184,7 +195,7 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
         'fractional_right_assumption':'unverified fractional cash-in-lieu stays a restricted security entitlement at observed child mark; no invented payment',
         'limitations':['survivorship bias from missing historical member quotes','current industry classification','unvalidated engineering defaults']}
     if tranche:manifest.update(tranche=dict(K=K,j=j,initial_capital=init_capital,schedule_weeks=len(signal_days)),initial_capital_account=init_capital)
-    if raw.get('cap') is not None:manifest.update(single_stock_cap=raw['cap'])
+    if raw.get('cap') is not None:manifest.update(single_stock_cap=raw['cap'],single_stock_cap_reference='previous session close and total equity; split ratio on the execution session')
     if raw.get('signal') is not None or raw.get('experiment') is not None:
         manifest.update(signal=signal,signal_key=signal_key(signal),experiment=raw.get('experiment'))
     if _stage4_context is not None:
@@ -250,11 +261,11 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
                 if first_trade is None:first_open_value=init_capital
                 planner=plan_equal_weight_trades
                 if _stage4_context is not None and raw['rebalance']=='R2':
-                    from .execution import plan_exit_cash_trades
                     planner=plan_exit_cash_trades
                 cap=raw.get('cap')
                 if cap is not None and planner is not plan_exit_cash_trades:raise ValueError('single-stock cap is a round 2 option')
-                extra={} if cap is None else dict(cap=cap,marks=marks,total_pre=book.components(marks)['total_equity'])
+                # Plan 9.4(2) prior-close rule: the cap reads the previous session's closes and total equity, never the execution session's.
+                extra={} if cap is None else dict(cap=cap,marks=cap_reference_marks(last_marks,book.account.positions,events_by_date[d]),total_pre=last_total if last_total is not None else init_capital)
                 trades=planner(temp,target,opens,cfg.fee_per_trade,cfg.slippage_rate,d,swap,
                     allocation_slots=max(0,cfg.N-len(frozen)-len(gap_retained)-len(voided_held)),**extra)
                 running_cash=book.account.cash;qs=dict(tradable)
@@ -382,7 +393,7 @@ def run_dev(root:Path, config_path:Path, output:Path, *, end_override=None, stre
                 if _stage4_context is not None:
                     coverage_row.update(source_coverage_window=20,actual_window=cfg.L,actual_n_scored=len(candidates))
                 tables['weekly_coverage'].append(coverage_row)
-            last_marks=marks
+            last_marks=marks;last_total=total
         except (ValueError,KeyError) as exc:
             stop={'attempted_session':iso,'message':str(exc),'last_valued_session':tables['daily_equity'][-1]['session_date'] if tables['daily_equity'] else None,
                 'cash':book.account.cash,'positions':book.account.positions,'receivable_cash':book.account.receivable_cash,

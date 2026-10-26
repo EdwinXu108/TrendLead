@@ -24,6 +24,12 @@ def read(path):
     from .perf_artifacts import read_table
     return read_table(path)
 def f(row,key):return float(row.get(key) or 0)
+def _previous_close(quotes,sid,equity,i):
+    """Close of a name on the session before equity row i; one missing session falls back one more session, as the engine does."""
+    for back in (1,2):
+        if i-back>=0 and (sid,equity[i-back]['session_date']) in quotes:return float(quotes[sid,equity[i-back]['session_date']]['close'])
+    raise ValueError('no previous close for '+sid)
+
 def audit(folder,root=None,ctx=None,end=None):
     global ROOT, END
     if root is not None:ROOT=Path(root)
@@ -190,16 +196,20 @@ def audit(folder,root=None,ctx=None,end=None):
                 failures.append('buy of a name with a price gap in its scoring window '+t['security_id']+' '+t['signal_session_date'])
     cap=manifest.get('single_stock_cap')
     if cap is not None:
-        # Plan 9.4(2), replayed from the run's own holdings and closes: a name held before and after a trading session, and
-        # not frozen, never exceeds cap x total equity of that session (one share of slack for whole-share orders).
+        # Plan 9.4(2), prior-close rule, replayed from independent quotes: in a session with trades, a name held before and
+        # after it, not frozen, has shares after the trades x its previous-session close (divided by the split ratio of a
+        # split effective that session) no more than cap x the previous session's total equity, plus one share of slack.
         cap=float(cap);prior={}
-        for day in equity:
+        splits={(r['security_id'],r['effective_session']):float(r['shares_new_per_old']) for r in event_inputs.values() if r['event_type'] in {'split','reverse_split'}}
+        for i,day in enumerate(equity):
             d=day['session_date'];now={r['security_id']:r for r in positions[d] if r['asset_type']=='actual_shares'}
-            if by_day.get(d):
-                total=f(day,'total_equity')
+            if by_day.get(d) and i>0:
+                previous_total=f(equity[i-1],'total_equity')
                 for sid,r in now.items():
-                    if sid in prior and r['frozen']=='0' and f(r,'shares')>0 and f(r,'value')>cap*total*(1+1e-9)+f(r,'mark'):
-                        failures.append('retained name above the single-stock cap '+sid+' '+d)
+                    if sid in prior and r['frozen']=='0' and f(r,'shares')>0:
+                        close=_previous_close(quotes,sid,equity,i)/splits.get((sid,d),1.)
+                        if f(r,'shares')*close>cap*previous_total*(1+1e-9)+close:
+                            failures.append('retained name above the single-stock cap '+sid+' '+d)
             prior=now
     if max(max_cash_error,max_qty_error,max_mark_error,max_entitlement_error,max_trade_error)>TOLERANCE:failures.append('independent ledger/quote replay discrepancy')
     if fractional_max_error>TOLERANCE:failures.append('fractional cash amount mismatch')

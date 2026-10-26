@@ -1,0 +1,91 @@
+{
+  "id": "R3_structure",
+  "created_date": "2026-10-26",
+  "hypothesis": "第三轮（R3_structure）：组合结构。检验三种结构改动是否保留第一、二轮的超额：分批建仓（4 个子账户各 10 只，错开建仓，每 4 个信号周检查一次）、更多持仓（单一账户 20 只）、单股上限（单一账户 10 只，单股不超过上一交易日总权益的 15%）；另检验第二轮的板块上限与板块中性信号在分批结构下是否仍然成立。相对各自锚点在 10 bp 下比较；按方案第 10.5 节的标准判定，不加入任何新信号，不更换默认策略。",
+  "baseline": {
+    "id": "L090_N08_b2_R2",
+    "L": 90,
+    "N": 8,
+    "k": 2,
+    "b": 2,
+    "rebalance": "R2"
+  },
+  "costs_bps": [
+    5,
+    10
+  ],
+  "null_runs": 100,
+  "confirm_top": 5,
+  "registration_note": "5 个配置在方案第 10 节中确定，未根据第三轮的任何结果调整。",
+  "configuration_notes": {
+    "T4": "4 个子账户各持 10 只、错开建仓（子账户 j 在第 j 个信号周建仓，之后每 4 周检查），检验同一策略的建仓时点运气是否被分散。",
+    "N20": "单一账户持 20 只（k=6，每周检查），检验更分散的持仓是否保留 A90 的超额。",
+    "CAP15": "单一账户持 10 只，单股上限 15%（上一交易日收盘与总权益口径），检验限制单股集中是否改变超额与回撤。",
+    "T4_SEC3": "分批结构下加入第二轮的板块上限（每板块至多 3 只），检验 SEC3 的优势在分批时是否保持。",
+    "T4_G": "分批结构下使用板块中性动量信号（G），检验 G 的优势在分批时是否保持。"
+  },
+  "grid": [
+    {
+      "points": [
+        {
+          "name": "T4",
+          "signal": {"kind": "momentum", "L": 90, "skip": 0},
+          "N": 10,
+          "b": 2,
+          "rebalance": "R2",
+          "tranche": 4,
+          "anchor": "L090_N10_b2_R2"
+        },
+        {
+          "name": "N20",
+          "signal": {"kind": "momentum", "L": 90, "skip": 0},
+          "N": 20,
+          "b": 2,
+          "rebalance": "R2",
+          "anchor": "L090_N10_b2_R2"
+        },
+        {
+          "name": "CAP15",
+          "signal": {"kind": "momentum", "L": 90, "skip": 0},
+          "N": 10,
+          "b": 2,
+          "rebalance": "R2",
+          "cap": 0.15,
+          "anchor": "L090_N10_b2_R2"
+        },
+        {
+          "name": "T4_SEC3",
+          "signal": {"kind": "momentum", "L": 90, "skip": 0},
+          "N": 10,
+          "b": 2,
+          "rebalance": "R2",
+          "selection": "sector_cap",
+          "selection_params": {"sector_k": 3},
+          "tranche": 4,
+          "anchor": "L090_N10_b2_R2_sector_cap_dcda083d"
+        },
+        {
+          "name": "T4_G",
+          "signal": {"kind": "sector_demeaned", "L": 90},
+          "N": 10,
+          "b": 2,
+          "rebalance": "R2",
+          "tranche": 4,
+          "anchor": "Sa1d1bf7bce5a_L090_N10_b2_R2"
+        }
+      ]
+    }
+  ],
+  "pairs": [
+    ["T4_SEC3", "T4"],
+    ["T4_G", "T4"]
+  ],
+  "results_seen_before_registration": [
+    "第四阶段 72 个配置的正式结果（research/v05/results/stage4_unified/）",
+    "E0 自检成绩单（research/v05/experiments/E0_selfcheck/）",
+    "诊断 D0（research/v05/diagnostics/D0/）与 D1R（research/v05/diagnostics/D1R/）",
+    "R1_mechanisms 的全部结果：成绩单、配对表、实验级随机对照、区间估计与压力测试（research/v05/experiments/R1_mechanisms/）",
+    "R2_robustness 的全部结果：成绩单、稳健性检验与讨论资料包（research/v05/experiments/R2_robustness/）",
+    "前置诊断 P3 的全部结果（research/v05/diagnostics/P3/）"
+  ]
+}

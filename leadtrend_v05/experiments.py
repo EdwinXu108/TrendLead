@@ -709,7 +709,7 @@ def run_experiment(root, spec_path, workers=1, null_runs=None):
     payload = dict(points=points, costs=COSTS, experiment=experiment)
     ctx = _experiment_ctx(root, doc, payload)
     _run_jobs(_jobs(points, base, 'explore', 'explore', 'explore', COSTS, experiment), ctx, workers, payload)
-    weeks = [str(w) for w in ctx.signal_weeks()]
+    weeks = [str(w) for w in ctx.frames.weeks()]
     check = check_baseline(root, base)
     excess10, complete = {}, {}
     for p in points:

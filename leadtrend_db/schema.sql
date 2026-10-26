@@ -1,4 +1,4 @@
--- schema_version 3: dated historical membership and a complete current-security projection.
+-- schema_version 5: dated historical membership and a complete current-security projection.
 -- Conventions: dates ISO 8601 (YYYY-MM-DD); timestamps UTC ISO 8601 with trailing Z; '' = unknown text;
 -- NULL = no direct single source or not applicable. Foreign keys are enforced at build time (PRAGMA foreign_keys=ON)
 -- and must have zero violations (checks.py). Every fact table carries source_id pointing at the raw file it came from.
@@ -313,8 +313,9 @@ CREATE TABLE prices_daily (
   high         REAL,
   low          REAL,
   close        REAL,
-  adj_close    REAL,
+  adj_close    REAL CHECK(adj_close IS NULL),
   volume       REAL,
+  turnover     REAL,
   source_id    TEXT REFERENCES sources(source_id),
   PRIMARY KEY (security_id, session_date, source)
 );
@@ -327,6 +328,7 @@ CREATE TABLE corporate_actions (
   action_type TEXT NOT NULL,
   ratio       REAL,
   cash_amount REAL,
+  needs_review INTEGER NOT NULL DEFAULT 0 CHECK(needs_review IN (0,1)),
   currency    TEXT NOT NULL DEFAULT 'USD',
   source      TEXT NOT NULL,
   source_id   TEXT REFERENCES sources(source_id),
@@ -340,6 +342,7 @@ CREATE TABLE price_coverage (
   first_date  TEXT NOT NULL DEFAULT '',
   last_date   TEXT NOT NULL DEFAULT '',
   n_days      INTEGER NOT NULL DEFAULT 0,
+  detail      TEXT NOT NULL DEFAULT '',
   status      TEXT NOT NULL DEFAULT 'not_fetched',
   source_id   TEXT REFERENCES sources(source_id),
   PRIMARY KEY (security_id, source)
@@ -399,3 +402,20 @@ FROM (
     AND sp.issuer_id NOT IN (SELECT issuer_id FROM pool_exclusions)
     AND res.resolved_issuer_id NOT IN (SELECT issuer_id FROM pool_exclusions)
 ) u;
+
+-- Original, unadjusted price provenance and public-version coverage (schema 5).
+CREATE TABLE price_calendar(session_date TEXT PRIMARY KEY,session_type TEXT NOT NULL,source_id TEXT NOT NULL REFERENCES sources(source_id));
+CREATE TABLE price_lineage(security_id TEXT NOT NULL REFERENCES securities(security_id),opend_code TEXT NOT NULL,
+ first_date TEXT NOT NULL,last_date TEXT NOT NULL,status TEXT NOT NULL,detail TEXT NOT NULL,
+ source_id TEXT REFERENCES sources(source_id),PRIMARY KEY(security_id,first_date,last_date));
+CREATE TABLE price_quarter_coverage(version_id TEXT NOT NULL REFERENCES pool_versions(version_id),
+ security_id TEXT NOT NULL REFERENCES securities(security_id),active_from TEXT NOT NULL,active_to TEXT NOT NULL,
+ expected_sessions INTEGER NOT NULL,present_sessions INTEGER NOT NULL,warmup_expected INTEGER NOT NULL,warmup_present INTEGER NOT NULL,
+ status TEXT NOT NULL,missing_dates TEXT NOT NULL,source_id TEXT NOT NULL REFERENCES sources(source_id),PRIMARY KEY(version_id,security_id));
+CREATE TABLE price_anomalies(security_id TEXT NOT NULL REFERENCES securities(security_id),session_date TEXT NOT NULL,
+ previous_date TEXT NOT NULL,close_ratio REAL NOT NULL,detail TEXT NOT NULL,source_id TEXT NOT NULL REFERENCES sources(source_id),PRIMARY KEY(security_id,session_date));
+CREATE TABLE price_comparison(security_id TEXT NOT NULL REFERENCES securities(security_id),session_date TEXT NOT NULL,
+ differences TEXT NOT NULL,source_id TEXT NOT NULL REFERENCES sources(source_id),PRIMARY KEY(security_id,session_date));
+CREATE TABLE price_continuity(security_id TEXT NOT NULL REFERENCES securities(security_id),event_date TEXT NOT NULL,
+ ratio REAL NOT NULL,previous_close REAL,current_close REAL,status TEXT NOT NULL,detail TEXT NOT NULL,
+ source_id TEXT REFERENCES sources(source_id),PRIMARY KEY(security_id,event_date));

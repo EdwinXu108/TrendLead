@@ -51,7 +51,8 @@ def members_as_of(conn: sqlite3.Connection, utc: str) -> dict:
                                    from strategy_companies where version_id=? order by historical_rank""",
                                 (v['version_id'],)).fetchall()
     return dict(query_utc=utc, version=v, status='ok' if v['quarter_state'] == 'ready' else 'blocked',
-                companies=companies, strategy=strategy,
+                historical_companies=companies,
+                companies=[r for r in companies if r[1] in {x[1] for x in strategy if x[5]}], strategy=strategy,
                 eligible_companies=eligible_companies(conn, v['version_id']) if v['quarter_state']=='ready' else [],
                 eligible_securities=eligible_securities(conn, v['version_id']) if v['quarter_state']=='ready' else [])
 
@@ -79,7 +80,8 @@ def quarter(conn: sqlite3.Connection, report_period: str) -> dict:
     companies = conn.execute("""select rank, issuer_id, issuer_name_at_period, amount_cents, tie_group, blocked_members
                                 from top200_companies where version_id=? order by rank""", (v[0],)).fetchall()
     return dict(report_period=report_period, version_id=v[0], available_at_utc=v[2], quarter_state=v[3],
-                quarter_reason=v[4], companies=companies,
+                quarter_reason=v[4], historical_companies=companies,
+                companies=[r for r in companies if r[1] in {x[1] for x in eligible_companies(conn,v[0])}],
                 eligible_companies=eligible_companies(conn,v[0]) if v[3]=='ready' else [],
                 eligible_securities=eligible_securities(conn,v[0]) if v[3]=='ready' else [])
 
@@ -102,10 +104,10 @@ def main_query(db_path: Path, quarter_period: str | None, as_of: str | None) -> 
                   f"available {res['available_at_utc']} state {res['quarter_state']}")
             print('historical audit (includes excluded companies; use eligible_companies/eligible_securities for strategy input)')
             print(format_rows(['rank', 'issuer_id', 'holding_name', 'amount_cents', 'tie_group', 'blocked_members'],
-                              res['companies']))
+                              res['historical_companies']))
             print(format_rows(['issuer_id','historical_security_id','class','current_security_id','current_ticker'],
                               res['eligible_securities']))
-            return 0 if res['companies'] and res['quarter_state'] == 'ready' else 1
+            return 0 if res['historical_companies'] and res['quarter_state'] == 'ready' else 1
         if as_of:
             res = members_as_of(conn, as_of)
             if res['version'] is None:
@@ -116,7 +118,7 @@ def main_query(db_path: Path, quarter_period: str | None, as_of: str | None) -> 
                   f"available {v['available_at_utc']} canonical {v['is_canonical']} state {v['quarter_state']}")
             print('historical audit (includes excluded companies; use eligible_companies/eligible_securities for strategy input)')
             print(format_rows(['rank', 'issuer_id', 'holding_name', 'amount_cents', 'tie_group', 'blocked_members'],
-                              res['companies']))
+                              res['historical_companies']))
             if res['strategy']:
                 print(f'strategy (status cutoff {R.STATUS_CUTOFF})')
                 print(format_rows(['historical_rank', 'issuer_id', 'current_status', 'resolved_current_issuer',

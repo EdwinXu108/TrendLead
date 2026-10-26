@@ -1,4 +1,4 @@
-"""Command line for leadtrend_db (schema 2, rule_version top200_v1).
+"""Command line for leadtrend_db (schema 5, rule_version top200_v2).
 
   python -m leadtrend_db build [--offline] [--db PATH]   build a database (default work/top200_v1/candidate.sqlite)
   python -m leadtrend_db check [--db PATH] [--skip-rebuild]
@@ -33,6 +33,7 @@ def _log(message: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog='leadtrend_db')
     sub = parser.add_subparsers(dest='cmd', required=True)
+    sub.add_parser('fetch-prices',help='archive original OpenD prices/actions; does not rebuild or promote')
     b = sub.add_parser('build')
     b.add_argument('--offline', action='store_true', help='read only the raw archive; no network request')
     b.add_argument('--db', default=str(WORK_DB), help='database path to write (default: work/top200_v1/candidate.sqlite)')
@@ -52,6 +53,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument('--out', default='research/db_v1/summary.md')
     args = parser.parse_args(argv)
 
+    if args.cmd == 'fetch-prices':
+        from .collect_prices import collect
+        collect()
+        return 0
     if args.cmd == 'build':
         from .build import build
         result = build(offline=args.offline, log=_log, db_path=Path(args.db))
@@ -87,7 +92,9 @@ def main(argv: list[str] | None = None) -> int:
         if dst.exists():
             shutil.copy2(dst, Path('work/top200_v1/previous_db_v1.sqlite'))
         tmp = dst.with_suffix('.promoting')
-        shutil.copy2(src, tmp)
+        # The independent rebuild has identical content and records the code commit
+        # actually verified by this promotion, even when the candidate preceded it.
+        shutil.copy2(Path('work/top200_v1/rebuild_check.sqlite'), tmp)
         os.replace(tmp, dst)
         _log(f'promoted {src} to {dst}')
         return 0

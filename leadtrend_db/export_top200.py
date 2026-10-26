@@ -1,4 +1,4 @@
-"""CSV exports of the Top 200 pool (rule_version top200_v1), UTF-8, written to data/db/exports/top200_v1/.
+"""CSV exports of the Top 200 pool (rule_version top200_v2), UTF-8, written to data/db/exports/top200_v1/.
 
 Every file is sorted by (report_period, rank or subject id) so that repeated exports are byte-identical. Field
 definitions are in docs/LeadTrend_数据库_v1.md (section 'CSV 字段').
@@ -204,6 +204,8 @@ def export_all(db_path: Path = S.DB_PATH, out_dir: Path | None = None, log=print
         ['issuer_id', 'sec_current_name', 'status', 'rank_ncsr', 'rank_nport', 'amount_ncsr_usd', 'amount_nport_usd',
          'difference_nport_minus_ncsr_usd'], cmp_rows)
 
+    from .price_data import export_csv
+    counts.update(export_csv(conn,out_dir))
     conn.close()
     log(f'exports written to {out_dir}: ' + ', '.join(f'{k} {v}' for k, v in counts.items()))
     return counts

@@ -42,3 +42,14 @@ def test_new_company_keeps_own_start_and_survivor_remains(monkeypatch):
     selected={(r['version_id'],r['issuer_id']) for r in t['strategy_companies'] if r['strategy_eligible']}
     assert ('OLD','CIK:0000000002') in selected and ('NEW','CIK:0000000002') in selected
     assert ('NEW','CIK:0000000202') in selected and ('OLD','CIK:0000000202') not in selected
+
+
+def test_query_default_companies_cannot_leak_excluded_audit_rows(tmp_path):
+    from tests_db.test_top200_units import _version_db
+    from leadtrend_db.query import members_as_of
+    c=_version_db(tmp_path)
+    c.execute("update strategy_companies set strategy_eligible=0,excluded_reason='investor_permanent_exclusion'")
+    c.execute('update strategy_securities set strategy_eligible=0')
+    result=members_as_of(c,'2020-02-20T10:00:00Z')
+    assert result['companies']==[] and result['eligible_securities']==[]
+    assert len(result['historical_companies'])==1

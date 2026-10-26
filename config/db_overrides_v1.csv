@@ -178,3 +178,10 @@ link_rejected,0000020171>0000896159,merger_survivor,2016-01-14,投资者永久�
 issuer_end,0000020171,2016-01-14,,保留原历史发行人有效期；与是否允许继任延续分开,https://www.sec.gov/Archives/edgar/data/20171/000119312516430909/d113061d8k.htm
 link_rejected,0001339947>0000813828,merger_survivor,2019-12-04,投资者永久排除,https://www.sec.gov/Archives/edgar/data/1339947/000119312519306335/d833313d8k.htm
 issuer_end,0001339947,2019-12-04,,保留原历史发行人有效期；与是否允许继任延续分开,https://www.sec.gov/Archives/edgar/data/1339947/000119312519306335/d833313d8k.htm
+security_ticker_span,CUSIP:064058100,BK,..2026-05-20,同一存续发行人的官方换代码日期；OpenD 当前代码历史仍须逐期价格身份核验,https://www.bny.com/corporate/global/en/about-us/newsroom/press-release/bny-announces-planned-change-of-stock-ticker-symbol-to-bny-130465.html
+security_ticker_span,CUSIP:064058100,BNY,2026-05-21..,同一存续发行人的官方换代码日期；OpenD 当前代码历史仍须逐期价格身份核验,https://www.bny.com/corporate/global/en/about-us/newsroom/press-release/bny-announces-planned-change-of-stock-ticker-symbol-to-bny-130465.html
+security_ticker_span,CUSIP:H1467J104,ACE,..2016-01-14,同一存续发行人的官方换代码日期；OpenD 当前代码历史仍须逐期价格身份核验,https://news.chubb.com/2016-01-14-ACE-Completes-Acquisition-of-Chubb-Adopts-Chubb-Name-and-Launches-New-Chubb-Brand
+security_ticker_span,CUSIP:H1467J104,CB,2016-01-15..,同一存续发行人的官方换代码日期；OpenD 当前代码历史仍须逐期价格身份核验,https://news.chubb.com/2016-01-14-ACE-Completes-Acquisition-of-Chubb-Adopts-Chubb-Name-and-Launches-New-Chubb-Brand
+security_ticker_span,CUSIP:G51502105,TYC,..2016-09-02,同一存续发行人的官方换代码日期；OpenD 当前代码历史仍须逐期价格身份核验,https://www.sec.gov/Archives/edgar/data/833444/000110465916143068/a16-17941_18k.htm
+security_ticker_span,CUSIP:G51502105,JCI,2016-09-06..,同一存续发行人的官方换代码日期；OpenD 当前代码历史仍须逐期价格身份核验,https://www.sec.gov/Archives/edgar/data/833444/000110465916143068/a16-17941_18k.htm
+continuity_ratio,CUSIP:G51502105,0.955,2016-09-06,Tyco 同一发行人每 1 股原普通股换 0.955 股新普通股，股票交易代码于9月6日生效；不使用被收购旧JCI历史,https://www.sec.gov/Archives/edgar/data/833444/000110465916143068/a16-17941_18k.htm

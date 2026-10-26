@@ -26,7 +26,7 @@ ISIN_SHAPE = re.compile(r'^[A-Z]{2}[0-9A-Z]{9}[0-9]$')
 TICKER_SHAPE = re.compile(r'^[A-Z]{1,5}(\.[A-Z]{1,2})?$')
 OVERRIDE_KINDS = ('cusip_cik', 'name_cik', 'link', 'status', 'security_type', 'security_cusip', 'security_end',
                   'security_ticker', 'external_issuer', 'successor_review', 'security_class', 'security_link',
-                  'issuer_start', 'issuer_end', 'link_rejected', 'continuity_ratio', 'price_start')
+                  'issuer_start', 'issuer_end', 'link_rejected', 'continuity_ratio', 'price_start', 'security_ticker_span')
 
 # security type evidence, most specific first
 TYPE_RULES = [

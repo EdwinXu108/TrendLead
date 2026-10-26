@@ -1,4 +1,4 @@
-# LeadTrend 季度 Top 200 数据库（schema 4，行情阶段升为 schema 5）
+# LeadTrend 季度 Top 200 数据库（schema 5）
 
 当前规则为 `top200_v2`。正式库为 `data/db/leadtrend_db_v1.sqlite`；沿用文件名以保持兼容，实际 schema 版本读 `meta`。
 本版本修复 v2 的证券继任投影、公开版本查询、排名边界和验收门禁。v1/v2 文档保留作历史记录。
@@ -105,3 +105,24 @@ SEC 与 OpenD 的本次原始观察由 `config/db_verification_sources_v2.json` 
 股票池排名和价格来源分开。行情自 2012-12-01 起，OpenD 日线严格 `AuType.NONE`，保存 open/high/low/close/volume/turnover 与来源主键，不保存厂商复权价。原始返回及复用的 v05 NONE 原文件只追加到 `data/db/raw/opend/`，清单记录 sha256、UTC、字节数；可完全离线重建。行情配置和收集命令见后续同节追加的实际实现。
 
 拆股、合股、分拆、现金与特别分红存 `corporate_actions`。价格覆盖按公开时间至下一公开时间，以及此前 252 个 NYSE 交易日分别记录；新上市历史不足、不可取代码、无法核实的历史序列不填造。当前 ticker 复用不等于历史证券相同，必须保存日期与身份核验结果。保留段行情只做覆盖、身份与异常检查，不计算策略信号或收益。
+
+### 行情实际表与命令（schema 5）
+
+`python -m leadtrend_db fetch-prices` 只收集原始返回，不提升正式库。随后按上面的 build --offline → check → promote → export 流程完成验收。`config/db_prices_v1.json` 固定本批原始索引、日期与 v05 比较参考，索引本身也在只追加清单内；收集日志/可恢复状态在 work/top200_v2，删除 work 不影响离线重建。
+
+- prices_daily：原始 OHLC、volume、turnover，source=opend_none；兼容列 adj_close 强制 NULL。SDK 的 AuType.NONE 序列化值为字符串 None，两者均明确表示不复权，拒收 QFQ/HFQ。
+- corporate_actions：action_date、action_type（split/reverse_split/spinoff/class_distribution/cash_dividend/special_dividend）、新股/旧股 ratio、每股 USD cash_amount、source_id 与 notes。现金优先使用已核对的分红端点；较早历史用 rehab 明确的 per_cash_div/special_dividend 补足，未知支付日留空。同日不同金额不盲目相加，进入复核。分拆价格调整因子不当作母股股数比例。
+- price_calendar：NYSE 交易日期与早收市标记。OpenD 返回的日历截于最近十年；2012-12 至 2016 年依官方历史休市资料补足，日期集合再与三只 NYSE 股票 JNJ、KO、IBM 的原始日线独立核对；配置和来源见 config/db_nyse_calendar_v1.json。
+- price_coverage：每证券的日期范围、日线行数、来源；detail 含全部公开版本的覆盖计数、252 日回看计数、缺失计数和 v05 比较计数。
+- price_quarter_coverage：每个实际生效公开版本 × 可选证券，公开至下一公开版本（最后一期截至收集日）内的预期与实有 NYSE 交易日、此前 252 日预期与实有、缺失日期。公开时间早于当日 09:30 ET 可用于当日开盘；其余从下一交易日生效。完整标志也要求已核实跨越的法律延续。该标志只评价价格覆盖，不代表公司行动复核全部关闭。
+- price_lineage：历史/当前证券、OpenD 当前代码、身份区间、申报价值÷股数锚点校验或隔离原因。支持的是有证据的同一股票延续，原始价格不换算为复权序列。
+- price_continuity：法律/代码变更日、换股比例、前后原始收盘与 pass/unverified。TYC→JCI 为每 1 股原 Tyco 换 0.955 股新普通股；不能当作 1:1。新 JCI 代码 2016-09-06 起生效；ACE→CB 是 2016-01-15；BK→BNY 是 2026-05-21。
+- price_anomalies：无相应公司行动可解释的相邻可用收盘变动超过 40%；隔日缺失的情况另注明 gap_sessions，不冒称单日变动。price_comparison 保存与 v05 逐日重叠字段的全部差异（v05 未提供 high/low，故不可比较这两项）。它们都是数据质量检查。
+
+同一延续股票的历史证券键与当前键可以指向同一原始连续系列，price_lineage 明示其公司根及法律关系；新合并主体的最早价格不得早于其成立/上市边界。当前证券代码在厂商上可能带着其他公司的历史，基金每季金额÷股数与原始收盘不符的区间整体隔离。已确认复用的 CB/JCI 在换代码前一律拒收当前代码序列；CMCSK 类别在转为 CMCSA 以前必须有自己的价格，不能以 CMCSA 替代。旧代码取不到时保留缺口。BNY 分红端点混入旧同名封闭式基金的记录，只有银行 rehab 可印证的现金记录才能纳入。
+
+导出新增 price_coverage.csv、price_quarter_coverage.csv、price_lineage.csv、price_continuity.csv、price_anomalies.csv、price_comparison.csv、corporate_actions.csv、price_calendar.csv、price_review_list.csv、ticker_checks.csv、pool_exclusions.csv，均在 data/db/exports/top200_v1/。价格完整度和复核结果以本次报告及数据库为准，不把“请求成功”写成“全部历史齐全”。
+
+### 本批实际计数
+
+51季度、52公开版本均ready；canonical可选公司季度行9536，可选历史证券联集337。原始日线1,124,521行、340个历史/当前证券键；覆盖及252日回看同时完整9707/9789，其余82条留有明确缺口。13,883条公司行动中60条同日现金项目标记needs_review。34条未被公司行动解释的40%变动保留；v05重叠608,004个证券交易日比较差异0。详细事实见work/handoff/codex_top200_v2.md（本地交付报告）。

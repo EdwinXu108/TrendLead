@@ -1,0 +1,8 @@
+{
+  "index_url": "opend://prices/20261026T211111Z/index_a1d1994f7226",
+  "start": "2012-12-01",
+  "end": "2026-10-26",
+  "price_stage": "raw_opend_v1",
+  "comparison_url": "local://data/v05/normalized/prices.csv#sha256=c95f5b2f15bc3a8cb8d7cac68a03c807dab6fae0176eb4c19cc97b34e053c3ea",
+  "end_basis": "last completed US session at collection; no future or unfinished session"
+}

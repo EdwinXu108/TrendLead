@@ -1,4 +1,4 @@
-"""Checks of leadtrend_db v2 (rule_version top200_v1). run_checks() returns a result dict and a list of failures; the CLI
+"""Checks of leadtrend_db schema 5 (rule_version top200_v2). run_checks() returns a result dict and a list of failures; the CLI
 exits non-zero when any check fails, so a failed check can never be mistaken for a passed build.
 
 The ranking is recomputed here with SQL from the holdings table, not from the Python ranking module, so that the two
@@ -285,7 +285,7 @@ def check_integrity(conn, out: dict) -> list[str]:
         fails.append('integrity: integrity_check failed')
     if missing:
         fails.append(f'integrity: meta keys missing {missing}')
-    if any(reserved.values()):
+    if reserved['index_changes'] or (meta.get('price_stage') != 'raw_opend_v1' and any(reserved.values())):
         fails.append('integrity: a reserved table is not empty')
     if blank:
         fails.append('integrity: blank identifiers stored')
@@ -318,6 +318,7 @@ def run_checks(db_path: Path = S.DB_PATH, rebuild: bool = True, work_db: Path | 
     fails += check_strategy(conn, out)
     fails += check_readiness(conn, out)
     fails += check_policy(conn, out)
+    fails += check_prices(conn, out)
     fails += check_raw_nport(conn, out)
     fails += check_integrity(conn, out)
     check_v05(conn, out, S.RAW_DIR / 'reference' / 'v05' / 'snapshot_members.csv')
@@ -335,3 +336,17 @@ def run_checks(db_path: Path = S.DB_PATH, rebuild: bool = True, work_db: Path | 
         log(f'CHECK FAILED: {f}')
     log('checks: ' + ('all passed' if not fails else f'{len(fails)} failed'))
     return out, fails
+
+
+def check_prices(conn,out):
+    if not _rows(conn,"select 1 from sqlite_master where name='price_quarter_coverage'"):return []
+    bad=_rows(conn,"select count(*) from prices_daily where source<>'opend_none' or adj_close is not null or open<=0 or close<=0 or low>min(open,close)+0.001 or high<max(open,close)-0.001")[0][0]
+    unexpected=_rows(conn,"""select count(*) from prices_daily p where p.security_id not in (
+      select security_id from strategy_securities where strategy_eligible=1 union
+      select current_security_id from strategy_securities where strategy_eligible=1)""")[0][0]
+    invalid=_rows(conn,"select count(*) from price_quarter_coverage where present_sessions>expected_sessions or warmup_present>warmup_expected or warmup_expected>252")[0][0]
+    out['prices']=dict(rows=_rows(conn,'select count(*) from prices_daily')[0][0],invalid_bars=bad,unexpected_securities=unexpected,
+      invalid_coverage=invalid,actions=_rows(conn,'select count(*) from corporate_actions')[0][0],
+      coverage_status=_rows(conn,'select status,count(*) from price_quarter_coverage group by status'),
+      anomalies=_rows(conn,'select count(*) from price_anomalies')[0][0],comparison_mismatched_days=_rows(conn,'select count(*) from price_comparison')[0][0])
+    return ['price integrity failed'] if bad or unexpected or invalid else []

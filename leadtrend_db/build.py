@@ -39,7 +39,7 @@ from .sources import RawMissing, RawStore, sha256_bytes, utc_now_iso
 from .status import PERIODIC, classify, detect_successors, filing_rows
 
 SCHEMA_FILE = Path(__file__).with_name('schema.sql')
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 PRE_FORMS = ('N-Q', 'N-CSR', 'N-CSRS', 'NPORT-EX')
 KIND = {'N-Q': 'nq', 'N-CSR': 'ncsr', 'N-CSRS': 'ncsrs', 'NPORT-EX': 'other', 'NPORT-P': 'nport'}
 SNAP_PREFIX = {'N-Q': 'NQ', 'N-CSR': 'NCSR', 'N-CSRS': 'NCSRS', 'NPORT-EX': 'NPORTEX', 'NPORT-P': 'NPORT'}
@@ -1264,6 +1264,14 @@ class Build:
             t[k] = v
         from .ticker_check import verify
         t['ticker_checks'] = verify(t, self.store)
+        dated=[r for r in self.overrides if r['override_kind']=='security_ticker_span']
+        dated_ids={r['key'] for r in dated}
+        t['security_identifiers']=[r for r in t['security_identifiers'] if not (r['id_type']=='ticker' and r['security_id'] in dated_ids)]
+        for r in dated:
+            if r['key'] not in sec_ok:continue
+            first,last=window_of(r['field']);rec=self.store.records.get(r['evidence'])
+            t['security_identifiers'].append(dict(security_id=r['key'],id_type='ticker',id_value=r['value'],
+                 valid_from=first,valid_to=last,source_id=source_id(rec['sha256']) if rec else None))
         for n, r in enumerate(sorted(self.review, key=lambda r: (r['review_type'], r.get('subject_id', ''),
                                                                  r.get('snapshot_id', ''), r.get('detail', ''))), 1):
             src = r.get('source_id') or None
@@ -1339,12 +1347,18 @@ def write_db(tables: dict, path: Path, steps: list, meta: dict) -> str:
     return digest
 
 
+from .price_data import COLS as PRICE_COLUMNS
+TABLE_COLUMNS.update(PRICE_COLUMNS)
+
+
 def build(offline: bool = False, log=print, db_path: Path = S.DB_PATH) -> dict:
     """Build the database. Returns the content hash and the network counters of this run."""
     store = RawStore(user_agent=None if offline else S.load_user_agent(), offline=offline)
     b = Build(store, log=log)
     t = b.assemble()
     extra = t.pop('_extra')
+    from . import price_data
+    t.update(price_data.assemble(t,store,b))
     manifest = S.RAW_DIR / 'manifest.jsonl'
     manifest_sha = sha256_bytes(manifest.read_bytes()) if manifest.exists() else ''
     commit = _code_commit()
@@ -1352,6 +1366,7 @@ def build(offline: bool = False, log=print, db_path: Path = S.DB_PATH) -> dict:
     digest = write_db(t, db_path, b.steps + [('write', db_path.name)],
                       dict(build_id=build_id, code_commit=commit, raw_manifest_sha256=manifest_sha,
                            pool_exclusions_sha256=R.describe()['pool_exclusions_sha256'],
+                           price_stage='raw_opend_v1' if price_data.CONFIG.exists() else 'not_fetched',
                            content_sha256_scope='all tables and views except meta and build_log',
                            rules=json.dumps(R.describe(), ensure_ascii=False, sort_keys=True)))
     counts = {k: len(v) for k, v in t.items() if isinstance(v, list)}

@@ -1,4 +1,4 @@
-"""Quarterly Top 200 candidate pool, rule_version top200_v1 (rules.py).
+"""Quarterly Top 200 candidate pool, rule_version top200_v2 (rules.py).
 
 compute() is called by build.py with the resolved holdings of every complete, reconciled snapshot. It returns the
 tables of the pool: pool versions, company ranks, the historical top 200 and their eligible securities, the strategy

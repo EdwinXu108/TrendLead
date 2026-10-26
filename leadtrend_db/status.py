@@ -1,13 +1,20 @@
 """Listing status of every issuer that was ever in VOO, and successor links.
 
-Status rules (decided on the build date, from the SEC submissions files and the latest snapshot):
-  in_index                 in the latest fund snapshot
-  listed_out_of_index      not in the latest snapshot, but the SEC submissions list an NYSE, Nasdaq or Cboe exchange
-  continued_by_successor   not listed, and a successor issuer (issuer_links) carries on the business
-  delisted                 not listed on those exchanges (acquired, merged away, taken private, bankrupt,
-                           moved to OTC, or only debt registered); delisting_date from the first Form 25 (filing
-                           date + 10 days, the effective date of the delisting) or else the first Form 15
-  unknown                  no usable evidence, or a periodic report was filed in the last year without a Form 25
+Two separate facts are kept apart:
+  * latest_common: the issuer's common or ADR shares appear in the latest report-date snapshot (a CVR or a right of
+    the same issuer does not count);
+  * current evidence on the build date (status_as_of): the SEC lists an NYSE, Nasdaq or Cboe exchange now, and the
+    issuer's Form 25 / 25-NSE / Form 15 filings.
+
+Rules:
+  in_index                 listed now and latest_common
+  listed_out_of_index      listed now, not in the latest snapshot (exchange listing and holdings are not the same)
+  delisted                 not listed now and a Form 25 / 25-NSE (delisting date = last one + 10 days) or a Form 15
+                           (date of the last one) exists. If latest_common still holds on or after that date, the
+                           row is also flagged needs_review (the latest holding contradicts the notice).
+  continued_by_successor   the issuer is the predecessor of a successor link (issuer_links)
+  unknown                  everything else: no current listing and no delisting notice, or the identity is not
+                           confirmed. Never declared delisted without a notice; needs_review = 1.
 """
 from __future__ import annotations
 
@@ -40,7 +47,7 @@ def _d(text: str) -> date:
 
 
 def merger_reason(filings: list[dict], end: date) -> str:
-    """Cheap, transparent hint: a merger proxy or tender offer near the exit date, else unknown."""
+    """A merger proxy, tender offer or going-private filing within a year before the exit date; else unknown."""
     window = [f for f in filings if end - timedelta(days=365) <= _d(f['filing_date']) <= end + timedelta(days=30)]
     if any(f['form'] in GOING_PRIVATE_FORMS for f in window):
         return 'going_private'
@@ -49,51 +56,53 @@ def merger_reason(filings: list[dict], end: date) -> str:
     return 'unknown'
 
 
-def classify(d: dict, in_latest: bool, status_as_of: str) -> dict:
-    """Preliminary status for one issuer. d: name, exchanges, filings (list of filing_rows), source_id."""
+def classify(d: dict, latest_common: bool, status_as_of: str, latest_date: str) -> dict:
+    """Preliminary status of one issuer. d: exchanges, filings (filing_rows), source_id; latest_date = latest
+    report date of the fund's snapshots."""
     filings = d['filings']
     exchanges = d.get('exchanges', [])
     out = dict(status='unknown', status_as_of=status_as_of, delisting_date='', reason='unknown', counterparty='',
                evidence='', method='', needs_review=0, source_id=d.get('source_id', ''))
-    if in_latest:
-        out.update(status='in_index', method='in_latest_snapshot')
-        return out
     if listed_now(exchanges):
-        out.update(status='listed_out_of_index', method='submissions_exchanges',
+        out.update(status='in_index' if latest_common else 'listed_out_of_index',
+                   method='exchange_listed_now' + ('+latest_common' if latest_common else ''),
                    evidence=f'exchanges={sorted(exchanges)}')
         return out
     f25 = sorted(f['filing_date'] for f in filings if f['form'] in FORM25)
     f15 = sorted(f['filing_date'] for f in filings if f['form'] in FORM15)
-    if f25:   # the last notice is the final delisting (an earlier 25-NSE can be withdrawn or unrelated)
-        end = _d(f25[-1]) + timedelta(days=10)
-        out.update(status='delisted', delisting_date=end.isoformat(), method='form25_filing_date_plus_10d',
-                   evidence=f'last Form 25 filed {f25[-1]}; exchanges={sorted(exchanges)}')
-    elif f15:
-        end = _d(f15[-1])
-        out.update(status='delisted', delisting_date=end.isoformat(), method='form15_filing_date',
-                   evidence=f'last Form 15 filed {f15[-1]}; exchanges={sorted(exchanges)}')
-    elif not filings:
-        out.update(evidence='no filings in submissions', needs_review=1)
+    if f25 or f15:
+        if f25:
+            end = _d(f25[-1]) + timedelta(days=10)
+            method, evidence = 'form25_filing_date_plus_10d', f'last Form 25 filed {f25[-1]}'
+        else:
+            end = _d(f15[-1])
+            method, evidence = 'form15_filing_date', f'last Form 15 filed {f15[-1]}'
+        out.update(status='delisted', delisting_date=end.isoformat(), method=method,
+                   evidence=f'{evidence}; not listed now (exchanges={sorted(exchanges)})',
+                   reason=merger_reason(filings, end))
+        if latest_common and end.isoformat() <= latest_date:
+            out.update(needs_review=1, evidence=out['evidence'] + '; common shares still in the latest snapshot')
         return out
-    else:
-        last = max(f['filing_date'] for f in filings)
-        recent = [f for f in filings if f['form'] in PERIODIC
-                  and _d(f['filing_date']) > _d(status_as_of) - timedelta(days=365)]
-        if recent:
-            out.update(status='unknown', needs_review=1, method='no_exchange_but_recent_periodic_filings',
-                       evidence=f'exchanges={sorted(exchanges)}; last periodic {recent[0]["filing_date"]}')
-            return out
-        end = _d(last)
-        out.update(status='delisted', delisting_date=end.isoformat(), method='no_exchange_last_filing_date',
-                   needs_review=1, evidence=f'no Form 25/15; last filing {last}; exchanges={sorted(exchanges)}')
-    out['reason'] = merger_reason(filings, end)
+    if latest_common:
+        out.update(status='unknown', needs_review=1, method='latest_holding_without_listing_evidence',
+                   evidence=f'in latest snapshot; exchanges={sorted(exchanges)}; no Form 25/15 on file')
+        return out
+    if not filings:
+        out.update(status='unknown', needs_review=1, method='no_submissions', evidence='no filings in submissions')
+        return out
+    recent = [f for f in filings if f['form'] in PERIODIC and _d(f['filing_date']) > _d(status_as_of) - timedelta(days=365)]
+    last = max(f['filing_date'] for f in filings)
+    out.update(status='unknown', needs_review=1, method='no_listing_no_delisting_notice',
+               evidence=f'no Form 25/15; last filing {last}; exchanges={sorted(exchanges)}'
+                        + ('; periodic report within a year' if recent else ''))
     return out
 
 
 def detect_successors(info: dict[str, dict], delisted: dict[str, date], window_days: int = 120,
                       high_ratio: float = 0.85) -> tuple[list[dict], list[dict]]:
-    """Successor links for delisted issuers: a Form 8-K12B by another issuer in the universe within window_days of
-    the exit, with a similar name. One clear candidate gives a link; several or none give a review item."""
+    """Successor links for delisted issuers: an 8-K12B by another issuer in the universe within window_days of the
+    exit, with a name similar to the predecessor's (current or former) name. Only a clear name match (ratio at least
+    high_ratio) gives a link; any other candidate goes to review."""
     from .identity import name_ratio
 
     succ_forms = []
@@ -112,7 +121,7 @@ def detect_successors(info: dict[str, dict], delisted: dict[str, date], window_d
             ratio = max(name_ratio(info[pred]['name'], n) for n in names)
             cands.append((round(ratio, 4), scik, sdate.isoformat()))
         good = sorted([c for c in cands if c[0] >= high_ratio], reverse=True)
-        if len(good) == 1:   # automatic links only on a clear name match; everything else goes to review
+        if len(good) == 1:
             ratio, scik, sdate = good[0]
             links.append(dict(predecessor=pred, successor=scik, relation='successor_reorganization',
                               confidence='high', via_override=0, effective_date=sdate,

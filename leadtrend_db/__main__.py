@@ -21,6 +21,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest='cmd', required=True)
     b = sub.add_parser('build')
     b.add_argument('--offline', action='store_true', help='read only the raw archive; no network request')
+    b.add_argument('--db', help='write the database to this path instead of data/db/leadtrend_db_v1.sqlite')
     c = sub.add_parser('check')
     c.add_argument('--skip-rebuild', action='store_true', help='skip the offline rebuild and hash comparison')
     s = sub.add_parser('stats')
@@ -30,7 +31,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == 'build':
         from .build import build
-        result = build(offline=args.offline, log=_log)
+        from pathlib import Path
+        from .sources import DB_PATH
+        result = build(offline=args.offline, log=_log, db_path=Path(args.db) if args.db else DB_PATH)
         print(json.dumps({k: v for k, v in result.items() if k != 'extra'}, ensure_ascii=False, indent=2,
                          sort_keys=True), flush=True)
         return 0

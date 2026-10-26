@@ -94,3 +94,12 @@ def test_dated_type_override_does_not_project_reit_status_into_earlier_quarters(
     assert snaps[0]['lines'][0]['type']=='common'
     assert snaps[1]['lines'][0]['type']=='reit'
     assert b.sec_type['CUSIP:CCI'][0]=='reit'
+
+
+def test_company_name_digits_are_not_footnotes_even_across_rows():
+    from tests_db.test_top200_units import _page,_row
+    from leadtrend_db.parse_ncsr import parse_500_schedule
+    text=_row('Phillips 66','100','20')+'<tr><td>Level 3</td></tr>'+_row('Communications Inc.','200','30')
+    text+=_row('Example Corp.<sup>1</sup>','300','40')
+    parsed=parse_500_schedule(_page(text,90))
+    assert [r['name'] for r in parsed['stock_rows']]==['Phillips 66','Level 3 Communications Inc.','Example Corp.']

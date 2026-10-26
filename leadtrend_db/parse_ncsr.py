@@ -50,7 +50,6 @@ CLASS_TEXT = re.compile(r'\b(Class\s+[A-Z])\b')
 PAGE_HEAD_WORDS = {'shares', 'market', 'value', 'market value', 'shares ($000)', '($000)', 'value ($000)',
                    'market value ($000)', 'value•', 'market value •'}
 LEAD_MARKS = re.compile(r'^[\s*^†‡§]+')
-TRAILING_NOTE = re.compile(r'\s+\d{1,2}$')          # footnote number printed after the name, e.g. 'Co. 10'
 ROUNDING_USD = 500                                  # each row is whole $000: at most half a thousand off
 MIN_RECONCILE_USD = 1000                            # slack for the reported total's own rounding
 
@@ -91,7 +90,7 @@ def _label(cells: list[str]) -> tuple[str, list[str]]:
     """First cell with letters (footnote marks before it are dropped) and the cells after it."""
     for k, c in enumerate(cells):
         if re.search(r'[A-Za-z]', c) and not FOOTNOTE_CELL.match(c):
-            name = TRAILING_NOTE.sub('', LEAD_MARKS.sub('', c).strip())
+            name = LEAD_MARKS.sub('', c).strip()
             return name, cells[k + 1:]
     return '', []
 
@@ -123,7 +122,13 @@ def _run(text: str, start: int) -> dict:
     closes = list(re.finditer(r'</tr\s*>', text[end.end():end.end() + 20000], re.I))
     stop = end.end() + closes[min(2, len(closes) - 1)].end() if closes else end.end() + 400
     parser = _Tables()
-    parser.feed(text[start:stop])   # the Total Investments row and up to two rows holding its amounts
+    segment = text[start:stop]
+    # Use actual HTML superscript structure for numeric notes. Unadorned digits can be part of a company name
+    # (Phillips 66, or the first line 'Level 3' of a split name) and must never be removed by a name suffix regex.
+    segment = re.sub(r'<sup\b[^>]*>[\s\S]*?</sup>',
+                     lambda m: '' if re.fullmatch(r'[\d,\s]+', re.sub(r'<[^>]*>', '', m.group())) else m.group(),
+                     segment, flags=re.I)
+    parser.feed(segment)
     section = 'common'              # holdings start with common stocks; a 'Common Stocks' label confirms it
     stock_rows, negative_rows, excluded, unparsed, notes = [], [], [], [], []
     total_common = total_investments = None

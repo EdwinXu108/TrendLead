@@ -103,3 +103,9 @@ def test_company_name_digits_are_not_footnotes_even_across_rows():
     text+=_row('Example Corp.<sup>1</sup>','300','40')
     parsed=parse_500_schedule(_page(text,90))
     assert [r['name'] for r in parsed['stock_rows']]==['Phillips 66','Level 3 Communications Inc.','Example Corp.']
+
+
+def test_nport_quarter_date_takes_precedence_over_fiscal_year_end():
+    from leadtrend_db.parse_nport import holdings_lines
+    raw=b'<root><repPdEnd>2019-12-31</repPdEnd><repPdDate>2019-09-30</repPdDate></root>'
+    assert holdings_lines(raw)['report_date']=='2019-09-30'

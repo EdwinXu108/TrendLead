@@ -194,9 +194,15 @@ def check_raw_nport(conn, out: dict) -> list[str]:
     def local(tag):
         return tag.rsplit('}', 1)[-1]
     checked, differences = 0, []
-    for sid, path in _rows(conn, """select s.snapshot_id, r.raw_path from snapshots s
+    for sid, path, period in _rows(conn, """select s.snapshot_id, r.raw_path, s.holdings_as_of from snapshots s
         join sources r using(source_id) where s.form='NPORT-P'"""):
         root = ET.fromstring((S.RAW_DIR/path).read_bytes())
+        texts = [(local(e.tag),(e.text or '').strip()) for e in root.iter()]
+        report_date = next((v for k,v in texts if k=='repPdDate'), '')
+        series = next((v for k,v in texts if k=='seriesId'), '')
+        classes = {v for k,v in texts if k=='classId'}
+        if report_date != period or series != S.FUND_SERIES or 'C000092055' not in classes:
+            differences.append(sid+':fund_or_report_date')
         raw = []
         for el in root.iter():
             if local(el.tag) != 'invstOrSec':

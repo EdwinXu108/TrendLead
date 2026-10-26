@@ -56,7 +56,10 @@ def holdings_lines(raw: bytes) -> dict:
         name = _local(el.tag)
         if name == 'seriesId' and not series_id:
             series_id = (el.text or '').strip()
-        elif name in ('repPdDate', 'repPdEnd') and not report_date:
+        elif name == 'repPdDate':
+            # repPdEnd is the fiscal year end and often precedes the actual quarter date in the XML.
+            report_date = (el.text or '').strip()
+        elif name == 'repPdEnd' and not report_date:
             report_date = (el.text or '').strip()
         elif name == 'classId' and el.text:
             class_ids.append(el.text.strip())

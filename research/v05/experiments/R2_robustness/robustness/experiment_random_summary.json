@@ -1,0 +1,11 @@
+{
+  "seeds": 100,
+  "seeds_with_all_12_controls": 100,
+  "actual_best_excess_10bps": 0.10835596898460165,
+  "percentile_of_actual_best": 100.0,
+  "actual_best_paired_10bps": 0.04851910023993167,
+  "percentile_of_actual_best_paired": 82.0,
+  "null_best_excess_median": 0.007056310114825548,
+  "null_best_paired_median": 0.013215783386646862,
+  "hypothesis": "each seed s gives one draw per configuration; the draw order sha256(seed|signal date|security) is the same for all configurations, so the twelve controls of one seed form one complete random experiment; paired variant subtracts each configuration's own anchor actual excess"
+}

@@ -1,0 +1,8 @@
+name,id,offset0_equals_r2_explore,r2_explore_equals_r1_explore
+A90,L090_N10_b2_R2,True,True
+WGT,S7a7dc02d2f2e_L090_N10_b2_R2,True,True
+SEC3,L090_N10_b2_R2_sector_cap_dcda083d,True,True
+SIZE,Sd3dcdf21323b_L090_N10_b2_R2,True,True
+G,Sa1d1bf7bce5a_L090_N10_b2_R2,True,True
+C_SEC3_SIZE,Sd3dcdf21323b_L090_N10_b2_R2_sector_cap_dcda083d,True,
+C_SEC3_G,Sa1d1bf7bce5a_L090_N10_b2_R2_sector_cap_dcda083d,True,

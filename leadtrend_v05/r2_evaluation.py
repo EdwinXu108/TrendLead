@@ -45,6 +45,11 @@ def _r2(v):
     return '' if v in ('', None) else f'{float(v):.2f}'
 
 
+def _pr(v, nd=1):
+    """A random-control percentile: already stored in percent."""
+    return '' if v in ('', None) else f'{float(v):.{nd}f}%'
+
+
 def _rows(path):
     with Path(path).open(encoding='utf-8', newline='') as f:
         return list(csv.DictReader(f))
@@ -216,7 +221,7 @@ def write_pack(out, data):
         lines.append(f"| {r['id']} | {data['name'][r['id']]} | {data['anchor_name'][r['id']]} | {_pc(r['annualized_excess_10bps'])} | "
                      f"{_pc(r['annualized_excess_5bps'])} | {_pc(r['paired_vs_anchor_10bps'])} | {_pc(r['paired_vs_anchor_5bps'])} | "
                      f"{_pc(r['paired_vs_A90_10bps'])} | {_r2(r['turnover_one_way'])} | {_pc(r['max_drawdown'])} | "
-                     f"{_pc(r['null_percentile'], 1)}（{_pc(r['null_percentile_low'], 1)}）|")
+                     f"{_pr(r['null_percentile'])}（{_pr(r['null_percentile_low'])}）|")
     lines += ['', '## 二、风险列（同一批 daily 运行，10 bp；相对 WGT 的差为本配置减 WGT）', '',
               '| 配置 | 名称 | 年化收益 | 年化波动 | β | 跟踪误差 | 收益/波动 | 收益/回撤 | 2022 年最大回撤 | 最大单股权重 | 单板块超40%天数 | 单板块超50%天数 | 相对WGT超额差 | 相对WGT波动差 | 相对WGT回撤差 | 相对WGT收益/波动差 |',
               '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|']
@@ -236,7 +241,7 @@ def write_pack(out, data):
         yn = lambda v: '达到' if v else '未达到'  # noqa: E731
         lines.append(f"| {c['name']} | {yn(c['c1_gap_ge_1pp_and_5bp_positive'])}（10bp {_pc(c['paired_10bps'])}，5bp {_pc(c['paired_5bps'])}） | "
                      f"{yn(c['c2_periods_not_opposite'])}（A {_pc(c['period_a'])}，B {_pc(c['period_b'])}） | "
-                     f"{yn(c['c3_loyo_ge_3'])}（{c['loyo_positive']}/4） | {yn(c['c4_null_lower_ge_75'])}（点估计 {_pc(c['null_percentile'], 1)}，下界 {_pc(c['null_percentile_low'], 1)}） | "
+                     f"{yn(c['c3_loyo_ge_3'])}（{c['loyo_positive']}/4） | {yn(c['c4_null_lower_ge_75'])}（点估计 {_pr(c['null_percentile'])}，下界 {_pr(c['null_percentile_low'])}） | "
                      f"{yn(c['c5_noise_mean_ge_1pp_and_3_positive'])}（均值 {_pc(c['noise_paired_mean_k1_4'])}，正 {c['noise_positive_k1_4']}/4） | "
                      f"{yn(c['all_five'])} |")
     lines += ['', '## 五、复现汇总（三个设定的 10bp 配对差；达到的标准：正的设定 ≥2 个，且没有低于 −2.0pp；SEC 另须每个设定单板块超50%天数 ≤5%）', '',
@@ -301,9 +306,9 @@ def write_pack(out, data):
     for c in data['consistency']:
         yn = lambda v: '' if v == '' else ('是' if v else '否')  # noqa: E731
         lines.append(f"| {c['name']} | {yn(c['offset0_equals_r2_explore'])} | {yn(c['r2_explore_equals_r1_explore'])} |")
-    lines += ['', '| 第一轮剔除 NVIDIA 的 10bp 超额（原表） | 第二轮重跑 | 差 |', '|---|---|---|']
+    lines += ['', '| 配置 | 第一轮剔除 NVIDIA 后 10bp 超额（原表） | 第二轮重跑 | 差 |', '|---|---|---|---|']
     for c in data['issuer_check']:
-        lines.append(f"| {c['name']} {_pc(c['round1_excess_10bps_after'], 4)} | {_pc(c['round2_excess_10bps_after'], 4)} | {c['difference']:.2e} |")
+        lines.append(f"| {c['name']} | {_pc(c['round1_excess_10bps_after'], 4)} | {_pc(c['round2_excess_10bps_after'], 4)} | {c['difference']:.2e} |")
     lines += ['', '## 十一、口径说明', '',
               '- 超额：年化超额 = 策略 CAGR 减 VOO CAGR（与成绩单相同）；配对差 = 本配置减锚点，同一成本、同一时段。',
               '- 锚点：A90 为 L090_N10_b2_R2，A126 为 L126_N10_b2_R2，BASE_N08、BASE_N12 为 N=8、N=12 的 L=90 默认配置；SEC3 为第一轮的 SEC3。',
@@ -374,7 +379,7 @@ def main(argv=None):
     for n in names12:
         diff = weekly_series(run, pid_of[n], weeks) - weekly_series(run, anchor_of[n], weeks)
         draws = bootstrap(diff)
-        boot.append(dict(name=n, anchor=anchor_name.get(anchor_of[n], anchor_of[n]), weeks=len(diff),
+        boot.append(dict(name=n, anchor=name_of.get(anchor_of[n], anchor_of[n]), weeks=len(diff),
                          point_annualized_diff_vs_anchor=float(np.mean(diff)) * 52,
                          p05=float(np.percentile(draws, 5)), p95=float(np.percentile(draws, 95)),
                          method='moving block, block 8 weeks, 2000 draws, seed 20261026; annualised as weekly mean x 52; exploratory'))

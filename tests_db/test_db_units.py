@@ -13,9 +13,10 @@ import pytest
 
 from leadtrend_db import sources as S
 from leadtrend_db.build import Build, content_hash, quarter_ends, source_id, write_db
-from leadtrend_db.identity import (EXCLUDED_TYPES, cusip_check_ok, isin_check_ok, load_overrides, name_key,
-                                   name_signature, parse_cik_lookup, parse_company_tickers, security_type,
-                                   us_isin_cusip, valid_cusip, valid_isin, valid_ticker, class_code_from_text)
+from leadtrend_db.identity import (ELIGIBLE_TYPES, EXCLUDED_TYPES, NON_STOCK_TYPES, cusip_check_ok, isin_check_ok,
+                                   load_overrides, name_key, name_signature, parse_cik_lookup, parse_company_tickers,
+                                   security_type, us_isin_cusip, valid_cusip, valid_isin, valid_ticker,
+                                   class_code_from_text)
 from leadtrend_db.parse_ncsr import parse_500_schedule
 from leadtrend_db.parse_nport import holdings_lines
 from leadtrend_db.sources import RawMissing, RawStore, sha256_bytes
@@ -168,14 +169,16 @@ def test_rights_and_cvrs_are_not_common_stock():
 
 def test_common_only_on_equity_evidence_and_unknown_otherwise():
     assert security_type('Walt Disney Co.', 'Walt Disney Co.', '', '', 'EC') == \
-        ('common', 'SEC asset category EC (common equity), no excluding evidence')
+        ('common', 'SEC asset category EC (common equity), no explicit exclusion evidence')
     assert security_type('Something Plc', 'Something Plc', '', '', 'DBT')[0] == 'unknown'
 
 
 def test_partnership_units_and_reit_by_sic():
     assert security_type('Enterprise Products Partners L.P.', 'Common Units', '', '', 'EC')[0] == 'partnership'
     assert security_type('Simon Property Group', 'Simon Property Group', '6798', '', 'EC')[0] == 'reit'
-    assert set(EXCLUDED_TYPES) == {'right', 'warrant', 'cvr', 'etf', 'other'}
+    assert set(NON_STOCK_TYPES) == {'right', 'warrant', 'cvr', 'etf', 'other'}
+    assert {'reit', 'partnership', 'spac', 'preferred'} <= set(EXCLUDED_TYPES)
+    assert ELIGIBLE_TYPES == ('common', 'adr')
 
 
 def test_nport_lines_keep_blank_cusip_and_placeholder_lines():
@@ -246,18 +249,19 @@ def test_candidate_without_a_filing_near_the_date_is_rejected():
     fb = FakeBuild({'0001284721': _sub('MATTEL INC', filings=[('10-K', '2009-03-01', '2008-12-31')]),
                     '0000063276': _sub('MATTEL INC /DE/', filings=[('10-Q', '2016-02-05', '2015-12-31')])})
     assert fb.periodic_near('0001284721', '2015-12-31') is False
-    assert fb.cik_by_name('Mattel Inc.', '2015-12-31', {name_key('Mattel Inc.'): {'0001284721'}}) == \
-        (None, 'no_candidate_valid_at_date:1')
+    fb.lookup = {name_key('Mattel Inc.'): {'0001284721'}}
+    res = fb.issuer_by_name('Mattel Inc.', '2015-12-31')
+    assert res['cik'] is None and res['method'] == 'no_candidate_valid_at_date:1'
     assert fb.periodic_near('0000063276', '2015-12-31') is True
 
 
 def test_single_candidate_is_accepted_only_when_valid_at_the_date():
     fb = FakeBuild({'0000109380': _sub('ZIONS BANCORPORATION', filings=[('10-Q', '2019-11-05', '2019-09-30')])})
-    lookup = {name_key('Zions Bancorp NA'): {'0000109380'}}
-    cik, how = fb.cik_by_name('Zions Bancorp NA', '2019-09-30', lookup)
-    assert cik is None                                # the SEC name is not the holding's name: not accepted
-    lookup = {name_key('Zions Bancorporation'): {'0000109380'}}
-    assert fb.cik_by_name('Zions Bancorporation', '2019-09-30', lookup)[0] == '0000109380'
+    fb.lookup = {name_key('Zions Bancorp NA'): {'0000109380'}}
+    assert fb.issuer_by_name('Zions Bancorp NA', '2019-09-30')['cik'] is None   # not the holding's name: not accepted
+    fb.lookup = {name_key('Zions Bancorporation'): {'0000109380'}}
+    fb.resolve_cache.clear()
+    assert fb.issuer_by_name('Zions Bancorporation', '2019-09-30')['cik'] == '0000109380'
 
 
 # -- status -------------------------------------------------------------------------------------------------------

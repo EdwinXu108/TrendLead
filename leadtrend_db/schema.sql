@@ -1,7 +1,8 @@
--- leadtrend_db v1, schema_version 1 (repair round: see docs/LeadTrend_数据库_v1.md, section 13).
+-- leadtrend_db v2, schema_version 2 (see docs/LeadTrend_数据库_v1.md and rules.py for rule_version top200_v1).
 -- Conventions: dates ISO 8601 (YYYY-MM-DD); timestamps UTC ISO 8601 with trailing Z; '' = unknown text;
 -- NULL = no direct single source or not applicable. Foreign keys are enforced at build time (PRAGMA foreign_keys=ON)
 -- and must have zero violations (checks.py). Every fact table carries source_id pointing at the raw file it came from.
+-- Amounts: value_usd and cents columns are reported USD (htm filings report $000, stored as whole dollars).
 
 CREATE TABLE meta (
   key   TEXT PRIMARY KEY,
@@ -10,7 +11,7 @@ CREATE TABLE meta (
 
 CREATE TABLE sources (
   source_id        TEXT PRIMARY KEY,                -- 'SRC-' + first 16 hex digits of sha256
-  kind             TEXT NOT NULL CHECK (kind IN ('nport','nq','ncsr','ncsrs','submissions','cik_lookup','company_tickers','filing_index','other')),
+  kind             TEXT NOT NULL CHECK (kind IN ('nport','nq','ncsr','ncsrs','submissions','cik_lookup','company_tickers','filing_index','other','evidence','filing_document')),
   url              TEXT NOT NULL,
   raw_path         TEXT NOT NULL,
   sha256           TEXT NOT NULL,
@@ -26,7 +27,7 @@ CREATE TABLE issuers (
   sic                  TEXT NOT NULL DEFAULT '',
   sic_description      TEXT NOT NULL DEFAULT '',
   state_of_incorporation TEXT NOT NULL DEFAULT '',
-  lei                  TEXT NOT NULL DEFAULT '',   -- from the N-PORT line of the issuer's security; '' if none reported
+  lei                  TEXT NOT NULL DEFAULT '',
   source_id            TEXT REFERENCES sources(source_id)
 );
 
@@ -42,7 +43,7 @@ CREATE TABLE issuer_names (
   PRIMARY KEY (issuer_id, name, name_kind, valid_from)
 );
 
--- For spinoff_from the predecessor is the parent and the successor is the new child issuer.
+-- Successor links between issuers (the holdings keep the issuer of their own date; links are for the current view).
 CREATE TABLE issuer_links (
   predecessor_issuer_id TEXT NOT NULL REFERENCES issuers(issuer_id),
   successor_issuer_id   TEXT NOT NULL REFERENCES issuers(issuer_id),
@@ -55,12 +56,14 @@ CREATE TABLE issuer_links (
   PRIMARY KEY (predecessor_issuer_id, successor_issuer_id, relation)
 );
 
+-- One row per security key. issuer_id is the issuer of its latest resolved line; the dated history is in
+-- security_issuer_spans.
 CREATE TABLE securities (
-  security_id   TEXT PRIMARY KEY,                  -- 'CUSIP:<cusip>', 'ISIN:<isin>' (no CUSIP anywhere) or 'CIKCLS:<CIK>:<class>'
+  security_id   TEXT PRIMARY KEY,                  -- 'CUSIP:<cusip>', 'ISIN:<isin>' or 'CIKCLS:<CIK>:<class>'
   issuer_id     TEXT NOT NULL REFERENCES issuers(issuer_id),
-  class_code    TEXT NOT NULL,                     -- COM, CL_A, CL_B, CL_C, ...
-  security_type TEXT NOT NULL CHECK (security_type IN ('common','adr','reit','partnership','preferred','right','warrant','cvr','etf','other','unknown')),
-  type_basis    TEXT NOT NULL DEFAULT '',          -- the evidence used for security_type
+  class_code    TEXT NOT NULL,                     -- COM, CL_A, CL_B, ...
+  security_type TEXT NOT NULL CHECK (security_type IN ('common','adr','reit','partnership','preferred','right','warrant','cvr','etf','spac','other','unknown')),
+  type_basis    TEXT NOT NULL DEFAULT '',
   name          TEXT NOT NULL DEFAULT '',
   id_scheme     TEXT NOT NULL CHECK (id_scheme IN ('CUSIP','ISIN','CIKCLS')),
   notes         TEXT NOT NULL DEFAULT '',
@@ -71,10 +74,23 @@ CREATE TABLE security_identifiers (
   security_id TEXT NOT NULL REFERENCES securities(security_id),
   id_type     TEXT NOT NULL CHECK (id_type IN ('ticker','cusip','isin','figi','futu_code','lei')),
   id_value    TEXT NOT NULL CHECK (length(id_value) > 0),   -- empty values are never stored
-  valid_from  TEXT NOT NULL DEFAULT '',             -- '' = unknown
-  valid_to    TEXT NOT NULL DEFAULT '',             -- '' = unknown or still valid
+  valid_from  TEXT NOT NULL DEFAULT '',             -- '' = unknown (no dated source for the code)
+  valid_to    TEXT NOT NULL DEFAULT '',
   source_id   TEXT REFERENCES sources(source_id),
   PRIMARY KEY (security_id, id_type, id_value, valid_from)
+);
+
+-- Dated issuer of a security: the periods in which holdings of the security were resolved to that issuer.
+CREATE TABLE security_issuer_spans (
+  security_id TEXT NOT NULL REFERENCES securities(security_id),
+  issuer_id   TEXT NOT NULL REFERENCES issuers(issuer_id),
+  span_no     INTEGER NOT NULL,
+  first_as_of TEXT NOT NULL,
+  last_as_of  TEXT NOT NULL,
+  lines       INTEGER NOT NULL,
+  method      TEXT NOT NULL DEFAULT '',
+  source_id   TEXT REFERENCES sources(source_id),
+  PRIMARY KEY (security_id, issuer_id, span_no)
 );
 
 CREATE TABLE snapshots (
@@ -85,17 +101,20 @@ CREATE TABLE snapshots (
   primary_doc                    TEXT NOT NULL,
   holdings_as_of                 TEXT NOT NULL,
   filed_date                     TEXT NOT NULL,
-  available_at_utc               TEXT NOT NULL,
-  is_primary                     INTEGER NOT NULL,  -- 1 = the snapshot used for membership of that quarter
+  available_at_utc               TEXT NOT NULL,     -- SEC acceptance time of the filing
+  is_primary                     INTEGER NOT NULL,  -- 1 = the canonical version of that report period
   completeness                   TEXT NOT NULL CHECK (completeness IN ('full','partial','summary')),
-  row_count                      INTEGER NOT NULL,  -- stock lines (all equity lines in the stock section)
+  row_count                      INTEGER NOT NULL,  -- stock lines (equity lines in the stock section, zero-value lines included)
   excluded_rows                  INTEGER NOT NULL,
   excluded_value_usd             REAL NOT NULL,
   total_investments_reported_usd REAL,
   reported_common_stock_total_usd REAL,             -- the filing's own Total Common Stocks (N-CSR/N-Q); NULL for N-PORT
-  stock_total_usd                REAL NOT NULL,     -- sum of stock lines used as the weight denominator
+  stock_total_usd                REAL NOT NULL,     -- positive stock lines that are not non-stock types (stock weight denominator)
   coverage_ratio                 REAL,              -- stock_total_usd / total investments reported
-  reconciled                     INTEGER NOT NULL,  -- 1 when stock lines + negative lines equal the reported total (pre-2019)
+  reconciled                     INTEGER NOT NULL,  -- 1 when parsed stock and negative lines match the total within rounding
+  residual_usd                   REAL,              -- parsed (stock + negative) minus the reported total, USD
+  rounding_bound_usd             REAL,              -- the largest residual that rounding to whole $000 can explain
+  unparsed_rows                  INTEGER NOT NULL DEFAULT 0,
   start_rule                     TEXT NOT NULL DEFAULT '',
   source_id                      TEXT REFERENCES sources(source_id),
   notes                          TEXT NOT NULL DEFAULT ''
@@ -113,15 +132,118 @@ CREATE TABLE holdings (
   title_reported  TEXT NOT NULL DEFAULT '',
   shares          REAL,
   value_usd       REAL,
-  pct_val_percent REAL,                             -- N-PORT pctVal as reported, in PERCENT of net assets (0-100); NULL for htm
-  weight          REAL,                             -- value_usd / stock_total_usd of the snapshot; NULL if excluded type
+  pct_val_percent REAL,                             -- N-PORT pctVal as reported: PERCENT of net assets (0-100); NULL for htm
+  fund_weight_raw REAL,                             -- value_usd / total investments reported for the snapshot (fraction)
+  stock_weight    REAL,                             -- value_usd / stock_total_usd of the snapshot; NULL for negative or non-stock lines
   security_id     TEXT,                             -- NULL when unmapped
-  issuer_id       TEXT,                             -- NULL when unmapped
+  issuer_id       TEXT,                             -- issuer on the holding date; NULL when unmapped
+  security_type   TEXT NOT NULL DEFAULT 'unknown',
   map_method      TEXT NOT NULL DEFAULT '',
   map_confidence  TEXT NOT NULL DEFAULT '',
   unmapped_reason TEXT NOT NULL DEFAULT '',
+  candidate_issuers TEXT NOT NULL DEFAULT '',       -- possible CIKs of an unresolved line (space separated)
   source_id       TEXT REFERENCES sources(source_id),
   PRIMARY KEY (snapshot_id, line_no)
+);
+
+-- Versions of the quarterly pool: every complete, reconciled snapshot. available_at_utc is when it became public.
+CREATE TABLE pool_versions (
+  version_id           TEXT PRIMARY KEY REFERENCES snapshots(snapshot_id),
+  report_period        TEXT NOT NULL,
+  snapshot_id          TEXT NOT NULL REFERENCES snapshots(snapshot_id),
+  form                 TEXT NOT NULL,
+  accession            TEXT NOT NULL,
+  filed_date           TEXT NOT NULL,
+  available_at_utc     TEXT NOT NULL,
+  completeness         TEXT NOT NULL,
+  reconciled           INTEGER NOT NULL,
+  is_canonical         INTEGER NOT NULL,            -- 1 = the version used for the historical list of that period
+  supersedes_version_id TEXT REFERENCES pool_versions(version_id),
+  version_note         TEXT NOT NULL DEFAULT '',
+  rule_version         TEXT NOT NULL,
+  quarter_state        TEXT NOT NULL CHECK (quarter_state IN ('ready','blocked','alternate_version')),
+  quarter_reason       TEXT NOT NULL DEFAULT '',
+  source_id            TEXT REFERENCES sources(source_id)
+);
+
+-- Company ranking of every version: all companies with an eligible line, by amount (cents), then issuer_id.
+CREATE TABLE company_ranks (
+  version_id           TEXT NOT NULL REFERENCES pool_versions(version_id),
+  rank                 INTEGER NOT NULL,
+  issuer_id            TEXT NOT NULL REFERENCES issuers(issuer_id),
+  amount_cents         INTEGER NOT NULL,
+  eligible_lines       INTEGER NOT NULL,
+  tie_group            INTEGER NOT NULL,            -- 1 when another company has the same amount
+  in_top200            INTEGER NOT NULL,
+  boundary_status      TEXT NOT NULL,
+  unresolved_lines     INTEGER NOT NULL,            -- unresolved lines that name this company as a possible issuer
+  unresolved_cents     INTEGER NOT NULL,
+  candidate_bound_cents INTEGER NOT NULL,
+  PRIMARY KEY (version_id, rank)
+);
+
+CREATE TABLE top200_companies (
+  version_id           TEXT NOT NULL REFERENCES pool_versions(version_id),
+  rank                 INTEGER NOT NULL,
+  issuer_id            TEXT NOT NULL REFERENCES issuers(issuer_id),
+  issuer_name_at_period TEXT NOT NULL,              -- holding name of the largest eligible line that quarter
+  amount_cents         INTEGER NOT NULL,
+  fund_weight_raw      REAL,                        -- company amount / fund total investments
+  tie_group            INTEGER NOT NULL,
+  eligible_securities  INTEGER NOT NULL,
+  blocked_members      INTEGER NOT NULL,            -- 1 when unresolved lines name the company in that quarter
+  rule_version         TEXT NOT NULL,
+  PRIMARY KEY (version_id, rank),
+  UNIQUE (version_id, issuer_id)
+);
+
+CREATE TABLE top200_securities (
+  version_id           TEXT NOT NULL REFERENCES pool_versions(version_id),
+  issuer_id            TEXT NOT NULL REFERENCES issuers(issuer_id),
+  security_id          TEXT NOT NULL REFERENCES securities(security_id),
+  class_code           TEXT NOT NULL,
+  security_type        TEXT NOT NULL,
+  ticker_at_period     TEXT NOT NULL DEFAULT '',    -- v05 ticker of the security (not dated)
+  holding_lines        INTEGER NOT NULL DEFAULT 0,
+  amount_cents         INTEGER NOT NULL,
+  fund_weight_raw      REAL,
+  candidate_eligible   INTEGER NOT NULL,
+  candidate_reason     TEXT NOT NULL,
+  PRIMARY KEY (version_id, issuer_id, security_id)
+);
+
+CREATE TABLE strategy_companies (
+  version_id           TEXT NOT NULL REFERENCES pool_versions(version_id),
+  issuer_id            TEXT NOT NULL REFERENCES issuers(issuer_id),
+  historical_rank      INTEGER NOT NULL,
+  status_cutoff        TEXT NOT NULL,
+  current_status       TEXT NOT NULL,
+  resolved_current_issuer TEXT NOT NULL REFERENCES issuers(issuer_id),
+  current_ticker       TEXT NOT NULL DEFAULT '',    -- current code of the resolved current issuer, '' if not established
+  strategy_eligible    INTEGER NOT NULL,
+  blocked_reason       TEXT NOT NULL DEFAULT '',
+  excluded_reason      TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (version_id, issuer_id)
+);
+
+CREATE TABLE strategy_securities (
+  version_id           TEXT NOT NULL REFERENCES pool_versions(version_id),
+  issuer_id            TEXT NOT NULL REFERENCES issuers(issuer_id),
+  security_id          TEXT NOT NULL REFERENCES securities(security_id),
+  class_code           TEXT NOT NULL,
+  current_security_id  TEXT NOT NULL DEFAULT '',    -- '' when the current security is not established from the archive
+  current_ticker       TEXT NOT NULL DEFAULT '',
+  strategy_eligible    INTEGER NOT NULL,
+  reason               TEXT NOT NULL,
+  PRIMARY KEY (version_id, security_id)
+);
+
+CREATE TABLE quarter_checks (
+  version_id           TEXT NOT NULL REFERENCES pool_versions(version_id),
+  check_name           TEXT NOT NULL,
+  status               TEXT NOT NULL CHECK (status IN ('pass','fail')),
+  detail               TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (version_id, check_name)
 );
 
 -- Derived. A missing quarter (no complete snapshot) ends a span; a span restarts when a subject returns.
@@ -135,7 +257,7 @@ CREATE TABLE membership_spans (
   first_available_at_utc  TEXT NOT NULL,
   last_available_at_utc   TEXT NOT NULL,
   quarters_present        INTEGER NOT NULL,
-  next_absent_as_of       TEXT NOT NULL DEFAULT '', -- '' = still present at the last snapshot, or the span ends at a gap
+  next_absent_as_of       TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (level, subject_id, span_no)
 );
 
@@ -151,14 +273,14 @@ CREATE TABLE listing_status (
   status_as_of   TEXT NOT NULL,
   delisting_date TEXT NOT NULL DEFAULT '',
   reason         TEXT NOT NULL DEFAULT 'unknown',
-  counterparty   TEXT NOT NULL DEFAULT '',          -- successor issuer_id when continued
+  counterparty   TEXT NOT NULL DEFAULT '',
   evidence       TEXT NOT NULL DEFAULT '',
   method         TEXT NOT NULL DEFAULT '',
   needs_review   INTEGER NOT NULL DEFAULT 0,
   source_id      TEXT REFERENCES sources(source_id)
 );
 
--- Structure only in v1 (not filled).
+-- Structure only in v2 (not filled).
 CREATE TABLE index_changes (
   change_id   INTEGER PRIMARY KEY,
   change_date TEXT NOT NULL,
@@ -170,7 +292,7 @@ CREATE TABLE index_changes (
   notes       TEXT NOT NULL DEFAULT ''
 );
 
--- Reserved for price data (not filled in v1). One row per security, session and price source.
+-- Reserved for price data (not filled). One row per security, session and price source.
 CREATE TABLE prices_daily (
   security_id  TEXT NOT NULL REFERENCES securities(security_id),
   session_date TEXT NOT NULL,
@@ -185,7 +307,7 @@ CREATE TABLE prices_daily (
   PRIMARY KEY (security_id, session_date, source)
 );
 
--- Reserved for corporate actions (not filled in v1).
+-- Reserved for corporate actions (not filled).
 CREATE TABLE corporate_actions (
   action_id   INTEGER PRIMARY KEY,
   security_id TEXT NOT NULL REFERENCES securities(security_id),
@@ -199,7 +321,7 @@ CREATE TABLE corporate_actions (
   notes       TEXT NOT NULL DEFAULT ''
 );
 
--- Reserved: coverage of prices per security and price source (not filled in v1).
+-- Reserved: coverage of prices per security and price source (not filled).
 CREATE TABLE price_coverage (
   security_id TEXT NOT NULL REFERENCES securities(security_id),
   source      TEXT NOT NULL,
@@ -227,8 +349,8 @@ CREATE TABLE build_log (
   detail  TEXT NOT NULL DEFAULT ''
 );
 
--- Universe: security spans of issuers that were in the fund and are not confirmed delisted. An issuer continued by a
--- successor is shown under the successor, with its predecessor spans kept (spans_issuer_id).
+-- Legacy view (schema 1 meaning, kept for comparison): security spans of issuers in the fund that are not confirmed
+-- delisted. It is NOT the historical pool: it uses the current status and successor projection. Use top200_companies.
 CREATE VIEW universe_v1 AS
 SELECT u.*,
        CASE WHEN u.security_type NOT IN ('common','adr') OR u.security_type IS NULL THEN 0
@@ -240,8 +362,6 @@ FROM (
          sp.subject_id        AS security_id,
          s.class_code,
          s.security_type,
-         -- own ticker when the security still belongs to the resolved issuer; otherwise the current ticker of the
-         -- successor's security of the same class (never the predecessor's old code)
          COALESCE(
            CASE WHEN sp.issuer_id = res.resolved_issuer_id THEN
              (SELECT i.id_value FROM security_identifiers i

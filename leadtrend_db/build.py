@@ -1,17 +1,18 @@
-"""Assemble leadtrend_db v1 from the raw archive and write data/db/leadtrend_db_v1.sqlite.
+"""Assemble leadtrend_db v2 from the raw archive and write the SQLite database.
 
 Each input is read through RawStore: an archived file is read from disk (sha256 verified); a missing one is fetched
-from SEC once and archived. offline=True forbids fetching. The database is a function of the archive and
-config/db_overrides_v1.csv only; the content hash leaves out timestamps and build metadata, so two builds from the
-same archive hash identically.
+from SEC once and archived. offline=True forbids fetching. The database is a function of the archive,
+config/db_overrides_v1.csv and rules.py only. The content hash leaves out timestamps and build metadata, so two
+builds from the same archive hash identically.
 
-Identity order for a holding (no placeholder is ever a key):
-  security  : valid CUSIP -> US ISIN's CUSIP -> v05 security whose evidence carries the ISIN -> ISIN itself -> none
-  issuer    : override -> v05 SEC-corroborated CIK -> SEC current ticker (name-checked) -> SEC name lookup
-              (each candidate must be valid at the holding date: a SEC name in force that day and a periodic filing
-              near it). A candidate that fails is never accepted silently.
-  2019-12-31: the N-CSR rows are matched to N-PORT rows that have a valid security key (shares within 1%, same class,
-              similar name). Pre-N-PORT names inherit the security of their match.
+Identity of a holding line, on the line's own holding date (no placeholder is ever a key):
+  security : valid CUSIP -> US ISIN's CUSIP -> v05 security whose evidence carries the ISIN -> ISIN -> none
+  issuer   : dated override -> v05 SEC-corroborated CIK, if that CIK has periodic filings near the date (the CUSIP
+             evidence is not overruled by a name difference) -> SEC ticker of the v05 security, name checked ->
+             SEC name lookup, each candidate valid on the date (name in force and a periodic filing near it).
+             A line that cannot be placed keeps its candidate CIKs for the bound check (top200.py).
+  2019-12-31: the N-CSR rows are matched to N-PORT lines that have a valid security key (shares within 1%, same
+             class, similar name). Earlier N-CSR lines carry the security of their issuer and class.
 """
 from __future__ import annotations
 
@@ -25,52 +26,78 @@ import subprocess
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from . import rules as R
 from . import sources as S
-from .identity import (CLASS_LETTER, EXCLUDED_TYPES, cik10, cikcls_security, class_code_from_text, core_name,
-                       cusip_security, isin_security, issuer_id, load_overrides, name_key, name_ratio, name_signature, norm_core,
-                       overrides_of, parse_cik_lookup, parse_company_tickers, security_type, ticker_key,
-                       us_isin_cusip, v05_evidence_fields, valid_cusip, valid_isin, valid_ticker)
+from .identity import (CLASS_LETTER, EXCLUDED_TYPES, NON_STOCK_TYPES, ELIGIBLE_TYPES, cik10, cikcls_security,
+                       class_code_from_text, core_name, cusip_security, isin_security, issuer_id, load_overrides,
+                       name_key, name_ratio, name_signature, norm_core, overrides_of, parse_cik_lookup,
+                       parse_company_tickers, security_type, ticker_key, us_isin_cusip, v05_evidence_fields,
+                       valid_cusip, valid_isin, valid_ticker, window_of)
 from .parse_ncsr import parse_500_schedule
 from .parse_nport import holdings_lines, screen
 from .sources import RawMissing, RawStore, sha256_bytes, utc_now_iso
 from .status import PERIODIC, classify, detect_successors, filing_rows
 
 SCHEMA_FILE = Path(__file__).with_name('schema.sql')
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 PRE_FORMS = ('N-Q', 'N-CSR', 'N-CSRS', 'NPORT-EX')
 KIND = {'N-Q': 'nq', 'N-CSR': 'ncsr', 'N-CSRS': 'ncsrs', 'NPORT-EX': 'other', 'NPORT-P': 'nport'}
 SNAP_PREFIX = {'N-Q': 'NQ', 'N-CSR': 'NCSR', 'N-CSRS': 'NCSRS', 'NPORT-EX': 'NPORTEX', 'NPORT-P': 'NPORT'}
-PRE_START, BRIDGE_DATE, NPORT_START, LATEST_QUARTER = '2013-12-31', '2019-12-31', '2019-09-30', '2026-06-30'
+PRE_START, BRIDGE_DATE, NPORT_START = '2013-12-31', '2019-12-31', '2019-09-30'
 FILED_FROM = '2014-01-01'
 MIN_FULL_ROWS = 400             # a 500 Index Fund schedule has about 500 equity lines
 COVERAGE_FULL = 0.95            # N-PORT: stock total must be at least this share of total investments
 NAME_BRIDGE_RATIO = 0.5
 BRIDGE_SHARE_TOL = 0.01         # relative share-count tolerance for the 2019-12-31 match (sources differ by ~0.3%)
 CIK_PERIOD_DAYS = 95            # a periodic filing this close to the holding date supports a CIK
+NAME_LAG_DAYS = 45              # a former SEC name still appears in holdings reported this soon after its end date
+FUZZY_RATIO = 0.9               # bounding only: lookup names this similar to an unplaced name are its possible issuers
 ARCHIVE = 'https://www.sec.gov/Archives/edgar/data/36405'
 SUBMISSIONS = 'https://data.sec.gov/submissions'
 V05_SECURITIES = 'securities.csv'
 V05_SNAPSHOT_MEMBERS = 'snapshot_members.csv'
 V05_SNAPSHOTS = 'snapshots.csv'
+# security type precedence when lines of one security disagree: an explicit exclusion wins over common
+TYPE_ORDER = ('cvr', 'right', 'warrant', 'etf', 'reit', 'partnership', 'spac', 'preferred', 'other', 'adr', 'common',
+              'unknown')
 TABLE_COLUMNS = {
     'sources': ['source_id', 'kind', 'url', 'raw_path', 'sha256', 'bytes', 'retrieved_at_utc', 'note'],
     'issuers': ['issuer_id', 'cik', 'name', 'sic', 'sic_description', 'state_of_incorporation', 'lei', 'source_id'],
     'issuer_names': ['issuer_id', 'name', 'name_kind', 'valid_from', 'valid_to', 'first_seen', 'last_seen', 'source_id'],
     'issuer_links': ['predecessor_issuer_id', 'successor_issuer_id', 'relation', 'confidence', 'via_override',
                      'effective_date', 'evidence', 'source_id'],
-    'securities': ['security_id', 'issuer_id', 'class_code', 'security_type', 'type_basis', 'name', 'id_scheme', 'notes',
-                   'source_id'],
+    'securities': ['security_id', 'issuer_id', 'class_code', 'security_type', 'type_basis', 'name', 'id_scheme',
+                   'notes', 'source_id'],
     'security_identifiers': ['security_id', 'id_type', 'id_value', 'valid_from', 'valid_to', 'source_id'],
+    'security_issuer_spans': ['security_id', 'issuer_id', 'span_no', 'first_as_of', 'last_as_of', 'lines', 'method',
+                              'source_id'],
     'snapshots': ['snapshot_id', 'fund_series', 'form', 'accession', 'primary_doc', 'holdings_as_of', 'filed_date',
                   'available_at_utc', 'is_primary', 'completeness', 'row_count', 'excluded_rows', 'excluded_value_usd',
                   'total_investments_reported_usd', 'reported_common_stock_total_usd', 'stock_total_usd',
-                  'coverage_ratio', 'reconciled', 'start_rule', 'source_id', 'notes'],
+                  'coverage_ratio', 'reconciled', 'residual_usd', 'rounding_bound_usd', 'unparsed_rows',
+                  'start_rule', 'source_id', 'notes'],
     'holdings': ['snapshot_id', 'line_no', 'line_kind', 'raw_name', 'raw_class_text', 'cusip_reported', 'isin_reported',
-                 'lei_reported', 'title_reported', 'shares', 'value_usd', 'pct_val_percent', 'weight',
-                 'security_id', 'issuer_id', 'map_method', 'map_confidence', 'unmapped_reason', 'source_id'],
-    'issuer_resolution': ['issuer_id', 'resolved_issuer_id', 'method'],
+                 'lei_reported', 'title_reported', 'shares', 'value_usd', 'pct_val_percent', 'fund_weight_raw',
+                 'stock_weight', 'security_id', 'issuer_id', 'security_type', 'map_method', 'map_confidence',
+                 'unmapped_reason', 'candidate_issuers', 'source_id'],
+    'pool_versions': ['version_id', 'report_period', 'snapshot_id', 'form', 'accession', 'filed_date',
+                      'available_at_utc', 'completeness', 'reconciled', 'is_canonical', 'supersedes_version_id',
+                      'version_note', 'rule_version', 'quarter_state', 'quarter_reason', 'source_id'],
+    'company_ranks': ['version_id', 'rank', 'issuer_id', 'amount_cents', 'eligible_lines', 'tie_group',
+                      'in_top200', 'boundary_status', 'unresolved_lines', 'unresolved_cents', 'candidate_bound_cents'],
+    'top200_companies': ['version_id', 'rank', 'issuer_id', 'issuer_name_at_period', 'amount_cents', 'fund_weight_raw',
+                         'tie_group', 'eligible_securities', 'blocked_members', 'rule_version'],
+    'top200_securities': ['version_id', 'issuer_id', 'security_id', 'class_code', 'security_type', 'ticker_at_period',
+                          'holding_lines', 'amount_cents', 'fund_weight_raw', 'candidate_eligible', 'candidate_reason'],
+    'strategy_companies': ['version_id', 'issuer_id', 'historical_rank', 'status_cutoff', 'current_status',
+                           'resolved_current_issuer', 'current_ticker', 'strategy_eligible', 'blocked_reason',
+                           'excluded_reason'],
+    'strategy_securities': ['version_id', 'issuer_id', 'security_id', 'class_code', 'current_security_id',
+                            'current_ticker', 'strategy_eligible', 'reason'],
+    'quarter_checks': ['version_id', 'check_name', 'status', 'detail'],
     'membership_spans': ['level', 'subject_id', 'issuer_id', 'span_no', 'first_as_of', 'last_as_of',
                          'first_available_at_utc', 'last_available_at_utc', 'quarters_present', 'next_absent_as_of'],
+    'issuer_resolution': ['issuer_id', 'resolved_issuer_id', 'method'],
     'listing_status': ['issuer_id', 'status', 'status_as_of', 'delisting_date', 'reason', 'counterparty', 'evidence',
                        'method', 'needs_review', 'source_id'],
     'review_items': ['review_id', 'review_type', 'subject_id', 'snapshot_id', 'detail', 'source_id'],
@@ -79,6 +106,11 @@ TABLE_COLUMNS = {
 
 def source_id(sha256: str) -> str:
     return 'SRC-' + sha256[:16]
+
+
+def _words(text: str) -> str:
+    """Name as written: upper case, punctuation removed, legal form kept as words."""
+    return ' '.join(re.sub(r'[^A-Z0-9]+', ' ', (text or '').upper().replace('&', ' AND ')).split())
 
 
 def acc_nodash(accession: str) -> str:
@@ -105,16 +137,12 @@ def _ts(text: str) -> str:
     return datetime.fromisoformat(text.replace('Z', '+00:00')).astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
-def _days(a: str, b: str) -> int:
-    return abs((date.fromisoformat(a) - date.fromisoformat(b)).days)
+def _day10(text: str) -> str:
+    return (text or '')[:10]
 
 
 def _quarter_index(d: str) -> int:
     return int(d[:4]) * 4 + (int(d[5:7]) - 1) // 3
-
-
-def _day10(text: str) -> str:
-    return (text or '')[:10]
 
 
 def _code_commit() -> str:
@@ -132,10 +160,21 @@ class Build:
         self.steps: list[tuple[str, str]] = []
         self.review: list[dict] = []
         self.sub_cache: dict[str, dict | None] = {}
+        self.valid_cache: dict[tuple, bool] = {}
+        self.resolve_cache: dict[tuple, dict] = {}
+        self.lookup: dict[str, set[str]] = {}
+        self.lookup_sig: dict[str, set[str]] = {}
         self.overrides = load_overrides(S.OVERRIDES_PATH)
         self.cusip_over = overrides_of(self.overrides, 'cusip_cik')
         self.name_over = overrides_of(self.overrides, 'name_cik')
         self.type_over = overrides_of(self.overrides, 'security_type')
+        self.end_over = overrides_of(self.overrides, 'security_end')
+        self.ticker_over = overrides_of(self.overrides, 'security_ticker')
+        # a predecessor of a dated link stops being the issuer of new holdings on the link's effective date
+        self.ended = {cik10(r['key'].split('>')[0]): r['field'] for r in self.overrides
+                      if r['override_kind'] == 'link' and r['field']}
+        self.succ_over = {cik10(r['key'].split('>')[1]): r['field'] for r in self.overrides
+                          if r['override_kind'] == 'link' and r['field']}
 
     def step(self, name: str, detail: str = '') -> None:
         self.steps.append((name, detail))
@@ -155,8 +194,10 @@ class Build:
                                                     'submissions', 'trust submissions page'))
         seen, out = set(), []
         for r in rows:
-            if r['accession'] not in seen:
-                seen.add(r['accession'])
+            if r['accession'] in seen:
+                continue
+            seen.add(r['accession'])
+            if _ts(r['acceptance']) <= R.BUILD_CUTOFF_UTC:      # only filings public by the fixed build cutoff
                 out.append(r)
         return out
 
@@ -185,34 +226,84 @@ class Build:
         return d
 
     def name_valid_at(self, cik: str, name: str, when: str) -> bool:
-        """True if a SEC name of the issuer equal to this name was in force on the date (formerNames dates honoured)."""
+        """True if a SEC name of the issuer with the same signature was in force on the date. A former name is in
+        force between its own dates. The current name is in force from the end of the last former name that has the
+        same signature (the name it replaced); formerNames of other entities never move that date."""
         sub = self.issuer_sub(cik)
         if sub is None:
             return False
         target = name_signature(core_name(name))
         for f in sub['former']:
+            # a holding report can still carry the name a few days after the SEC change (NAME_LAG_DAYS)
+            lag_end = (date.fromisoformat(f['valid_to']) + timedelta(days=NAME_LAG_DAYS)).isoformat() if f['valid_to'] else ''
             if name_signature(core_name(f['name'])) == target and (not f['valid_from'] or f['valid_from'] <= when) and \
-                    (not f['valid_to'] or when <= f['valid_to']):
+                    (not lag_end or when <= lag_end):
                 return True
-        current_from = max([f['valid_to'] for f in sub['former'] if f['valid_to']] or [''])
-        return name_signature(core_name(sub['name'])) == target and (not current_from or when >= current_from)
+        if name_signature(core_name(sub['name'])) != target:
+            return False
+        same = [f['valid_to'] for f in sub['former'] if f['valid_to'] and
+                name_signature(core_name(f['name'])) == name_signature(core_name(sub['name']))]
+        return not same or when >= max(same)
 
     def periodic_near(self, cik: str, when: str) -> bool:
+        """The issuer filed a periodic report near the date (existence evidence on the holding date)."""
+        key = ('periodic', cik, when)
+        if key in self.valid_cache:
+            return self.valid_cache[key]
+        sub = self.issuer_sub(cik)
+        ok = False
+        if sub is not None:
+            d0 = date.fromisoformat(when)
+            for f in sub['filings']:
+                if f['form'] not in PERIODIC:
+                    continue
+                if f['report_date'] and abs((date.fromisoformat(f['report_date']) - d0).days) <= CIK_PERIOD_DAYS:
+                    ok = True
+                    break
+                if d0 <= date.fromisoformat(f['filing_date']) <= d0 + timedelta(days=120):
+                    ok = True
+                    break
+        self.valid_cache[key] = ok
+        return ok
+
+    def succession_date(self, cik: str) -> str | None:
+        """Effective date of the issuer as a successor registrant. A link override with this CIK as successor gives
+        the date. Otherwise the earliest Form 8-K12B of the CIK counts only when the CIK had no periodic report in the
+        year before it (a successor registrant has not been reporting as itself; an 8-K12B filed by an operating
+        company that already reports, such as Cisco 2021, is not a succession). Before the date the entity was not
+        the issuer of the shares; its holdings belong to the predecessor."""
+        if cik in self.succ_over:
+            return self.succ_over[cik]
         sub = self.issuer_sub(cik)
         if sub is None:
-            return False
-        d0 = date.fromisoformat(when)
-        for f in sub['filings']:
-            if f['form'] not in PERIODIC:
-                continue
-            if f['report_date'] and abs((date.fromisoformat(f['report_date']) - d0).days) <= CIK_PERIOD_DAYS:
-                return True
-            if d0 <= date.fromisoformat(f['filing_date']) <= d0 + timedelta(days=120):
-                return True
-        return False
+            return None
+        for d8 in sorted(f['filing_date'] for f in sub['filings'] if f['form'] == '8-K12B'):
+            d0 = date.fromisoformat(d8)
+            reporting = any(f['form'] in PERIODIC and d0 - timedelta(days=365) <= date.fromisoformat(f['filing_date']) < d0
+                            for f in sub['filings'])
+            if not reporting:
+                return d8
+        return None
+
+    def exists_at(self, cik: str, when: str) -> bool:
+        """The CIK is the issuer of shares on the date: it filed periodic reports near the date, it is not before its
+        successor effective date, and it is not a predecessor whose link took effect on or before the date."""
+        key = ('exists', cik, when)
+        if key not in self.valid_cache:
+            ok = self.periodic_near(cik, when)
+            succ = self.succession_date(cik)
+            if succ and when < succ:
+                ok = False
+            if cik in self.ended and when >= self.ended[cik]:
+                ok = False
+            self.valid_cache[key] = ok
+        return self.valid_cache[key]
 
     def valid_at(self, cik: str, name: str, when: str) -> bool:
-        return self.name_valid_at(cik, name, when) and self.periodic_near(cik, when)
+        key = ('name', cik, name_signature(core_name(name)), when)
+        if key not in self.valid_cache:
+            self.valid_cache[key] = self.name_valid_at(cik, name, when) and self.exists_at(cik, when)
+        return self.valid_cache[key]
 
     def pre_snapshots(self, trust_rows: list[dict]) -> list[dict]:
         """N-Q, N-CSR, N-CSRS and NPORT-EX filings for report dates 2013-12-31 to 2019-12-31, filed from 2014. The
@@ -309,7 +400,7 @@ class Build:
     def nport_snapshots(self, trust_rows: list[dict], screen_rows: dict[str, dict]) -> list[dict]:
         by_date: dict[str, list[dict]] = {}
         for r in screen_rows.values():
-            if r['decision'] == 'target':
+            if r['decision'] == 'target' and r['accession'] in {t['accession'] for t in trust_rows}:
                 by_date.setdefault(r['report_date'], []).append(r)
         acceptance = {r['accession']: r['acceptance'] for r in trust_rows}
         filed = {r['accession']: r['filing_date'] for r in trust_rows}
@@ -336,14 +427,18 @@ class Build:
                             report_date=rd, filing_date=filed[acc], acceptance=_ts(acceptance[acc]), raw=raw,
                             completeness=complete, lines=lines, total=total, reported_common=None,
                             excluded_rows=info['non_equity_rows'], excluded_value=info['non_equity_value_usd'],
-                            reconciled=1, start_rule='nport_xml', notes='', url=url))
+                            reconciled=1, start_rule='nport_xml', notes='', url=url, residual=None, bound=None,
+                            unparsed=0))
         return out
 
     # -- snapshots -----------------------------------------------------------------------------------------------
     def snapshots(self, trust_rows: list[dict]) -> list[dict]:
         screen_rows = self.nport_screen(trust_rows)
         snaps = []
+        public = {r['accession'] for r in trust_rows}
         for p in self.pre_snapshots(trust_rows):
+            if p['accession'] not in public:
+                continue
             res = p['res']
             lines = []
             if p['completeness'] != 'summary':
@@ -366,14 +461,16 @@ class Build:
                               excluded_rows=len(res['excluded']),
                               excluded_value=sum(e['value_usd'] for e in res['excluded']),
                               reconciled=int(bool(res.get('reconciled'))), start_rule=res.get('rule') or '',
-                              notes='; '.join(notes), url=p['url']))
+                              notes='; '.join(notes), url=p['url'], residual=res.get('residual_usd'),
+                              bound=res.get('rounding_bound_usd'), unparsed=res.get('unparsed_rows', 0)))
         snaps += self.nport_snapshots(trust_rows, screen_rows)
         snaps.sort(key=lambda s: (s['report_date'], s['form'], s['accession']))
         return snaps
 
     # -- identity ------------------------------------------------------------------------------------------------
     def v05_securities(self) -> dict[str, dict]:
-        """v05 securities keyed by CUSIP, with the ISIN, the OpenFIGI type text and the SEC-corroborated CIK."""
+        """v05 securities keyed by CUSIP: the ISIN, the SEC-corroborated CIK, the ticker, the OpenFIGI type text and
+        the v05 security type."""
         raw = self.v05_reference(V05_SECURITIES).decode('utf-8')
         out: dict[str, dict] = {}
         self.v05_isin_to_cusip: dict[str, str] = {}
@@ -389,7 +486,8 @@ class Build:
             if isin:
                 self.v05_isin_to_cusip.setdefault(isin, cusip)
             out[cusip] = dict(ticker=valid_ticker(r.get('ticker', '')), evidence_cik=ev.get('evidence_cik', ''),
-                              isin=isin, openfigi_type=ev.get('openfigi_type', ''), name=r.get('original_name', ''))
+                              isin=isin, openfigi_type=ev.get('openfigi_type', ''), v05_type=r.get('security_type', ''),
+                              name=r.get('original_name', '') or ev.get('openfigi', ''))
         return out
 
     def v05_alias_map(self) -> dict[str, str]:
@@ -406,59 +504,134 @@ class Build:
         return self.store.import_local(f'local:data/v05/normalized/{name}', f'reference/v05/{name}', 'other',
                                        S.V05_NORMALIZED / name, f'copied from data/v05/normalized/{name}')
 
-    def cik_by_name(self, name: str, when: str, lookup: dict[str, set[str]]) -> tuple[str | None, str]:
-        """CIK for a holding name at a date. Candidates from the SEC name lookup must each be valid at that date
-        (name in force, periodic filing near it). A single valid candidate is accepted; several are narrowed by an
-        exact SEC name; anything still open stays unmapped."""
-        key = norm_core(name)
-        if name_key(name) in self.name_over:
-            return cik10(self.name_over[name_key(name)]['value']), 'override_name_cik'
-        cands = sorted(lookup.get(key, set()))
-        if not cands:
-            return None, 'no_cik_candidate'
-        valid = [c for c in cands if self.valid_at(c, name, when)]
-        if len(valid) == 1:
-            return valid[0], 'cik_lookup_name_valid_at_date' if len(cands) > 1 else 'cik_lookup_name_valid_at_date_single'
-        if not valid:
-            return None, f'no_candidate_valid_at_date:{len(cands)}'
-        exact = [c for c in valid if self.issuer_sub(c) and any(name_key(n) == key for n in
-                                                                [self.issuer_sub(c)['name']] +
-                                                                [f['name'] for f in self.issuer_sub(c)['former']])]
-        if len(exact) == 1:
-            return exact[0], 'cik_lookup_name_exact_sec_name'
-        return None, f'ambiguous_candidates:{len(cands)}->{len(valid)}'
+    def name_candidates(self, name: str) -> set[str]:
+        """SEC lookup CIKs for a holding name: the same name key, else the same words in another order ('CR Bard' and
+        'BARD C R' have one signature). Only candidates; each still has to be valid on the holding date."""
+        key = name_key(core_name(name))
+        found = set(self.lookup.get(key, set()))
+        if not found and key:
+            found = set(self.lookup_sig.get(''.join(sorted(key.split())), set()))
+        return found
 
-    def security_issuer(self, cusip: str, name: str, title: str, when: str, lookup, tickers, v05) -> tuple[str | None, str, str, str]:
-        """(cik, method, confidence, reason) for a security known by CUSIP (or a derived/ISIN identity)."""
-        if cusip and cusip in self.cusip_over:
-            return cik10(self.cusip_over[cusip]['value']), 'override_cusip_cik', 'high', ''
-        ev = v05.get(cusip, {}) if cusip else {}
-        if ev.get('evidence_cik') and self.valid_at(ev['evidence_cik'], name, when):
-            return ev['evidence_cik'], 'v05_source_evidence_cik', 'high', ''
-        tk = ev.get('ticker', '')
-        if tk and ticker_key(tk) in tickers:
-            t = tickers[ticker_key(tk)]
-            if name_ratio(name, t['title']) >= NAME_BRIDGE_RATIO and self.valid_at(t['cik'], name, when):
-                return t['cik'], 'sec_company_tickers_via_v05_ticker', 'high', ''
-        cik, how = self.cik_by_name(core_name(name), when, lookup)
-        if cik:
-            return cik, how, 'medium', ''
-        return None, '', '', how
+    def issuer_by_name(self, name: str, when: str) -> dict:
+        """CIK of a holding name on a date by the SEC name lookup. Every candidate must be valid on that date."""
+        key = ('name', name_key(core_name(name)), when)
+        if key in self.resolve_cache:
+            return self.resolve_cache[key]
+        out = dict(cik=None, method='', conf='', why='', cands=set())
+        override = self.name_over.get(name_key(name))
+        if override and self._window_ok(override, when):
+            out.update(cik=cik10(override['value']), method='override_name_cik', conf='high')
+        else:
+            cands = self.name_candidates(core_name(name))
+            out['cands'] = set(cands)
+            if not cands:
+                out.update(method='no_cik_candidate', why='no_cik_candidate',
+                           cands=self.fuzzy_candidates(name))
+            else:
+                valid = sorted(c for c in cands if self.valid_at(c, name, when))
+                if not valid:
+                    out.update(method=f'no_candidate_valid_at_date:{len(cands)}', why=f'no_candidate_valid_at_date:{len(cands)}')
+                elif len(valid) == 1:
+                    out.update(cik=valid[0], conf='medium', method='cik_lookup_name_valid_at_date' if len(cands) > 1
+                               else 'cik_lookup_name_valid_at_date_single')
+                else:
+                    exact = [c for c in valid if self._sec_name_equal(c, name)]
+                    if len(exact) != 1:      # legal form decides when the words agree: 'Actavis plc' vs 'Actavis, Inc.'
+                        full = [c for c in valid if self._sec_name_equal(c, name, full=True)]
+                        exact = full if len(full) == 1 else exact
+                    if len(exact) == 1:
+                        out.update(cik=exact[0], conf='medium', method='cik_lookup_name_exact_sec_name')
+                    else:
+                        out.update(cands=set(valid), method=f'ambiguous_candidates:{len(cands)}->{len(valid)}',
+                                   why=f'ambiguous_candidates:{len(cands)}->{len(valid)}')
+        self.resolve_cache[key] = out
+        return out
+
+    def _sec_name_equal(self, cik: str, name: str, full: bool = False) -> bool:
+        """An SEC name of the issuer equals the holding name: by name signature, or with full=True by the words as
+        written (legal form and punctuation removed but kept as words)."""
+        sub = self.issuer_sub(cik)
+        if not sub:
+            return False
+        if full:
+            target = _words(core_name(name))
+            return any(_words(n) == target for n in [sub['name']] + [f['name'] for f in sub['former']])
+        target = name_signature(core_name(name))
+        return any(name_signature(core_name(n)) == target for n in
+                   [sub['name']] + [f['name'] for f in sub['former']])
+
+    def fuzzy_candidates(self, name: str) -> set[str]:
+        """Bounding candidates only (never an identity): SEC lookup names that are very similar to a name the lookup
+        does not hold. Used so that an unplaced line is bounded by real entities, not by an unknown company."""
+        import difflib
+        if not hasattr(self, '_first_token_index'):
+            idx: dict[str, list[str]] = {}
+            for key in self.lookup:
+                first = key.split(' ', 1)[0] if key else ''
+                idx.setdefault(first, []).append(key)
+            self._first_token_index = idx
+        key = name_key(core_name(name))
+        first = key.split(' ', 1)[0] if key else ''
+        out = set()
+        for k in self._first_token_index.get(first, []):
+            if difflib.SequenceMatcher(None, key, k).quick_ratio() >= 0.9 and \
+                    difflib.SequenceMatcher(None, key, k).ratio() >= FUZZY_RATIO:
+                out |= self.lookup[k]
+        return out
+
+    @staticmethod
+    def _window_ok(override: dict, when: str) -> bool:
+        lo, hi = window_of(override.get('field', ''))
+        return (not lo or lo <= when) and (not hi or when <= hi)
+
+    def issuer_for_cusip(self, cusip: str, name: str, title: str, when: str, v05row: dict) -> dict:
+        """Issuer of a CUSIP-keyed line on its date: a dated override, then the v05 SEC-corroborated CIK (kept when
+        that issuer existed on the date), then the v05 ticker, then the name lookup."""
+        key = ('cusip', cusip, when, name_key(core_name(name)))
+        if key in self.resolve_cache:
+            return self.resolve_cache[key]
+        out = dict(cik=None, method='', conf='', why='', cands=set())
+        over = self.cusip_over.get(cusip)
+        if over and self._window_ok(over, when):
+            out.update(cik=cik10(over['value']), method='override_cusip_cik', conf='high')
+        else:
+            ev = v05row.get('evidence_cik', '')
+            if ev and self.exists_at(ev, when):
+                out.update(cik=ev, method='v05_source_evidence_cik', conf='high')
+            else:
+                tk = v05row.get('ticker', '')
+                t = self.tickers.get(ticker_key(tk)) if tk else None
+                if t and self.exists_at(t['cik'], when) and name_ratio(name, t['title']) >= NAME_BRIDGE_RATIO:
+                    out.update(cik=t['cik'], method='sec_company_tickers_via_v05_ticker', conf='high')
+                else:
+                    res = self.issuer_by_name(name, when)
+                    out.update(cik=res['cik'], method=res['method'], conf=res['conf'], why=res['why'],
+                               cands=res['cands'])
+                    if ev:
+                        out['cands'] = set(out['cands']) | {ev}
+                    if t:
+                        out['cands'] = set(out['cands']) | {t['cik']}
+        if out['cik'] is None and not out['cands']:
+            out['cands'] = self.name_candidates(name)
+        self.resolve_cache[key] = out
+        return out
 
     def identity(self, snaps: list[dict]) -> None:
         tickers = parse_company_tickers(json.loads(self.store.get(
             'https://www.sec.gov/files/company_tickers.json', 'reference/company_tickers.json', 'company_tickers',
             'SEC company_tickers.json (current tickers)').decode('utf-8')))
-        lookup = parse_cik_lookup(self.store.get(
+        self.lookup = parse_cik_lookup(self.store.get(
             'https://www.sec.gov/Archives/edgar/cik-lookup-data.txt', 'reference/cik-lookup-data.txt', 'cik_lookup',
             'SEC cik-lookup-data.txt (names to CIK)').decode('utf-8', errors='replace'))
+        self.lookup_sig: dict[str, set[str]] = {}
+        for key, ciks in self.lookup.items():
+            self.lookup_sig.setdefault(''.join(sorted(key.split())), set()).update(ciks)
         v05 = self.v05_securities()
         self.tickers, self.v05 = tickers, v05
         self.alias = self.v05_alias_map()
 
         # 1. security key of every N-PORT equity line; placeholders never become keys
-        first_date: dict[str, str] = {}
-        sec_name: dict[str, dict] = {}
         for snap in snaps:
             if snap['form'] != 'NPORT-P':
                 continue
@@ -479,40 +652,14 @@ class Build:
                 if key in self.alias:       # v05's confirmed merge: the old identifier is the same security as the canonical
                     key, how = self.alias[key], how + '+v05_alias'
                     cusip = key[6:] if key.startswith('CUSIP:') else cusip
-                ln['sec_key'], ln['sec_how'], ln['cusip_valid'], ln['isin_valid'] = key, how, cusip, isin
-                if key:
-                    first_date.setdefault(key, snap['report_date'])
-                    rec = sec_name.setdefault(key, dict(names=[], titles=[], isin=isin, lei='', cusip=cusip, lines=[]))
-                    rec['names'].append(ln['raw_name'])
-                    rec['titles'].append(ln['title'])
-                    rec['lines'].append(ln)
-                    rec['lei'] = rec['lei'] or valid_lei(ln['lei'])
-                    rec['isin'] = rec['isin'] or isin
-                else:
-                    self.flag('unidentified_security', ln['raw_name'], snap['snapshot_id'],
-                              f'cusip {ln["cusip"] or "blank"!r}, isin {ln["isin"] or "blank"!r}; kept unmapped',
-                              '')
-        self.sec_name = sec_name
-
-        # 2. issuer of every security key (period-validated)
-        sec_map: dict[str, tuple] = {}
-        for key in sorted(sec_name):
-            rec = sec_name[key]
-            cusip = rec['cusip']
-            name = rec['names'][0]
-            title = rec['titles'][0]
-            when = first_date[key]
-            if key.startswith('CUSIP:'):
-                cik, meth, conf, why = self.security_issuer(cusip, name, title, when, lookup, tickers, v05)
-            else:
-                cik, meth, conf, why = self.cik_by_name(core_name(name), when, lookup)[0], 'isin_only_name_lookup', \
-                    'medium', ''
-                if cik is None:
-                    why = 'isin_only_no_valid_cik'
-            if cik is None:
-                self.flag('nport_security_unmapped', key, '', f'{name}: {why}', '')
-            sec_map[key] = (cik, meth, conf, why)
-        self.sec_map = sec_map
+                ln['sec_key'], ln['sec_how'] = key, how
+                ln['cusip_valid'], ln['isin_valid'] = cusip, isin
+        # 2. issuer of every N-PORT line on its own holding date
+        for snap in snaps:
+            if snap['form'] != 'NPORT-P':
+                continue
+            for ln in snap['lines']:
+                self.resolve_line(ln, snap['report_date'], snap['snapshot_id'])
 
         # 3. 2019-12-31 bridge: N-CSR rows against N-PORT lines with a valid security key
         bridge = next((s for s in snaps if s['form'] != 'NPORT-P' and s['report_date'] == BRIDGE_DATE), None)
@@ -542,7 +689,7 @@ class Build:
                     continue
                 key = scored[0][1]['sec_key']
                 used.add(key)
-                matched[(norm_core(ln['raw_name']), ln['cls'])] = key
+                matched[(_words(core_name(ln['raw_name'])), ln['cls'])] = key
                 ratios.append(scored[0][1]['shares'] / ln['shares'])
                 bridge_stats['matched'] += 1
         if ratios:
@@ -553,125 +700,220 @@ class Build:
         self.step('bridge_2019_12_31', ' '.join(f'{k}={v}' for k, v in bridge_stats.items()))
         self.matched = matched
 
-        # 4. pre-N-PORT lines: security (bridge, then CIK + class to the first N-PORT security, else CIKCLS) and issuer
-        cluster_qe: dict[str, str] = {}
-        for snap in snaps:
-            if snap['form'] == 'NPORT-P':
-                continue
-            for ln in snap['lines']:
-                key = norm_core(ln['raw_name'])
-                cluster_qe[key] = min(cluster_qe.get(key, snap['report_date']), snap['report_date'])
+        # 4. pre-N-PORT lines: the issuer on the line's own date by name; the security from the bridge, else the first
+        #    N-PORT CUSIP of the same issuer and class (only when unique), else the issuer's CIK-class key
         first_nport = next((s for s in snaps if s['form'] == 'NPORT-P'), None)
         cik_class: dict[tuple[str, str], list[str]] = {}
         if first_nport:
             for ln in first_nport['lines']:
-                if ln.get('sec_key') in sec_map and sec_map[ln['sec_key']][0] and ln['sec_key'].startswith('CUSIP:'):
-                    cik_class.setdefault((sec_map[ln['sec_key']][0], ln['cls']), []).append(ln['sec_key'])
-        cluster_cik: dict[str, tuple] = {}
-        for (key, cls), sk in sorted(matched.items()):
-            if sec_map.get(sk, (None,))[0]:
-                cluster_cik[key] = (sec_map[sk][0], f'bridge_2019_12_31->{sec_map[sk][1]}', sec_map[sk][2])
-        for key in sorted(cluster_qe):
-            if key in cluster_cik:
-                continue
-            cik, how = self.cik_by_name(key, cluster_qe[key], lookup)
-            cluster_cik[key] = (cik, how, 'medium' if cik else '')
-            if cik is None:
-                self.flag('pre_name_unmapped', key, '', how)
-        self.cluster_cik = cluster_cik
-        self.step('name_clusters', f'{len(cluster_cik)} pre-N-PORT name clusters; '
-                  f'{sum(1 for v in cluster_cik.values() if v[0])} with a CIK')
+                if ln.get('issuer') and ln.get('sec_key', '') and ln['sec_key'].startswith('CUSIP:'):
+                    cik_class.setdefault((ln['issuer'], ln['cls']), []).append(ln['sec_key'])
+        self.first_nport_cik_class = cik_class
         for snap in snaps:
             if snap['form'] == 'NPORT-P':
-                for ln in snap['lines']:
-                    key = ln.get('sec_key')
-                    if key and sec_map.get(key, (None,))[0]:
-                        cik, meth, conf, why = sec_map[key]
-                        ln['issuer'], ln['sec'], ln['map'], ln['why'] = cik10(cik), key, (meth, conf), ''
-                    else:
-                        ln['issuer'], ln['sec'], ln['map'] = None, None, ('', '')
-                        ln['why'] = (sec_map[key][3] if key in sec_map else
-                                     f'no valid identifier (cusip {ln["cusip"] or "blank"}, isin {ln["isin"] or "blank"})')
                 continue
             for ln in snap['lines']:
-                key = norm_core(ln['raw_name'])
-                cik, how, conf = cluster_cik.get(key, (None, 'no_cluster', ''))
-                ln['issuer'] = cik10(cik) if cik else None
-                ln['why'] = '' if cik else how
-                if not cik:
-                    ln['sec'], ln['map'] = None, ('', '')
-                    continue
-                if (key, ln['cls']) in matched:
+                key = _words(core_name(ln['raw_name']))
+                if (key, ln['cls']) in matched:       # the same name and class as a CUSIP security of 2019-12-31
                     sk = matched[(key, ln['cls'])]
-                    ln['sec'], ln['map'] = sk, (how + '|bridge_2019_12_31', 'high')
-                elif (cik10(cik), ln['cls']) in cik_class and len(cik_class[(cik10(cik), ln['cls'])]) == 1:
-                    ln['sec'], ln['map'] = cik_class[(cik10(cik), ln['cls'])][0], (how + '|cik_class_first_nport', 'medium')
+                    ln['sec_key'], ln['sec_how'] = sk, 'bridge_2019_12_31'
+                    ln['cusip_valid'] = sk[6:] if sk.startswith('CUSIP:') else ''
+                    ln['isin_valid'] = ''
+                    res = self.issuer_for_cusip(sk[6:], ln['raw_name'], '', snap['report_date'],
+                                                self.v05.get(sk[6:], {}))
+                    ln['issuer'], ln['map'], ln['why'], ln['cands'] = res['cik'], (res['method'], res['conf'] or 'medium'), \
+                        res['why'], res['cands']
+                    continue
+                res = self.issuer_by_name(core_name(ln['raw_name']), snap['report_date'])
+                ln['issuer'], ln['map'], ln['why'], ln['cands'] = res['cik'], (res['method'], res['conf'] or 'medium'), \
+                    res['why'], res['cands']
+                ln['sec_key'], ln['sec_how'] = None, ''
+                ln['cusip_valid'], ln['isin_valid'] = '', ''
+                if res['cik'] is None:
+                    continue
+                if (res['cik'], ln['cls']) in cik_class and len(set(cik_class[(res['cik'], ln['cls'])])) == 1:
+                    ln['sec_key'] = cik_class[(res['cik'], ln['cls'])][0]
+                    ln['sec_how'] = 'cik_class_first_nport'
                 else:
-                    ln['sec'], ln['map'] = cikcls_security(cik, ln['cls']), (how, conf or 'medium')
-        self.first_nport_cik_class = cik_class
+                    ln['sec_key'] = cikcls_security(res['cik'], ln['cls'])
+                    ln['sec_how'] = 'cikcls'
+        self.propagate_cusip(snaps)
+        self.step('identity', f'{sum(1 for s in snaps for ln in s["lines"] if ln.get("issuer"))} lines with an issuer; '
+                  f'{sum(1 for s in snaps for ln in s["lines"] if not ln.get("issuer"))} without')
 
-    # -- outputs ---------------------------------------------------------------------------------------------------
-    def line_type(self, ln: dict, issuer_sic: str) -> tuple[str, str]:
-        """(security_type, type_basis) of one line from evidence: an override, the OpenFIGI type text of the v05
-        security, the holding's own title and name, the issuer SIC (REIT) and the SEC asset category."""
-        sk = ln.get('sec') or ''
-        if sk in self.type_over:
-            ov = self.type_over[sk]
-            return ov['value'], 'override: ' + ov['evidence']
-        cusip = sk[6:] if sk.startswith('CUSIP:') else ''
-        ev_type = self.v05.get(cusip, {}).get('openfigi_type', '') if cusip else ''
-        return security_type(ln['raw_name'], ln.get('title', ''), issuer_sic, ev_type, ln.get('asset_cat', ''))
+    def propagate_cusip(self, snaps: list[dict]) -> None:
+        """An unresolved CUSIP line takes the issuer that the same security (CUSIP) has on the nearest resolved dates.
+        The issuer of one security changes only at a reorganisation: before the successor's effective date (its
+        Form 8-K12B) the predecessor still holds the shares. Neighbours that disagree and cannot be placed stay open."""
+        def key_of(snap: dict, ln: dict) -> str:
+            """The same security across dates: its CUSIP; for a line of a pre-N-PORT filing without a CUSIP, its name
+            and class (the same name and class in another quarter is the same security)."""
+            sk = ln.get('sec_key') or ''
+            if sk.startswith('CUSIP:'):
+                return sk
+            if snap['form'] != 'NPORT-P' and ln['line_kind'] == 'stock':
+                return f'CL|{_words(core_name(ln["raw_name"]))}|{ln["cls"]}'
+            return ''
+
+        timeline: dict[str, dict[str, set[str]]] = {}
+        for snap in snaps:
+            for ln in snap['lines']:
+                key = key_of(snap, ln)
+                if ln['line_kind'] == 'stock' and key and ln.get('issuer'):
+                    timeline.setdefault(key, {}).setdefault(snap['report_date'], set()).add(ln['issuer'])
+        single = {sk: {d: next(iter(v)) for d, v in dates.items() if len(v) == 1} for sk, dates in timeline.items()}
+        filled = dict(previous=0, next=0, same=0, before_successor=0, after_successor=0, open=0)
+        for snap in snaps:
+            d = snap['report_date']
+            for ln in snap['lines']:
+                sk = key_of(snap, ln)
+                if ln['line_kind'] != 'stock' or ln.get('issuer') or not sk:
+                    continue
+                dates = single.get(sk, {})
+                prev = max((x for x in dates if x < d), default=None)
+                nxt = min((x for x in dates if x > d), default=None)
+                cik, how = None, ''
+                if prev and nxt:
+                    a, b = dates[prev], dates[nxt]
+                    succ = self.succession_date(b)
+                    if a == b:
+                        cik, how = a, 'same'
+                    elif succ and d < succ:
+                        cik, how = a, 'before_successor'
+                    elif succ and d >= succ:
+                        cik, how = b, 'after_successor'
+                elif prev:
+                    cik, how = dates[prev], 'previous'
+                elif nxt:
+                    succ = self.succession_date(dates[nxt])
+                    if not (succ and d < succ):
+                        cik, how = dates[nxt], 'next'
+                if cik:
+                    ln['issuer'] = cik
+                    ln['map'] = (f'{"cusip" if sk.startswith("CUSIP:") else "name_class"}_propagated_{how}', 'medium')
+                    ln['why'] = ''
+                    if not sk.startswith('CUSIP:'):
+                        ln['sec_key'] = cikcls_security(cik, ln['cls'])
+                        ln['sec_how'] = f'name_class_propagated_{how}'
+                    filled[how] += 1
+                else:
+                    filled['open'] += 1
+        self.step('cusip_propagation', ' '.join(f'{k}={v}' for k, v in filled.items()))
+
+    def resolve_line(self, ln: dict, when: str, snap_id: str) -> None:
+        sk = ln.get('sec_key')
+        if sk and sk.startswith('CUSIP:'):
+            res = self.issuer_for_cusip(sk[6:], ln['raw_name'], ln.get('title', ''), when,
+                                        self.v05.get(sk[6:], {}))
+        elif sk:
+            res = self.issuer_by_name(ln['raw_name'], when)
+            res = dict(res, method='isin_only_' + res['method'])
+        else:
+            res = dict(cik=None, method='', conf='', why=f'no valid identifier (cusip {ln["cusip"] or "blank"}, '
+                                                       f'isin {ln["isin"] or "blank"})',
+                       cands=self.name_candidates(core_name(ln['raw_name'])))
+            self.flag('unidentified_security', ln['raw_name'], snap_id,
+                      f'cusip {ln["cusip"] or "blank"!r}, isin {ln["isin"] or "blank"!r}; kept unmapped', '')
+        ln['issuer'], ln['map'], ln['why'], ln['cands'] = res['cik'], (res['method'], res['conf'] or 'medium' if res['cik']
+                                                                       else ''), res['why'], res['cands']
+
+    # -- types, weights, status ------------------------------------------------------------------------------------
+    def issuer_sic(self, cik: str | None) -> str:
+        sub = self.issuer_sub(cik) if cik else None
+        return sub['sic'] if sub else ''
+
+    def assign_types(self, snaps: list[dict]) -> None:
+        """Security type from explicit evidence on every line, then one type per security: an explicit exclusion on any
+        of its lines wins (TYPE_ORDER), so a right or a CVR never stays in common stock."""
+        per_line: dict[str, list[str]] = {}
+        for snap in snaps:
+            for ln in snap['lines']:
+                sk = ln.get('sec_key') or ''
+                if ln['line_kind'] != 'stock' and ln['line_kind'] != 'negative':
+                    continue
+                ev = self.v05.get(sk[6:], {}) if sk.startswith('CUSIP:') else {}
+                t, basis = self.line_type(ln, ev)
+                ln['type_line'], ln['type_basis_line'] = t, basis
+                if sk:
+                    per_line.setdefault(sk, []).append(t)
+        sec_type: dict[str, tuple[str, str]] = {}
+        for sk, types in per_line.items():
+            best = min(types, key=lambda t: TYPE_ORDER.index(t) if t in TYPE_ORDER else len(TYPE_ORDER))
+            sec_type[sk] = (best, 'most specific line evidence: ' + ','.join(sorted(set(types))))
+        self.sec_type = sec_type
+        for snap in snaps:
+            for ln in snap['lines']:
+                sk = ln.get('sec_key')
+                if sk and sk in sec_type:
+                    ln['type'], ln['type_basis'] = sec_type[sk]
+                else:
+                    ln['type'], ln['type_basis'] = ln.get('type_line', 'unknown'), ln.get('type_basis_line', '')
+                if sk in self.type_over:
+                    ov = self.type_over[sk]
+                    ln['type'], ln['type_basis'] = ov['value'], 'override: ' + ov['evidence']
+                    self.sec_type[sk] = (ov['value'], ln['type_basis'])
+
+    def line_type(self, ln: dict, ev: dict) -> tuple[str, str]:
+        sic = self.issuer_sic(ln.get('issuer'))
+        return security_type(ln['raw_name'], ln.get('title', ''), sic, ev.get('openfigi_type', ''),
+                             ln.get('asset_cat', ''), ev.get('v05_type', ''))
+
+    def weights(self, snaps: list[dict]) -> None:
+        """Two weights, kept apart. fund_weight_raw = value / the fund's total investments of the snapshot (N-PORT
+        pctVal is kept as reported). stock_weight = value / the sum of positive stock lines that are not non-stock
+        types. Negative lines and non-stock types have no stock weight."""
+        for snap in snaps:
+            total = snap['total'] or 0.0
+            denom = sum(ln['value_usd'] for ln in snap['lines']
+                        if ln['line_kind'] == 'stock' and ln['value_usd'] > 0 and ln.get('type') not in NON_STOCK_TYPES)
+            snap['stock_total'] = denom
+            for ln in snap['lines']:
+                ln['fund_weight_raw'] = (ln['value_usd'] / total) if total else None
+                ln['weight'] = (ln['value_usd'] / denom) if (ln['line_kind'] == 'stock' and ln['value_usd'] > 0
+                                                             and ln.get('type') not in NON_STOCK_TYPES and denom) else None
 
     def assemble(self) -> dict:
         trust_rows = self.trust_filings()
-        self.step('trust_filings', f'{len(trust_rows)} filings listed for the trust')
+        self.step('trust_filings', f'{len(trust_rows)} filings public by {R.BUILD_CUTOFF_UTC}')
         snaps = self.snapshots(trust_rows)
         by_quarter: dict[str, list[dict]] = {}
         for s in snaps:
             by_quarter.setdefault(s['report_date'], []).append(s)
         for s in snaps:
             s['is_primary'] = 0
-        for rd in quarter_ends(PRE_START, LATEST_QUARTER):
-            cands = [s for s in by_quarter.get(rd, []) if s['completeness'] == 'full']
+        quarters = quarter_ends(PRE_START, max(s['report_date'] for s in snaps))
+        self.quarters = quarters
+        for rd in quarters:
+            cands = [s for s in by_quarter.get(rd, []) if s['completeness'] == 'full' and s['reconciled']]
             if not cands:
-                self.flag('missing_quarter', rd, '', 'no complete 500 Index Fund schedule for this quarter')
+                self.flag('missing_quarter', rd, '', 'no complete reconciled 500 Index Fund schedule public by the cutoff')
                 continue
             pick = max(cands, key=lambda s: (s['form'] == 'NPORT-P', s['filing_date'], s['accession']))
             pick['is_primary'] = 1
             if len(cands) > 1:
                 self.flag('multiple_complete_snapshots', rd, pick['snapshot_id'],
-                          f'{[c["snapshot_id"] for c in cands]}; primary chosen')
+                          f'{[c["snapshot_id"] for c in cands]}; canonical chosen')
         for s in snaps:
             if not s['is_primary'] and s['completeness'] != 'full':
                 self.flag('snapshot_not_full', s['accession'], s['snapshot_id'], s['completeness'])
         self.v05_reference(V05_SNAPSHOT_MEMBERS)
         self.v05_reference(V05_SNAPSHOTS)
         self.identity(snaps)
-        for snap in snaps:
-            for ln in snap['lines']:
-                cik = ln.get('issuer')
-                sub = self.issuer_sub(cik) if cik else None
-                ln['type'], ln['type_basis'] = self.line_type(ln, sub['sic'] if sub else '')
-                ln['weight'] = None
-            denom = sum(ln['value_usd'] for ln in snap['lines'] if ln['type'] not in EXCLUDED_TYPES)
-            snap['stock_total'] = denom
-            for ln in snap['lines']:
-                if ln['type'] not in EXCLUDED_TYPES and denom:
-                    ln['weight'] = ln['value_usd'] / denom
+        self.assign_types(snaps)
+        self.weights(snaps)
         primary = [s for s in snaps if s['is_primary']]
         latest = primary[-1]
         latest_common = {ln['issuer'] for ln in latest['lines']
-                         if ln.get('issuer') and ln['type'] in ('common', 'adr') and ln['line_kind'] == 'stock'}
+                         if ln.get('issuer') and ln.get('type') in ELIGIBLE_TYPES and ln['line_kind'] == 'stock'}
         self.step('primary_quarters', f'{len(primary)} primary snapshots of {len(snaps)} snapshots')
         return self.tables(trust_rows, snaps, primary, latest_common)
 
     def tables(self, trust_rows, snaps, primary, latest_common) -> dict:
         latest_date = primary[-1]['report_date']
-        status_as_of = max(r['retrieved_at_utc'] for r in self.store.records.values()
-                           if r['kind'] == 'submissions')[:10]
+        status_as_of = R.STATUS_CUTOFF
         issuers_all = sorted({ln['issuer'] for s in snaps for ln in s['lines'] if ln.get('issuer')})
         universe = sorted({ln['issuer'] for s in primary for ln in s['lines']
-                           if ln.get('issuer') and ln['type'] not in EXCLUDED_TYPES})
+                           if ln.get('issuer') and ln.get('type') not in EXCLUDED_TYPES})
         info: dict[str, dict] = {}
         for cik in issuers_all:
             info[cik] = self.issuer_info(cik, snaps)
@@ -729,6 +971,7 @@ class Build:
         self.step('listing_status', ' '.join(f'{k}={sum(1 for v in final.values() if v["status"] == k)}' for k in
                                              ('in_index', 'listed_out_of_index', 'delisted', 'continued_by_successor',
                                               'unknown')) + f' review={sum(1 for v in final.values() if v["needs_review"])}')
+        self.links, self.final, self.resolved, self.info = links, final, resolved, info
         return self.build_rows(trust_rows, snaps, primary, info, final, links, resolved, universe, status_as_of)
 
     def issuer_info(self, cik: str, snaps: list[dict]) -> dict:
@@ -751,9 +994,10 @@ class Build:
                 if not ln.get('issuer') or ln.get('type') in EXCLUDED_TYPES or ln.get('line_kind') != 'stock':
                     continue
                 presence.setdefault(('issuer', ln['issuer'], ln['issuer']), []).append(i)
-                if ln.get('sec'):
-                    presence.setdefault(('security', ln['sec'], ln['issuer']), []).append(i)
+                if ln.get('sec_key'):
+                    presence.setdefault(('security', ln['sec_key'], ln['issuer']), []).append(i)
         rows = []
+        numbering: dict[tuple[str, str], int] = {}     # span numbers run over all issuers of one subject
         for (level, subj, issuer), idxs in sorted(presence.items()):
             idxs = sorted(set(idxs))
             spans, cur = [], []
@@ -767,7 +1011,9 @@ class Build:
                     cur = [i]
             if cur:
                 spans.append(cur)
-            for n, sp in enumerate(spans, 1):
+            for sp in spans:
+                numbering[(level, subj)] = numbering.get((level, subj), 0) + 1
+                n = numbering[(level, subj)]
                 first, last = primary[sp[0]], primary[sp[-1]]
                 nxt = sp[-1] + 1
                 absent = ''
@@ -798,26 +1044,33 @@ class Build:
             sha = info[cik]['source_sha'] if cik in info else ''
             return source_id(sha) if sha else None
 
-        # security facts: the first known value of each identifier, taken from every line that carries it
+        # security facts: the identifiers and type of each security key, from every line that carries it
         sec_facts: dict[str, dict] = {}
         raw_of: dict[str, bytes] = {}
+        spans_of: dict[tuple[str, str], dict] = {}
         for s in snaps:
             src = source_id(sha256_bytes(s['raw']))
             for ln in s['lines']:
-                sk = ln.get('sec')
-                if not sk:
+                sk = ln.get('sec_key')
+                if not sk or ln['line_kind'] != 'stock':
                     continue
                 raw_of.setdefault(sk, s['raw'])
-                f = sec_facts.setdefault(sk, dict(issuer=ln['issuer'], cls=ln['cls'], name=ln['raw_name'], type=None,
-                                                  basis='', isin='', lei='', source=src, derivation='',
+                f = sec_facts.setdefault(sk, dict(issuer=ln['issuer'], cls=ln['cls'], name=ln['raw_name'], isin='',
+                                                  lei='', source=src, derivation='', last=s['report_date'],
                                                   scheme='CUSIP' if sk.startswith('CUSIP:') else
                                                   ('ISIN' if sk.startswith('ISIN:') else 'CIKCLS')))
-                if f['type'] is None or (f['type'] == 'unknown' and ln['type'] != 'unknown'):
-                    f['type'], f['basis'] = ln['type'], ln['type_basis']
                 f['isin'] = f['isin'] or valid_isin(ln.get('isin'))
                 f['lei'] = f['lei'] or valid_lei(ln.get('lei'))
                 if ln.get('sec_how') and ln.get('sec_how') != 'cusip':
                     f['derivation'] = ln['sec_how']
+                if ln.get('issuer'):
+                    f['issuer'] = ln['issuer']
+                    f['last'] = s['report_date']
+                    span = spans_of.setdefault((sk, ln['issuer']), dict(first=s['report_date'], last=s['report_date'],
+                                                                         lines=0, method=ln.get('map', ('', ''))[0]))
+                    span['first'] = min(span['first'], s['report_date'])
+                    span['last'] = max(span['last'], s['report_date'])
+                    span['lines'] += 1
         self.sec_facts = sec_facts
         for cik in sorted(info):
             d = info[cik]
@@ -863,11 +1116,16 @@ class Build:
                                           successor_issuer_id=issuer_id(l['successor']), relation=l['relation'],
                                           confidence=l['confidence'], via_override=l['via_override'],
                                           effective_date=l['effective_date'], evidence=l['evidence'], source_id=src))
+        sec_ok = {sk for sk, f in sec_facts.items() if f['issuer']}
         for sk, f in sorted(sec_facts.items()):
+            if sk not in sec_ok:
+                continue
             cik = f['issuer']
+            sec_t, sec_basis = self.sec_type.get(sk, ('unknown', ''))
             t['securities'].append(dict(security_id=sk, issuer_id=issuer_id(cik), class_code=f['cls'],
-                                        security_type=f['type'] or 'unknown', type_basis=f['basis'], name=f['name'],
-                                        id_scheme=f['scheme'], notes=f['derivation'], source_id=source_id(sha256_bytes(raw_of[sk]))))
+                                        security_type=sec_t, type_basis=sec_basis, name=f['name'],
+                                        id_scheme=f['scheme'], notes=f['derivation'],
+                                        source_id=source_id(sha256_bytes(raw_of[sk]))))
             ids = []
             if sk.startswith('CUSIP:'):
                 ids.append(('cusip', sk[6:]))
@@ -876,20 +1134,27 @@ class Build:
             if f['lei']:
                 ids.append(('lei', f['lei']))
             v05row = self.v05.get(sk[6:], {}) if sk.startswith('CUSIP:') else {}
-            if v05row.get('ticker'):
+            ov_t = self.ticker_over.get(sk)
+            if ov_t:
+                ids.append(('ticker', ov_t['value']))
+            elif v05row.get('ticker'):
                 ids.append(('ticker', v05row['ticker']))
-            else:
-                tks = [k for k, v in self.tickers.items() if v['cik'] == cik]
-                if len(tks) > 1:   # warrant and right lines of the same issuer are not its share code
-                    tks = [k for k in tks if not re.search(r'(WS|WT|W|R|U)$', k) or len(k) <= 4]
-                if len(tks) == 1 and f['cls'] == 'COM' and f['type'] in ('common', 'adr'):
-                    ids.append(('ticker', tks[0]))
+            elif self.sec_type.get(sk, ('',))[0] in ('common', 'adr'):
+                # no v05 code: the issuer's one current SEC ticker (any class), only for an eligible class; warrant
+                # and unit codes ('-WT', 'WS') are not share codes and make the choice ambiguous
+                own = sorted(k for k, v in self.tickers.items() if v['cik'] == cik and '-' not in k)
+                if len(own) == 1:
+                    ids.append(('ticker', own[0]))
             seen_ids = set()
             for id_type, value in ids:
                 if value and (id_type, value) not in seen_ids:
                     seen_ids.add((id_type, value))
                     t['security_identifiers'].append(dict(security_id=sk, id_type=id_type, id_value=value, valid_from='',
                                                           valid_to='', source_id=source_id(sha256_bytes(raw_of[sk]))))
+        for (sk, cik), sp in sorted(spans_of.items()):
+            t['security_issuer_spans'].append(dict(security_id=sk, issuer_id=issuer_id(cik), span_no=1,
+                                                   first_as_of=sp['first'], last_as_of=sp['last'], lines=sp['lines'],
+                                                   method=sp['method'], source_id=None))
         for s in snaps:
             src = source_id(sha256_bytes(s['raw']))
             total = s['total']
@@ -902,18 +1167,27 @@ class Build:
                 excluded_value_usd=s['excluded_value'], total_investments_reported_usd=total,
                 reported_common_stock_total_usd=s['reported_common'], stock_total_usd=stock_total,
                 coverage_ratio=(stock_total / total) if total else None, reconciled=s['reconciled'],
+                residual_usd=s.get('residual'), rounding_bound_usd=s.get('bound'), unparsed_rows=s.get('unparsed', 0),
                 start_rule=s['start_rule'], source_id=src, notes=s['notes']))
             for n, ln in enumerate(s['lines'], 1):
                 cik = ln.get('issuer')
+                cands = sorted(ln.get('cands') or []) if not cik else []
                 t['holdings'].append(dict(
                     snapshot_id=s['snapshot_id'], line_no=n, line_kind=ln['line_kind'], raw_name=ln['raw_name'],
                     raw_class_text=ln['raw_class_text'], cusip_reported=ln.get('cusip', ''), isin_reported=ln.get('isin', ''),
                     lei_reported=ln.get('lei', ''), title_reported=ln.get('title', ''), shares=ln['shares'],
-                    value_usd=ln['value_usd'], pct_val_percent=ln.get('pct_val'), weight=ln.get('weight'),
-                    security_id=ln.get('sec') if cik else None, issuer_id=issuer_id(cik) if cik else None,
+                    value_usd=ln['value_usd'], pct_val_percent=ln.get('pct_val'), fund_weight_raw=ln.get('fund_weight_raw'),
+                    stock_weight=ln.get('weight'),
+                    security_id=(ln.get('sec_key') if ln['line_kind'] == 'stock' and ln.get('sec_key') in sec_ok
+                                 else None),
+                    issuer_id=issuer_id(cik) if cik else None, security_type=ln.get('type', 'unknown'),
                     map_method=ln.get('map', ('', ''))[0], map_confidence=ln.get('map', ('', ''))[1],
-                    unmapped_reason='' if cik else ln.get('why', ''), source_id=src))
+                    unmapped_reason='' if cik else ln.get('why', ''), candidate_issuers=' '.join(cands), source_id=src))
         t['membership_spans'] = self.spans(primary, universe)
+        from . import top200
+        extra_tables = top200.compute(self, snaps, primary, info, final, resolved, status_as_of)
+        for k, v in extra_tables.items():
+            t[k] = v
         for n, r in enumerate(sorted(self.review, key=lambda r: (r['review_type'], r.get('subject_id', ''),
                                                                  r.get('snapshot_id', ''), r.get('detail', ''))), 1):
             src = r.get('source_id') or None
@@ -922,7 +1196,8 @@ class Build:
                                           source_id=src if src in known_sources else None))
         t['_extra'] = dict(bridge=self.bridge_stats, universe=len(universe), trust_filings=len(trust_rows),
                            requests=self.store.stats.requests, retries=self.store.stats.retries,
-                           failures=self.store.stats.failures, status_as_of=status_as_of, steps=self.steps)
+                           failures=self.store.stats.failures, status_as_of=status_as_of, steps=self.steps,
+                           quarters=self.quarters)
         return t
 
 
@@ -977,7 +1252,9 @@ def write_db(tables: dict, path: Path, steps: list, meta: dict) -> str:
         digest = content_hash(conn)
         conn.executemany('INSERT INTO meta (key, value) VALUES (?,?)',
                          [('content_sha256', digest), ('schema_version', str(SCHEMA_VERSION)),
-                          ('built_at_utc', utc_now_iso())] + [(k, str(v)) for k, v in sorted(meta.items())])
+                          ('rule_version', R.RULE_VERSION), ('built_at_utc', utc_now_iso()),
+                          ('status_cutoff', R.STATUS_CUTOFF), ('build_cutoff_utc', R.BUILD_CUTOFF_UTC)]
+                         + [(k, str(v)) for k, v in sorted(meta.items())])
         conn.commit()
     finally:
         conn.close()
@@ -998,7 +1275,8 @@ def build(offline: bool = False, log=print, db_path: Path = S.DB_PATH) -> dict:
     build_id = sha256_bytes(f'{manifest_sha}|{commit}|{utc_now_iso()}'.encode())[:16]
     digest = write_db(t, db_path, b.steps + [('write', db_path.name)],
                       dict(build_id=build_id, code_commit=commit, raw_manifest_sha256=manifest_sha,
-                           content_sha256_scope='all tables and views except meta and build_log'))
+                           content_sha256_scope='all tables and views except meta and build_log',
+                           rules=json.dumps(R.describe(), ensure_ascii=False, sort_keys=True)))
     counts = {k: len(v) for k, v in t.items() if isinstance(v, list)}
     return dict(content_sha256=digest, network_requests=store.stats.requests, retries=store.stats.retries,
                 failures=store.stats.failures, offline=offline, counts=counts, extra=extra, build_id=build_id,

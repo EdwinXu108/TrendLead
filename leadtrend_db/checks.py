@@ -1,8 +1,9 @@
-"""Verification of data/db/leadtrend_db_v1.sqlite (brief section 6 and the repair round, section 5).
+"""Checks of leadtrend_db v2 (rule_version top200_v1). run_checks() returns a result dict and a list of failures; the CLI
+exits non-zero when any check fails, so a failed check can never be mistaken for a passed build.
 
-Writes data/db/exports/checks.json and checks.md (or the path given). Reads the database read-only, the archived v05
-copies (raw/reference/v05) and the archive manifest. The offline rebuild writes to work/ and must reproduce the
-content hash with zero network requests. Nothing here changes the database.
+The ranking is recomputed here with SQL from the holdings table, not from the Python ranking module, so that the two
+paths are independent: the database's company amounts, ranks and boundary values must agree with the SQL recount for
+every canonical quarter.
 """
 from __future__ import annotations
 
@@ -12,274 +13,246 @@ import json
 import sqlite3
 from pathlib import Path
 
+from . import rules as R
 from . import sources as S
-from .build import BRIDGE_DATE, build
 
-STOCK_ROWS = (480, 520)
-COVERAGE = (0.98, 1.0)
-ENTER_EXIT_FLAG = 15
-WEIGHT_TOL = 1e-9            # weights are float ratios of values; their sum is 1 to ~1e-15
-V05_TOL = 1e-9
+PRESENT_META = ('content_sha256', 'schema_version', 'rule_version', 'build_id', 'code_commit', 'raw_manifest_sha256',
+                'status_cutoff', 'build_cutoff_utc')
 RESERVED = ('prices_daily', 'corporate_actions', 'price_coverage', 'index_changes')
-EXCLUDED = ('right', 'warrant', 'cvr', 'etf', 'other')
 
 
-def _rows(conn: sqlite3.Connection, sql: str, args: tuple = ()) -> list[dict]:
-    cur = conn.execute(sql, args)
-    cols = [c[0] for c in cur.description]
-    return [dict(zip(cols, r)) for r in cur.fetchall()]
+def _rows(conn: sqlite3.Connection, sql: str, args: tuple = ()) -> list[tuple]:
+    return conn.execute(sql, args).fetchall()
 
 
-def _write_csv(path: Path, rows: list[dict], fields: list[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open('w', encoding='utf-8', newline='') as f:
-        w = csv.DictWriter(f, fieldnames=fields, lineterminator='\n', extrasaction='ignore')
-        w.writeheader()
-        w.writerows(rows)
-
-
-def check_archive(out: dict, baseline: Path) -> None:
-    """The manifest is append-only: the baseline manifest (before the repair round) must be a prefix of the current."""
-    current = (S.RAW_DIR / 'manifest.jsonl').read_text(encoding='utf-8').splitlines()
-    if not baseline.exists():
-        out['0_archive'] = dict(baseline_found=False, lines=len(current))
-        return
-    old = baseline.read_text(encoding='utf-8').splitlines()
-    out['0_archive'] = dict(baseline_found=True, baseline_lines=len(old), current_lines=len(current),
-                            baseline_is_prefix=current[:len(old)] == old,
-                            current_manifest_sha256=hashlib.sha256('\n'.join(current).encode()).hexdigest()[:16])
-
-
-def check_snapshots(conn, out: dict) -> None:
-    snaps = _rows(conn, 'SELECT * FROM snapshots ORDER BY holdings_as_of, form')
-    per = []
-    for s in snaps:
-        w = _rows(conn, 'SELECT COALESCE(SUM(weight),0) AS w, COUNT(weight) AS n FROM holdings '
-                        'WHERE snapshot_id = ? AND weight IS NOT NULL', (s['snapshot_id'],))[0]
-        reasons = []
-        if s['is_primary'] and not STOCK_ROWS[0] <= s['row_count'] <= STOCK_ROWS[1]:
-            reasons.append(f'stock rows {s["row_count"]} outside {STOCK_ROWS}')
-        cov = s['coverage_ratio'] or 0.0
-        if s['is_primary'] and not COVERAGE[0] <= cov <= COVERAGE[1]:
-            reasons.append(f'coverage {cov:.4f} outside {COVERAGE}')
-        if s['is_primary'] and s['reported_common_stock_total_usd'] is not None:
-            diff = abs(s['stock_total_usd'] + 0 - s['reported_common_stock_total_usd'])
-            if diff > 1e-3 * s['reported_common_stock_total_usd']:
-                reasons.append(f'stock total differs from reported total by {diff:.0f}')
-        if w['n'] and abs(w['w'] - 1.0) > WEIGHT_TOL:
-            reasons.append(f'normalised weights sum to {w["w"]!r}, not 1 (tolerance {WEIGHT_TOL})')
-        per.append(dict(snapshot_id=s['snapshot_id'], form=s['form'], holdings_as_of=s['holdings_as_of'],
-                        is_primary=s['is_primary'], completeness=s['completeness'], reconciled=s['reconciled'],
-                        row_count=s['row_count'], stock_total_usd=s['stock_total_usd'],
-                        reported_common_stock_total_usd=s['reported_common_stock_total_usd'],
-                        coverage_ratio=round(cov, 6), weight_count=w['n'], weight_sum=w['w'],
-                        start_rule=s['start_rule'], reasons='; '.join(reasons)))
-    out['1_snapshots'] = dict(primary=sum(1 for p in per if p['is_primary']), snapshots=len(per),
-                              out_of_range=[p for p in per if p['reasons']], all=per,
-                              primary_quarters_complete=sorted(p['holdings_as_of'] for p in per if p['is_primary']))
-
-
-def check_mapping(conn, out: dict, export: Path) -> None:
-    per, unmapped = [], []
-    for s in _rows(conn, 'SELECT snapshot_id, holdings_as_of, form FROM snapshots ORDER BY holdings_as_of, form'):
-        tot = _rows(conn, "SELECT COUNT(*) AS n, SUM(issuer_id IS NOT NULL) AS m FROM holdings "
-                          "WHERE snapshot_id = ? AND line_kind = 'stock'", (s['snapshot_id'],))[0]
-        if not tot['n']:
+def check_archive(out: dict, baseline: Path, manifest: Path) -> list[str]:
+    fails = []
+    recs = [json.loads(l) for l in manifest.read_text(encoding='utf-8').splitlines() if l.strip()]
+    bad = []
+    for r in recs:
+        p = S.RAW_DIR / r['path']
+        if not p.exists():
+            bad.append(r['path'])
             continue
-        per.append(dict(snapshot_id=s['snapshot_id'], as_of=s['holdings_as_of'], stock_lines=tot['n'],
-                        mapped=tot['m'] or 0, mapped_ratio=round((tot['m'] or 0) / tot['n'], 6)))
-        unmapped += _rows(conn, "SELECT snapshot_id, line_no, raw_name, raw_class_text, cusip_reported, isin_reported, "
-                                "shares, value_usd, unmapped_reason FROM holdings WHERE snapshot_id = ? AND "
-                                "line_kind = 'stock' AND issuer_id IS NULL ORDER BY line_no", (s['snapshot_id'],))
-    reasons = {}
-    for u in unmapped:
-        key = u['unmapped_reason'].split(':')[0][:60]
-        reasons[key] = reasons.get(key, 0) + 1
-    _write_csv(export / 'checks_unmapped_rows.csv', unmapped,
-               ['snapshot_id', 'line_no', 'raw_name', 'raw_class_text', 'cusip_reported', 'isin_reported', 'shares',
-                'value_usd', 'unmapped_reason'])
-    out['2_mapping'] = dict(snapshots=len(per), full_mapping_snapshots=sum(1 for p in per if p['mapped_ratio'] == 1.0),
-                            unmapped_stock_lines=len(unmapped), unmapped_by_reason=dict(sorted(reasons.items())),
-                            min_ratio=min(p['mapped_ratio'] for p in per), per_snapshot=per,
-                            unmapped_rows_file='data/db/exports/checks_unmapped_rows.csv')
+        data = p.read_bytes()
+        if len(data) != r['bytes'] or hashlib.sha256(data).hexdigest() != r['sha256']:
+            bad.append(r['path'])
+    out['archive'] = dict(manifest_lines=len(recs), files_verified=len(recs) - len(bad), bad_files=bad[:20])
+    if bad:
+        fails.append(f'archive: {len(bad)} raw files missing or not matching the manifest')
+    if baseline.exists():
+        base = [l for l in baseline.read_text(encoding='utf-8').splitlines() if l.strip()]
+        cur = manifest.read_text(encoding='utf-8').splitlines()[:len(base)]
+        out['archive']['baseline_lines'] = len(base)
+        out['archive']['baseline_is_prefix'] = cur == [l for l in base]
+        if cur != base:
+            fails.append('archive: the manifest does not begin with the round-1 baseline (lines were rewritten)')
+    return fails
 
 
-def check_bridge(conn, out: dict, steps: dict) -> None:
-    rows = _rows(conn, "SELECT review_type, subject_id, snapshot_id, detail FROM review_items "
-                       "WHERE review_type LIKE 'bridge%'")
-    ncsr = _rows(conn, "SELECT h.raw_name, h.shares, h.value_usd, h.security_id, h.issuer_id, h.map_method "
-                       "FROM holdings h JOIN snapshots s ON s.snapshot_id = h.snapshot_id "
-                       "WHERE s.form <> 'NPORT-P' AND s.holdings_as_of = ? AND h.line_kind = 'stock'", (BRIDGE_DATE,))
-    nport = _rows(conn, "SELECT h.raw_name, h.shares, h.security_id, h.issuer_id FROM holdings h JOIN snapshots s "
-                        "ON s.snapshot_id = h.snapshot_id WHERE s.form = 'NPORT-P' AND s.holdings_as_of = ? "
-                        "AND h.line_kind = 'stock'", (BRIDGE_DATE,))
-    issuers_c = {r['issuer_id'] for r in ncsr if r['issuer_id']}
-    issuers_n = {r['issuer_id'] for r in nport if r['issuer_id']}
-    out['3_bridge_2019_12_31'] = dict(
-        ncsr_stock_lines=len(ncsr), nport_stock_lines=len(nport), steps=steps.get('bridge_2019_12_31', ''),
-        unmatched_or_ambiguous=rows, issuers_only_in_ncsr=sorted(issuers_c - issuers_n),
-        issuers_only_in_nport=sorted(issuers_n - issuers_c),
-        ncsr_lines_without_issuer=sum(1 for r in ncsr if not r['issuer_id']))
+def check_snapshots(conn, out: dict) -> list[str]:
+    fails = []
+    rows = _rows(conn, "select snapshot_id, form, holdings_as_of, completeness, reconciled, residual_usd, "
+                       "rounding_bound_usd, unparsed_rows, row_count from snapshots")
+    htm_bad = [r[0] for r in rows if r[1] != 'NPORT-P' and (r[5] is None or abs(r[5]) > r[6] or r[7])]
+    out['snapshots'] = dict(count=len(rows), htm_not_reconciled=htm_bad,
+                            primary=_rows(conn, 'select count(*), sum(completeness="full") from snapshots where is_primary=1')[0])
+    if htm_bad:
+        fails.append(f'snapshots: {len(htm_bad)} htm schedules do not reconcile within rounding')
+    quarters = [r[0] for r in _rows(conn, 'select distinct holdings_as_of from snapshots where is_primary=1 order by 1')]
+    gap = []
+    for a, b in zip(quarters, quarters[1:]):
+        if b[:4] + b[5:7] != '' and _next_quarter(a) != b:
+            gap.append((a, b))
+    out['snapshots']['quarters'] = len(quarters)
+    out['snapshots']['first_quarter'] = quarters[0] if quarters else ''
+    out['snapshots']['last_quarter'] = quarters[-1] if quarters else ''
+    if gap:
+        fails.append(f'snapshots: quarters not continuous {gap[:3]}')
+    if quarters and quarters[0] != R.EARLIEST_QUARTER:
+        fails.append('snapshots: the first quarter is not 2013-12-31')
+    return fails
 
 
-def check_entries(conn, out: dict) -> None:
-    snaps = _rows(conn, 'SELECT snapshot_id, holdings_as_of FROM snapshots WHERE is_primary = 1 ORDER BY holdings_as_of')
-    members = {s['holdings_as_of']: {r['issuer_id'] for r in _rows(
-        conn, "SELECT DISTINCT issuer_id FROM holdings WHERE snapshot_id = ? AND issuer_id IS NOT NULL AND "
-              "line_kind = 'stock'", (s['snapshot_id'],))} for s in snaps}
-    dates = [s['holdings_as_of'] for s in snaps]
-    flow = []
-    for prev, cur in zip(dates, dates[1:]):
-        enter, leave = members[cur] - members[prev], members[prev] - members[cur]
-        flow.append(dict(quarter=cur, previous=prev, entering=len(enter), leaving=len(leave),
-                         flagged=len(enter) > ENTER_EXIT_FLAG or len(leave) > ENTER_EXIT_FLAG))
-    out['4_entries_exits'] = dict(transitions=len(flow), median_entering=sorted(f['entering'] for f in flow)[len(flow) // 2],
-                                  max_entering=max(f['entering'] for f in flow), max_leaving=max(f['leaving'] for f in flow),
-                                  flagged=[f for f in flow if f['flagged']])
+def _next_quarter(d: str) -> str:
+    y, m = int(d[:4]), int(d[5:7]) + 3
+    if m > 12:
+        y, m = y + 1, m - 12
+    from datetime import date, timedelta
+    return (date(y + (m // 12), (m % 12) + 1, 1) - timedelta(days=1)).isoformat()
 
 
-def check_v05(conn, out: dict, raw_dir: Path, export: Path | None = None) -> None:
-    path = raw_dir / 'reference' / 'v05' / 'snapshot_members.csv'
-    with path.open(encoding='utf-8', newline='') as f:
-        v05 = [r for r in csv.DictReader(f) if r['snapshot_id'].startswith('NPORT_')]
-    v = {(r['snapshot_id'], r['security_id']): float(r['weight'] or 0) for r in v05}      # percent of net assets
-    db_rows = _rows(conn, "SELECT h.snapshot_id, h.security_id, h.pct_val_percent, h.weight, h.value_usd, s.security_type "
-                          "FROM holdings h JOIN securities s ON s.security_id = h.security_id "
-                          "JOIN snapshots n ON n.snapshot_id = h.snapshot_id "
-                          "WHERE n.form = 'NPORT-P' AND n.is_primary = 1 AND h.line_kind = 'stock'")
-    db = {(r['snapshot_id'], r['security_id']): r for r in db_rows}
-    raw_diff = [(k, v[k], db[k]['pct_val_percent']) for k in sorted(set(v) & set(db))
-                if abs(v[k] - (db[k]['pct_val_percent'] or 0)) > V05_TOL]
-    # normalised basis: both sides over the same set of securities, each divided by its own stock total
-    # both sides normalised over the same securities of each snapshot (stock lines of included types that appear in
-    # v05 and in the database): database on its value, v05 on its pctVal; v05 has no other basis to compare with
-    norm_diff, max_norm = [], 0.0
-    for sid in sorted({k[0] for k in db}):
-        keys = [k for k in db if k[0] == sid and k in v and db[k]['weight'] is not None]
-        tv = sum(db[k]['value_usd'] for k in keys)
-        tp = sum(v[k] for k in keys)
-        for k in keys:
-            d = abs(db[k]['value_usd'] / tv - v[k] / tp)
-            max_norm = max(max_norm, d)
-            if d > V05_TOL:
-                norm_diff.append((k, v[k] / tp, db[k]['value_usd'] / tv))
-    only_v05 = sorted(set(v) - set(db))
-    only_db = sorted(set(db) - set(v))
-    if export is not None:
-        v05_only_rows = [dict(snapshot_id=k[0], security_id=k[1], v05_pct=v[k], db_reason=_v05_only_status(conn, [k]))
-                         for k in only_v05]
-        db_only_rows = [dict(snapshot_id=k[0], security_id=k[1], security_type=db[k]['security_type'],
-                             pct_val_percent=db[k]['pct_val_percent']) for k in only_db]
-        _write_csv(export / 'checks_v05_only.csv', v05_only_rows,
-                   ['snapshot_id', 'security_id', 'v05_pct', 'db_reason'])
-        _write_csv(export / 'checks_v05_db_only.csv', db_only_rows,
-                   ['snapshot_id', 'security_id', 'security_type', 'pct_val_percent'])
-    out['5_v05_agreement'] = dict(
-        v05_rows=len(v), db_stock_rows_with_security=len(db),
-        raw_pct_basis=dict(compared=len(set(v) & set(db)), differences=len(raw_diff), tolerance=V05_TOL,
-                           examples=[[list(k), a, b] for k, a, b in raw_diff[:10]]),
-        normalised_basis=dict(compared=len(set(v) & set(db)), differences=len(norm_diff), max_abs_difference=max_norm, tolerance=V05_TOL,
-                              examples=[[list(k), a, b] for k, a, b in norm_diff[:10]]),
-        only_in_v05=len(only_v05), only_in_db=len(only_db),
-        only_in_v05_by_db_status=_v05_only_status(conn, only_v05),
-        only_in_db_examples=[[list(k), db[k]['security_type']] for k in only_db[:20]])
+def check_ranking(conn, out: dict) -> list[str]:
+    """Independent SQL recount of every canonical quarter: company amounts (cents), order, the 200th and 201st."""
+    fails = []
+    canon = _rows(conn, "select version_id, report_period from pool_versions where is_canonical=1 order by 2")
+    mismatches = []
+    boundary = {}
+    for vid, period in canon:
+        sql_rows = _rows(conn, """
+            select h.issuer_id, sum(cast(round(h.value_usd*100) as integer)) as cents
+            from holdings h join snapshots s on s.snapshot_id=h.snapshot_id
+            where s.snapshot_id=? and h.line_kind='stock' and h.issuer_id is not null
+              and h.security_type in ('common','adr')
+            group by h.issuer_id
+            order by cents desc, h.issuer_id""", (vid,))
+        db_rows = _rows(conn, "select issuer_id, amount_cents from company_ranks where version_id=? order by rank", (vid,))
+        if [r[0] for r in sql_rows] != [r[0] for r in db_rows] or [r[1] for r in sql_rows] != [r[1] for r in db_rows]:
+            mismatches.append(vid)
+        top = _rows(conn, "select issuer_id, amount_cents from top200_companies where version_id=? order by rank", (vid,))
+        if [t[0] for t in top] != [r[0] for r in sql_rows[:R.TOP_N]]:
+            mismatches.append(vid + ':top200')
+        if len(sql_rows) > R.TOP_N:
+            boundary[vid] = (sql_rows[R.TOP_N - 1][1], sql_rows[R.TOP_N][1])
+    out['ranking'] = dict(canonical_quarters=len(canon), independent_mismatches=mismatches[:20],
+                          boundary_cents_200_201={k: list(v) for k, v in list(boundary.items())[:3]})
+    if mismatches:
+        fails.append(f'ranking: {len(mismatches)} quarters differ from the independent SQL recount')
+    return fails
 
 
-def _v05_only_status(conn, keys: list) -> dict:
-    out = {}
-    for sid, sec in keys:
-        r = _rows(conn, 'SELECT h.issuer_id, h.unmapped_reason, h.line_kind FROM holdings h WHERE h.snapshot_id = ? '
-                        'AND (h.security_id = ? OR h.cusip_reported = ?) LIMIT 1', (sid, sec, sec[6:]))
-        reason = r[0]['unmapped_reason'][:40] if r and r[0]['issuer_id'] is None else (
-            'present with other line kind' if r else 'no DB line')
-        out[reason] = out.get(reason, 0) + 1
-    return out
+def check_bound(conn, out: dict) -> list[str]:
+    """The unresolved candidate amounts recomputed from holdings (candidate_issuers) match company_ranks."""
+    fails = []
+    bad = []
+    for vid, in _rows(conn, "select version_id from pool_versions where is_canonical=1"):
+        cands = _rows(conn, """select h.candidate_issuers, h.value_usd from holdings h join snapshots s using(snapshot_id)
+                               where s.snapshot_id=? and h.line_kind='stock' and h.issuer_id is null
+                                 and h.candidate_issuers <> '' and h.security_type in ('common','adr','unknown')""", (vid,))
+        per: dict[str, int] = {}
+        for text, v in cands:
+            for c in text.split():
+                per[c] = per.get(c, 0) + int(round(v * 100))
+        db = dict(_rows(conn, 'select issuer_id, candidate_bound_cents from company_ranks where version_id=?', (vid,)))
+        for c, cents in per.items():
+            key = f'CIK:{c}'
+            if key in db and db[key] != cents:
+                bad.append((vid, key))
+    out['bound'] = dict(mismatches=len(bad))
+    if bad:
+        fails.append(f'bound: {len(bad)} candidate amounts differ from the SQL recount')
+    return fails
 
 
-def check_status(conn, out: dict, export: Path) -> None:
-    leavers = {r['issuer_id'] for r in _rows(conn, "SELECT DISTINCT issuer_id FROM membership_spans "
-                                                   "WHERE level = 'issuer' AND next_absent_as_of <> ''")}
-    status = {r['issuer_id']: r for r in _rows(conn, 'SELECT * FROM listing_status')}
-    review = [r for r in status.values() if r['needs_review'] or r['status'] == 'unknown']
-    by_status, reasons = {}, {}
-    for i in leavers:
-        st = status[i]['status']
-        by_status[st] = by_status.get(st, 0) + 1
-        if st == 'delisted':
-            reasons[status[i]['reason']] = reasons.get(status[i]['reason'], 0) + 1
-    contradictions = [r for r in review if r['status'] == 'delisted' and 'still in the latest' in r['evidence']]
-    _write_csv(export / 'checks_status_review.csv', review,
-               ['issuer_id', 'status', 'status_as_of', 'delisting_date', 'reason', 'evidence', 'method', 'needs_review'])
-    links = _rows(conn, 'SELECT predecessor_issuer_id, successor_issuer_id, confidence, via_override, effective_date '
-                        'FROM issuer_links')
-    out['6_status'] = dict(leaving_issuers=len(leavers), with_status=sum(1 for i in leavers if i in status),
-                           missing=sorted(i for i in leavers if i not in status), by_status=by_status,
-                           delisted_by_reason=reasons, needs_review_or_unknown=len(review),
-                           contradicting_latest_holdings=[[r['issuer_id'], r['evidence'][:120]] for r in contradictions],
-                           links=links, successor_candidates=_rows(conn, "SELECT COUNT(*) AS n FROM review_items "
-                                                                      "WHERE review_type = 'successor_candidate'")[0]['n'])
+def check_security_boundary(conn, out: dict) -> list[str]:
+    fails = []
+    bad_types = _rows(conn, "select count(*) from top200_securities where candidate_eligible=1 and security_type not in ('common','adr')")
+    brka = _rows(conn, "select count(*) from top200_securities where candidate_eligible=1 and security_id like 'CUSIP:084670108%'")
+    ended_elig = _rows(conn, """select count(*) from top200_securities t join securities s using(security_id)
+                                where t.candidate_eligible=1 and s.notes like '%ended%'""")
+    strat_brka = _rows(conn, "select count(*) from strategy_securities where strategy_eligible=1 and security_id like 'CUSIP:084670108%'")
+    out['security_boundary'] = dict(eligible_non_common=bad_types[0][0], brka_candidates=brka[0][0],
+                                    ended_candidates=ended_elig[0][0], strategy_brka=strat_brka[0][0])
+    if bad_types[0][0] or brka[0][0] or strat_brka[0][0]:
+        fails.append('security boundary: an ineligible security is a candidate')
+    return fails
 
 
-def check_types(conn, out: dict) -> None:
-    types = _rows(conn, 'SELECT security_type, COUNT(*) AS n FROM securities GROUP BY 1 ORDER BY 1')
-    eligible = _rows(conn, 'SELECT eligible_v1, COUNT(*) AS n FROM universe_v1 GROUP BY 1')
-    no_ticker = _rows(conn, "SELECT COUNT(*) AS n FROM universe_v1 WHERE eligible_v1 = 1 AND (ticker IS NULL OR ticker = '')")[0]['n']
-    excluded_lines = _rows(conn, 'SELECT security_type, COUNT(*) AS n FROM holdings h JOIN securities s USING(security_id) '
-                                 'WHERE h.line_kind = "stock" GROUP BY 1')
-    unidentified = _rows(conn, "SELECT COUNT(*) AS n FROM holdings WHERE security_id IS NULL AND line_kind = 'stock' "
-                               "AND snapshot_id LIKE 'NPORT%'")[0]['n']
-    out['7_types'] = dict(securities_by_type={r['security_type']: r['n'] for r in types},
-                          universe_eligible={str(r['eligible_v1']): r['n'] for r in eligible},
-                          eligible_without_ticker=no_ticker,
-                          excluded_type_lines_by_type={r['security_type']: r['n'] for r in excluded_lines},
-                          nport_lines_unmapped_identity=unidentified)
+def check_strategy(conn, out: dict) -> list[str]:
+    fails = []
+    delisted_ok = _rows(conn, """select count(*) from strategy_companies where strategy_eligible=1 and current_status='delisted'""")
+    no_reason = _rows(conn, """select count(*) from strategy_companies where strategy_eligible=0 and blocked_reason='' and excluded_reason=''""")
+    unknown_ok = _rows(conn, """select count(*) from strategy_companies where strategy_eligible=1 and current_status='unknown'""")
+    n_hist = _rows(conn, 'select count(*) from top200_companies where version_id in (select version_id from pool_versions where is_canonical=1)')
+    n_strat = _rows(conn, 'select count(*) from strategy_companies where version_id in (select version_id from pool_versions where is_canonical=1)')
+    out['strategy'] = dict(historical_rows=n_hist[0][0], strategy_rows=n_strat[0][0],
+                           eligible_delisted=delisted_ok[0][0], unexplained_exclusions=no_reason[0][0],
+                           eligible_unknown=unknown_ok[0][0])
+    if delisted_ok[0][0] or no_reason[0][0] or unknown_ok[0][0]:
+        fails.append('strategy: a delisted or unknown company is eligible, or an exclusion has no reason')
+    if n_hist[0][0] != n_strat[0][0]:
+        fails.append('strategy: the strategy list does not keep one row per historical member')
+    return fails
 
 
-def check_integrity(conn, out: dict) -> None:
-    fk = conn.execute('PRAGMA foreign_key_check').fetchall()
-    reserved = {t: conn.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in RESERVED}
-    blank_ids = conn.execute("SELECT COUNT(*) FROM security_identifiers WHERE id_value = ''").fetchone()[0]
-    meta = {r['key']: r['value'] for r in _rows(conn, 'SELECT key, value FROM meta')}
-    out['8_integrity'] = dict(foreign_key_violations=len(fk), reserved_table_rows=reserved,
-                              blank_identifier_values=blank_ids,
-                              meta_keys_present=all(k in meta for k in ('build_id', 'code_commit', 'raw_manifest_sha256')),
-                              meta_build_id=meta.get('build_id'), meta_code_commit=meta.get('code_commit'),
-                              meta_raw_manifest_sha256=meta.get('raw_manifest_sha256'),
-                              content_sha256=meta.get('content_sha256'))
+def check_v05(conn, out: dict, v05_members: Path) -> None:
+    """Informational comparison with the v05 snapshot members of the same N-PORT snapshots: the raw pctVal of each
+    CUSIP (percent of net assets) against v05's weight, which is the same percent; securities only on one side are
+    counted. Not a pass or fail gate: v05 has known defects."""
+    if not v05_members.exists():
+        out['v05'] = dict(status='v05 members not archived')
+        return
+    members: dict[str, dict[str, float]] = {}
+    with v05_members.open(encoding='utf-8', newline='') as f:
+        for r in csv.DictReader(f):
+            members.setdefault(r['snapshot_id'], {})[r['security_id']] = float(r['weight'] or 0.0)
+    summary = dict(snapshots=0, common=0, only_v05=0, only_db=0, raw_weight_differences=0, max_abs_difference=0.0)
+    for sid, v5 in sorted(members.items()):
+        if not _rows(conn, 'select 1 from snapshots where snapshot_id=?', (sid,)):
+            continue
+        db = {r[0]: r[1] for r in _rows(conn, """select security_id, pct_val_percent from holdings
+                                                 where snapshot_id=? and line_kind='stock' and security_id is not null
+                                                   and pct_val_percent is not null""", (sid,))}
+        summary['snapshots'] += 1
+        common = set(db) & set(v5)
+        summary['common'] += len(common)
+        summary['only_v05'] += len(set(v5) - set(db))
+        summary['only_db'] += len(set(db) - set(v5))
+        for k in common:
+            diff = abs(db[k] - v5[k])          # both in percent of net assets (v05 weight = N-PORT pctVal)
+            summary['max_abs_difference'] = max(summary['max_abs_difference'], diff)
+            if diff > 1e-9:
+                summary['raw_weight_differences'] += 1
+    summary['status'] = 'informational'
+    out['v05'] = summary
 
 
-def check_rebuild(out: dict, digest: str, work_db: Path) -> None:
-    result = build(offline=True, log=lambda m: None, db_path=work_db)
-    out['9_rebuild'] = dict(content_sha256_first=digest, content_sha256_offline=result['content_sha256'],
-                            identical=result['content_sha256'] == digest,
-                            offline_network_requests=result['network_requests'])
+def check_integrity(conn, out: dict) -> list[str]:
+    fails = []
+    fk = _rows(conn, 'pragma foreign_key_check')
+    ic = _rows(conn, 'pragma integrity_check')[0][0]
+    meta = dict(_rows(conn, 'select key, value from meta'))
+    missing = [k for k in PRESENT_META if k not in meta]
+    reserved = {t: _rows(conn, f'select count(*) from {t}')[0][0] for t in RESERVED}
+    blank = _rows(conn, "select count(*) from security_identifiers where id_value is null or id_value=''")[0][0]
+    out['integrity'] = dict(foreign_key_violations=len(fk), integrity_check=ic, missing_meta=missing,
+                            reserved_rows=reserved, blank_identifiers=blank)
+    if fk:
+        fails.append(f'integrity: {len(fk)} foreign key violations')
+    if ic != 'ok':
+        fails.append('integrity: integrity_check failed')
+    if missing:
+        fails.append(f'integrity: meta keys missing {missing}')
+    if any(reserved.values()):
+        fails.append('integrity: a reserved table is not empty')
+    if blank:
+        fails.append('integrity: blank identifiers stored')
+    return fails
 
 
-def run_checks(log=print, rebuild: bool = True, db_path: Path = S.DB_PATH, export: Path | None = None,
-               rebuild_db: Path | None = None, baseline: Path | None = None) -> dict:
-    export = export or S.EXPORT_DIR
-    export.mkdir(parents=True, exist_ok=True)
+def check_rebuild(out: dict, digest: str, work_db: Path) -> list[str]:
+    from .build import build
+    res = build(offline=True, log=lambda _: None, db_path=work_db)
+    out['rebuild'] = dict(content_sha256=res['content_sha256'], identical=res['content_sha256'] == digest,
+                          network_requests=res['network_requests'])
+    fails = []
+    if res['content_sha256'] != digest:
+        fails.append('rebuild: offline rebuild content hash differs')
+    if res['network_requests']:
+        fails.append('rebuild: the offline rebuild made network requests')
+    return fails
+
+
+def run_checks(db_path: Path = S.DB_PATH, rebuild: bool = True, work_db: Path | None = None,
+               baseline: Path | None = None, log=print) -> tuple[dict, list[str]]:
     conn = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True)
-    conn.row_factory = sqlite3.Row
-    try:
-        out: dict = dict(database=str(db_path))
-        meta = {r['key']: r['value'] for r in _rows(conn, 'SELECT key, value FROM meta')}
-        out['content_sha256'] = meta.get('content_sha256')
-        steps = {r['step']: r['detail'] for r in _rows(conn, 'SELECT step, detail FROM build_log')}
-        check_archive(out, baseline or S.ROOT / 'work' / 'fix' / 'baseline' / 'manifest.jsonl')
-        check_snapshots(conn, out)
-        check_mapping(conn, out, export)
-        check_bridge(conn, out, steps)
-        check_entries(conn, out)
-        check_v05(conn, out, S.RAW_DIR, export)
-        check_status(conn, out, export)
-        check_types(conn, out)
-        check_integrity(conn, out)
-    finally:
-        conn.close()
+    out: dict = {}
+    fails: list[str] = []
+    fails += check_archive(out, baseline or Path('work/fix_round2/baseline/manifest.jsonl'), S.RAW_DIR / 'manifest.jsonl')
+    fails += check_snapshots(conn, out)
+    fails += check_ranking(conn, out)
+    fails += check_bound(conn, out)
+    fails += check_security_boundary(conn, out)
+    fails += check_strategy(conn, out)
+    fails += check_integrity(conn, out)
+    check_v05(conn, out, S.RAW_DIR / 'reference' / 'v05' / 'snapshot_members.csv')
+    digest = _rows(conn, "select value from meta where key='content_sha256'")[0][0]
+    out['content_sha256'] = digest
+    conn.close()
     if rebuild:
-        check_rebuild(out, out['content_sha256'], rebuild_db or S.ROOT / 'work' / 'db_rebuild' / 'leadtrend_db_v1.sqlite')
-    (export / 'checks.json').write_text(json.dumps(out, ensure_ascii=False, indent=2, sort_keys=True, default=str) + '\n',
-                                        encoding='utf-8')
-    log(f'checks written to {export / "checks.json"}')
-    return out
+        fails += check_rebuild(out, digest, work_db or Path('work/top200_v1/rebuild_check.sqlite'))
+    out['failures'] = fails
+    for f in fails:
+        log(f'CHECK FAILED: {f}')
+    log('checks: ' + ('all passed' if not fails else f'{len(fails)} failed'))
+    return out, fails

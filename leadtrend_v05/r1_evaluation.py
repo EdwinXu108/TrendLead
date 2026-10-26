@@ -19,6 +19,7 @@ from . import paths
 from .experiments import A90_ID, _experiment_ctx, _jobs, _metrics_or_none, _run_jobs, load_spec, run_metrics
 from .perf_artifacts import read_table
 from .perf_cache import identity, load_cache
+from .robustness import IssuerExcludedFrames
 from .sectors import load_sector_map, sector_key
 
 NAMES = ['ENT_POS', 'ENT_NEG', 'SEC3', 'SEC2', 'SKP90', 'SKP60', 'CAP2', 'PEER', 'G', 'VOLA', 'SIZE', 'WGT']
@@ -49,20 +50,20 @@ def _p(v, nd=1):
 
 # ---------------------------------------------------------------- 1. experiment-level random controls
 
-def experiment_random(base, pid_of, anchor_of, exc10):
+def experiment_random(base, pid_of, anchor_of, exc10, names=NAMES):
     best_max, best_pair = [], []
     for s in range(SEEDS):
         vals, paired = [], []
-        for n in NAMES:
+        for n in names:
             pid = pid_of[n]
             m = _metrics_or_none(base / 'null' / pid / f'NULL_{pid}_s{s:03d}' / 'cost_10bps')
             if m is not None:
                 vals.append(m['annualized_excess'])
                 paired.append(m['annualized_excess'] - exc10[anchor_of[n]])
-        best_max.append((max(vals) if len(vals) == len(NAMES) else None, len(vals)))
-        best_pair.append((max(paired) if len(paired) == len(NAMES) else None, len(paired)))
-    actual = max(exc10[pid_of[n]] for n in NAMES)
-    actual_pair = max(exc10[pid_of[n]] - exc10[anchor_of[n]] for n in NAMES)
+        best_max.append((max(vals) if len(vals) == len(names) else None, len(vals)))
+        best_pair.append((max(paired) if len(paired) == len(names) else None, len(paired)))
+    actual = max(exc10[pid_of[n]] for n in names)
+    actual_pair = max(exc10[pid_of[n]] - exc10[anchor_of[n]] for n in names)
     full_max = [v for v, _ in best_max if v is not None]
     full_pair = [v for v, _ in best_pair if v is not None]
     summary = dict(
@@ -156,42 +157,6 @@ def concentration(base, pid_of, sector_map):
 
 
 # ---------------------------------------------------------------- 5. stress: remove the top-contributing issuer
-
-class IssuerExcludedFrames:
-    def __init__(self, frames, excluded):
-        self.frames = frames
-        self.excluded = excluded
-
-    def __getitem__(self, d):
-        return _ExcludedWeek(self.frames[d], self.excluded)
-
-
-class _ExcludedWeek:
-    def __init__(self, week, excluded):
-        self.week = week
-        self.excluded = excluded
-
-    def __getitem__(self, key):
-        if key == 'chosen':
-            return frozenset(s for s in self.week['chosen'] if s not in self.excluded)
-        if key == 'universe':
-            return [r for r in self.week['universe'] if r['security_id'] not in self.excluded]
-        if key == 'windows':
-            return _ExcludedWindows(self.week['windows'], self.excluded)
-        raise KeyError(key)
-
-
-class _ExcludedWindows:
-    def __init__(self, windows, excluded):
-        self.windows = windows
-        self.excluded = excluded
-
-    def __getitem__(self, L):
-        w = self.windows[L]
-        return dict(scores=w['scores'], ranked=w['ranked'],
-                    candidates=[c for c in w['candidates'] if c.security_id not in self.excluded],
-                    unscored={s: r for s, r in w['unscored'].items() if s not in self.excluded})
-
 
 def top_issuer(root, base, pid):
     issuer_of = {r['security_id']: r.get('issuer_id', '') for r in read_table(root / paths.NORMALIZED / 'securities.csv')}

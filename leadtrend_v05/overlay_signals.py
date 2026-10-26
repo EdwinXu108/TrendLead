@@ -37,62 +37,62 @@ def _out(cells, scores, base_reason):
     return out
 
 
-def peer(cells90, cells60, sectors, weight=PEER_WEIGHT, min_peers=MIN_PEERS):
-    """PEER: S = (1 - weight) * P90 + weight * median P60 of same-sector peers that are scored at both 90 and 60.
+def peer(cells, cells2, sectors, weight=PEER_WEIGHT, min_peers=MIN_PEERS):
+    """PEER: S = (1 - weight) * P_L + weight * median P_L2 of same-sector peers that are scored at both L and L2.
 
-    Peers are the other names of the same mapped sector in U90 and U60. With fewer than min_peers peers, or an unmapped
-    sector, S = P90.
+    Peers are the other names of the same mapped sector in U_L and U_L2. With fewer than min_peers peers, or an unmapped
+    sector, S = P_L.
     """
-    p90 = scored_percentiles(cells90)
-    p60 = scored_percentiles(cells60)
+    p_base = scored_percentiles(cells)
+    p2 = scored_percentiles(cells2)
     scores = {}
-    for sid in p90:
-        peers = [t for t in p90 if t != sid and t in p60 and sectors[t][1] and sectors[t][0] == sectors[sid][0]]
+    for sid in p_base:
+        peers = [t for t in p_base if t != sid and t in p2 and sectors[t][1] and sectors[t][0] == sectors[sid][0]]
         if not sectors[sid][1] or len(peers) < min_peers:
-            scores[sid] = p90[sid]
+            scores[sid] = p_base[sid]
         else:
-            scores[sid] = (1 - weight) * p90[sid] + weight * median(p60[t] for t in peers)
-    return _out(cells90, scores, 'insufficient_history')
+            scores[sid] = (1 - weight) * p_base[sid] + weight * median(p2[t] for t in peers)
+    return _out(cells, scores, 'insufficient_history')
 
 
-def sector_demeaned(cells90, sectors):
-    """G: M90 minus the median M90 of its sector in U90 (the name itself included); fewer than three members use the U90 median."""
-    m90 = {sid: cell[0] for sid, cell in cells90.items() if cell[0] is not None}
-    overall = median(m90.values()) if m90 else 0.0
+def sector_demeaned(cells, sectors):
+    """G: M_L minus the median M_L of its sector in U_L (the name itself included); fewer than three members use the U_L median."""
+    m_base = {sid: cell[0] for sid, cell in cells.items() if cell[0] is not None}
+    overall = median(m_base.values()) if m_base else 0.0
     scores = {}
-    for sid in m90:
-        members = [t for t in m90 if sectors[t][0] == sectors[sid][0] and sectors[t][1]]
+    for sid in m_base:
+        members = [t for t in m_base if sectors[t][0] == sectors[sid][0] and sectors[t][1]]
         if not sectors[sid][1] or len(members) < MIN_PEERS:
-            scores[sid] = m90[sid] - overall
+            scores[sid] = m_base[sid] - overall
         else:
-            scores[sid] = m90[sid] - median(m90[t] for t in members)
-    return _out(cells90, scores, 'insufficient_history')
+            scores[sid] = m_base[sid] - median(m_base[t] for t in members)
+    return _out(cells, scores, 'insufficient_history')
 
 
-def vol_adjusted(cells90, volatility):
-    """VOLA: M90 divided by the sample standard deviation of the last 60 daily TRI log returns; unavailable when that is missing or zero."""
+def vol_adjusted(cells, volatility):
+    """VOLA: M_L divided by the sample standard deviation of the last 60 daily TRI log returns; unavailable when that is missing or zero."""
     scores = {}
-    for sid, cell in cells90.items():
+    for sid, cell in cells.items():
         if cell[0] is None:
             continue
         sigma = volatility.get(sid)
         scores[sid] = cell[0] / sigma if sigma else None
-    return _out(cells90, scores, 'vol_unavailable')
+    return _out(cells, scores, 'vol_unavailable')
 
 
-def size_tilt(cells90, issuer_weight, weight=SIZE_WEIGHT):
-    """SIZE: (1 - weight) * P90 + weight * Q, Q the percentile of the issuer's VOO weight over U90 (ties by security id)."""
-    p90 = scored_percentiles(cells90)
-    order = sorted(p90, key=lambda sid: (-issuer_weight.get(sid, 0.0), sid))
+def size_tilt(cells, issuer_weight, weight=SIZE_WEIGHT):
+    """SIZE: (1 - weight) * P_L + weight * Q, Q the percentile of the issuer's VOO weight over U_L (ties by security id)."""
+    p_base = scored_percentiles(cells)
+    order = sorted(p_base, key=lambda sid: (-issuer_weight.get(sid, 0.0), sid))
     n = len(order)
     q = {sid: ((n - i) / (n - 1) if n > 1 else 1.0) for i, sid in enumerate(order, 1)}
-    scores = {sid: (1 - weight) * p90[sid] + weight * q[sid] for sid in p90}
-    return _out(cells90, scores, 'insufficient_history')
+    scores = {sid: (1 - weight) * p_base[sid] + weight * q[sid] for sid in p_base}
+    return _out(cells, scores, 'insufficient_history')
 
 
-def voo_weight(cells90, issuer_weight):
+def voo_weight(cells, issuer_weight):
     """WGT: the issuer's summed VOO weight in the snapshot used that week; a reference signal only."""
-    return _out(cells90, {sid: issuer_weight.get(sid, 0.0) for sid, cell in cells90.items() if cell[0] is not None},
+    return _out(cells, {sid: issuer_weight.get(sid, 0.0) for sid, cell in cells.items() if cell[0] is not None},
                 'insufficient_history')
 
 

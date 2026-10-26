@@ -33,7 +33,10 @@ BASELINE = {'id': 'L090_N08_b2_R2', 'L': 90, 'N': 8, 'k': 2, 'b': 2, 'rebalance'
 BASELINE_SIGNAL = {'kind': 'momentum', 'L': 90, 'skip': 0}
 A90_ID = 'L090_N10_b2_R2'  # the paired-difference reference of every configuration in a round-1 style experiment
 PAIRS = [('ENT_NEG', 'ENT_POS'), ('SEC2', 'SEC3'), ('PEER', 'G'), ('SKP90', 'A90'), ('SKP60', 'A60')]
-PAIR_ALIASES = {'A90': 'L090_N10_b2_R2', 'A60': 'L060_N10_b2_R2'}
+PAIR_ALIASES = {'A90': 'L090_N10_b2_R2', 'A60': 'L060_N10_b2_R2', 'A126': 'L126_N10_b2_R2', 'BASE_N08': 'L090_N08_b2_R2',
+                'BASE_N12': 'L090_N12_b2_R2'}
+REFERENCE_NAME = 'WGT'  # round 1's voo_weight reference; the risk columns report differences from it
+TRADING_DAYS = 252
 COSTS = [5, 10]
 DEV_START, DEV_END = '2019-11-29', '2024-06-28'
 DEFAULT_NULL_RUNS = 200
@@ -258,6 +261,53 @@ def run_metrics(folder, initial=100000.0):
         lower_missing_excess=lower['annualized_excess'] if lower else None)
 
 
+def _stdev(xs):
+    m = sum(xs) / len(xs)
+    return math.sqrt(sum((x - m) ** 2 for x in xs) / (len(xs) - 1))
+
+
+def _cov(xs, ys):
+    mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+    return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / (len(xs) - 1)
+
+
+def _worst_drawdown(values):
+    peak, worst = values[0], 0.0
+    for v in values:
+        peak = max(peak, v)
+        worst = min(worst, v / peak - 1)
+    return worst
+
+
+def risk_from_series(days, equity, benchmark, annual_return, max_drawdown):
+    """Daily risk of one run against VOO on the same sessions (ISO dates, values from the first comparison session).
+
+    Volatility and tracking error are sample deviations of daily returns, annualised over 252 sessions; beta is the
+    covariance with VOO's daily returns over VOO's variance. Return over volatility and over drawdown use the run's CAGR.
+    The 2022 drawdown takes its peak inside calendar 2022 only.
+    """
+    rs = [equity[i] / equity[i - 1] - 1 for i in range(1, len(equity))]
+    rb = [benchmark[i] / benchmark[i - 1] - 1 for i in range(1, len(benchmark))]
+    vol = _stdev(rs) * math.sqrt(TRADING_DAYS)
+    var_b = _cov(rb, rb)
+    in_2022 = [e for d, e in zip(days, equity) if d.startswith('2022-')]
+    return dict(vol=vol, beta=_cov(rs, rb) / var_b if var_b else None,
+                te=_stdev([x - y for x, y in zip(rs, rb)]) * math.sqrt(TRADING_DAYS),
+                ret_vol=annual_return / vol if vol else None,
+                ret_dd=annual_return / abs(max_drawdown) if max_drawdown else None,
+                dd_2022=_worst_drawdown(in_2022) if in_2022 else None)
+
+
+def risk_metrics(folder, m):
+    """risk_from_series for one daily-verified run folder; m is its run_metrics result."""
+    folder = Path(folder)
+    first = json.loads((folder / 'summary.json').read_text(encoding='utf-8'))['comparison_start_session']
+    equity = {r['session_date']: float(r['total_equity']) for r in read_table(folder / 'daily_equity.csv')}
+    bench = {r['session_date']: float(r['benchmark_value']) for r in read_table(folder / 'benchmark.csv')}
+    days = sorted(d for d in equity if first <= d <= DEV_END and d in bench)
+    return risk_from_series(days, [equity[d] for d in days], [bench[d] for d in days], m['annualized_return'], m['max_drawdown'])
+
+
 def leave_one_year_out(year_returns):
     """Excess over VOO (annualised, the three remaining years compounded) when one of 2020-2023 is removed."""
     out = {}
@@ -420,6 +470,10 @@ def _ratio(v):
     return '' if v in (None, '') else f'{v:.1f}'
 
 
+def _ratio2(v):
+    return '' if v in (None, '') else f'{v:.2f}'
+
+
 def _null_cell(row):
     if row['null_percentile_low'] == '':
         return ''
@@ -442,6 +496,10 @@ SCORECARD_COLUMNS = [
     ('最大单股权重', 'max_single_weight', _pct), ('单板块超40%天数占比', 'sector_over_40_share', _pct),
     ('单板块超50%天数占比', 'sector_over_50_share', _pct), ('ENT一遍买入', 'pass1_buys', str), ('ENT二遍买入', 'pass2_buys', str),
     ('CAP触发周数', 'cap_trigger_weeks', str), ('CAP顺延次数', 'cap_deferred', str),
+    ('年化波动', 'vol_annual', _pct), ('β(对VOO)', 'beta', _ratio2), ('跟踪误差', 'tracking_error', _pct),
+    ('收益/波动', 'ret_over_vol', _ratio2), ('收益/回撤', 'ret_over_dd', _ratio2), ('2022年最大回撤', 'dd_2022', _pct),
+    ('相对WGT超额差(10bp)', 'paired_vs_WGT_10bps', _pct), ('相对WGT年化波动差', 'vol_vs_WGT', _pct),
+    ('相对WGT最大回撤差', 'dd_vs_WGT', _pct), ('相对WGT收益/波动差', 'ret_over_vol_vs_WGT', _ratio2),
 ]
 
 
@@ -460,6 +518,8 @@ def _write_scorecard(out, rows, header):
               '- 随机对照为换手匹配：每个配置一组，种子从 0 起，退出只数取自该配置自己的 10 bp 探索档运行，并遵守该配置的细分行业 k 与大板块上限（如有）。',
               '- 随机对照百分位格式为“点估计（下界–上界）”：该配置 10 bp 年化超额不高于随机结果的比例。点估计只用已完成的运行；下界假设停止的运行全部高于该配置，上界假设全部低于。',
               '- 配对差 = 本配置减锚点（同一成本、同一时段）；逐年剔除一年后，用其余三年复利求得的相对 VOO 年化超额。',
+              '- 风险列来自 daily 运行（10 bp）：相对 VOO 的日收益，252 个交易日年化；收益/波动、收益/回撤用年化收益（CAGR）；'
+              '2022 年最大回撤的峰值取 2022 年内的最高点；相对 WGT 的差为本配置减 WGT。',
               '- 收益、超额、回撤、占比以百分比显示，保留 1 位小数；年单边换手为比值，保留 1 位小数。', '']
     if header.get('null_counts'):
         lines.append('- 随机对照完成数（完成/登记）：' + '；'.join(f'{k} {v}' for k, v in header['null_counts'].items()))
@@ -473,6 +533,15 @@ def _write_scorecard(out, rows, header):
     (out / 'scorecard.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
 
 
+def registered_points(root):
+    """Every configuration of every committed registration, by ID (the first registration that holds it wins)."""
+    found = {}
+    for path in sorted((Path(root) / EXPERIMENTS).glob('*.json')):
+        for p in expand_grid(json.loads(path.read_text(encoding='utf-8'))['grid']):
+            found.setdefault(p['id'], p)
+    return found
+
+
 def _anchor_point(root, anchor, points):
     for p in points:
         if p['id'] == anchor:
@@ -480,7 +549,10 @@ def _anchor_point(root, anchor, points):
     for p in stage4_points():
         if p['id'] == anchor:
             return make_point({'kind': 'momentum', 'L': p['L'], 'skip': 0}, p['N'], p['b'], p['rebalance'])
-    raise ValueError('anchor is not a configuration of this experiment or of stage 4: ' + str(anchor))
+    p = registered_points(root).get(anchor)
+    if p is not None:
+        return p
+    raise ValueError('anchor is not a configuration of this experiment, of stage 4 or of a committed registration: ' + str(anchor))
 
 
 def write_csv_rows(path, rows):
@@ -493,12 +565,19 @@ def write_csv_rows(path, rows):
         w.writerows(rows)
 
 
-def pair_rows(points, metrics10, metrics5):
-    """Named paired differences (a minus b): annualised 10 bp and 5 bp excess, and the two sub-periods at 10 bp."""
+def _diff(a, b):
+    return '' if a in (None, '') or b in (None, '') else a - b
+
+
+def pair_rows(points, metrics10, metrics5, pairs=None):
+    """Named paired differences (a minus b): annualised 10 bp and 5 bp excess, and the two sub-periods at 10 bp.
+
+    pairs defaults to round 1's PAIRS; a registration may name its own pairs.
+    """
     ids = {p['name']: p['id'] for p in points if p.get('name')}
     ids.update(PAIR_ALIASES)
     rows = []
-    for a, b in PAIRS:
+    for a, b in (PAIRS if pairs is None else pairs):
         ia, ib = ids.get(a), ids.get(b)
         ma, mb = (metrics10.get(ia) if ia else None), (metrics10.get(ib) if ib else None)
         fa, fb = (metrics5.get(ia) if ia else None), (metrics5.get(ib) if ib else None)
@@ -550,6 +629,12 @@ def run_experiment(root, spec_path, workers=1, null_runs=None):
         if a['id'] not in ids:
             extra.append(a)
             ids.add(a['id'])
+    # Reference configurations: run and reported, never ranked, never counted; each is a committed configuration.
+    for rid in loaded['spec'].get('references', []):
+        r = _anchor_point(root, rid, grid + extra)
+        if r['id'] not in ids:
+            extra.append(r)
+            ids.add(r['id'])
     points = grid + extra
     ensure_signal_tables(root, doc, [p['signal'] for p in points])
     payload = dict(points=points, costs=COSTS, experiment=experiment)
@@ -600,6 +685,8 @@ def run_experiment(root, spec_path, workers=1, null_runs=None):
     sector_map = load_sector_map(root)
     sectors = {}
     rows = []
+    risks = {p['id']: risk_metrics(_run_folder(base, p, 10, 'daily'), base_metrics[p['id']]) for p in points if base_metrics[p['id']]}
+    wgt = next((p for p in points if p.get('name') == REFERENCE_NAME), None)
     anchor_of = {p['id']: (p.get('anchor') or '') for p in points}
     for p in [q for q in points if q['id'] == BASELINE['id']] + [q for q in order if q['id'] != BASELINE['id']]:
         m10, m5 = base_metrics[p['id']], base_metrics5[p['id']]
@@ -624,6 +711,9 @@ def run_experiment(root, spec_path, workers=1, null_runs=None):
         nulls = dict(null_percentile=point, null_percentile_low=low, null_percentile_high=high,
                      null_completed=f"{len(m_null)}/{totals[p['id']]}",
                      null_turnover_median=median(null_turnover[p['id']]) if null_turnover.get(p['id']) else '')
+        risk = risks.get(p['id'], {})
+        wgt_risk = risks.get(wgt['id'], {}) if wgt else {}
+        wgt_m = base_metrics.get(wgt['id']) if wgt else None
         rows.append(dict(
             id=p['id'], signal=describe(p['signal']), selection=p.get('selection', 'default') + (
                 '' if not p.get('selection_params') else ' ' + json.dumps(p['selection_params'], ensure_ascii=False, sort_keys=True)),
@@ -649,6 +739,12 @@ def run_experiment(root, spec_path, workers=1, null_runs=None):
             sector_over_50_share=positions.get('sector_over_50_share', ''),
             pass1_buys=counts.get('pass1_buys', ''), pass2_buys=counts.get('pass2_buys', ''),
             cap_trigger_weeks=counts.get('cap_trigger_weeks', ''), cap_deferred=counts.get('cap_deferred', ''),
+            vol_annual=risk.get('vol', ''), beta=risk.get('beta', ''), tracking_error=risk.get('te', ''),
+            ret_over_vol=risk.get('ret_vol', ''), ret_over_dd=risk.get('ret_dd', ''), dd_2022=risk.get('dd_2022', ''),
+            paired_vs_WGT_10bps=_diff(m10 and m10['annualized_excess'], wgt_m and wgt_m['annualized_excess']),
+            vol_vs_WGT=_diff(risk.get('vol'), wgt_risk.get('vol')),
+            dd_vs_WGT=_diff(m10 and m10['max_drawdown'], wgt_m and wgt_m['max_drawdown']),
+            ret_over_vol_vs_WGT=_diff(risk.get('ret_vol'), wgt_risk.get('ret_vol')),
             null_cell='', **nulls, daily_confirmed='yes'))
     base.mkdir(parents=True, exist_ok=True)
     by_id = {p['id']: f"{len(null_values.get(p['id'], []))}/{totals[p['id']]}" for p in points}
@@ -656,7 +752,7 @@ def run_experiment(root, spec_path, workers=1, null_runs=None):
                   hypothesis=loaded['spec']['hypothesis'],
                   baseline_check=', '.join(f'{k} {v}' for k, v in check.items()), null_counts=by_id)
     _write_scorecard(base, rows, header)
-    pairs = pair_rows(points, base_metrics, base_metrics5)
+    pairs = pair_rows(points, base_metrics, base_metrics5, loaded['spec'].get('pairs'))
     write_csv_rows(base / 'pairs.csv', pairs)
     write_pairs_md(base / 'scorecard.md', pairs)
     dump(base / 'experiment_manifest.json', dict(

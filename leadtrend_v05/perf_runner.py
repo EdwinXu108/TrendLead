@@ -75,7 +75,7 @@ def one_job(job):
     if (folder/'BYTE_MISMATCH_STOP.json').exists():raise ValueError('previous byte mismatch requires investigation before rerunning')
     raw=json.loads((ctx.root/'config/v05_stage3.json').read_text(encoding='utf-8'))
     raw.update({k:p[k] for k in ('L','N','k','b','rebalance')})
-    raw.update(configuration_id=p['id'],slippage_bps=cost,start_date=ctx.segment['start'],end_date=ctx.segment['end'],
+    raw.update(configuration_id=p['id'],slippage_bps=cost,start_date=p.get('start_date',ctx.segment['start']),end_date=ctx.segment['end'],
         authorization='Stage4 sealed grid / conditional one-shot holdout',engineering_defaults_unvalidated=True)
     for field in ('signal','selection','selection_params','experiment'):
         if field in p:raw[field]=p[field]

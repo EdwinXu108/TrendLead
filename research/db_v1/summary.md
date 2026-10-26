@@ -17,11 +17,11 @@
 
 | 年 | 进入 | 离开 |
 |---|---|---|
-| 2014 | 25 | 23 |
-| 2015 | 38 | 34 |
-| 2016 | 37 | 34 |
-| 2017 | 42 | 42 |
-| 2018 | 34 | 29 |
+| 2014 | 23 | 21 |
+| 2015 | 37 | 33 |
+| 2016 | 35 | 32 |
+| 2017 | 40 | 40 |
+| 2018 | 32 | 28 |
 | 2019 | 23 | 24 |
 | 2020 | 18 | 17 |
 | 2021 | 18 | 21 |
@@ -50,7 +50,7 @@
 | bridge_unmatched | 13 |
 | multiple_complete_snapshots | 1 |
 | nport_security_unmapped | 14 |
-| pre_name_unmapped | 30 |
+| pre_name_unmapped | 28 |
 | status_review | 1 |
 | successor_candidate | 144 |
 | unidentified_security | 16 |

@@ -29,7 +29,7 @@
 | 2023 | 15 | 14 |
 | 2024 | 18 | 18 |
 | 2025 | 20 | 21 |
-| 2026 | 12 | 10 |
+| 2026 | 11 | 10 |
 
 ## 离开者（至少一次离开 VOO 的发行人）
 
@@ -39,9 +39,9 @@
 
 ## 总计
 
-- 曾在 VOO 中的发行人：744；证券：800
+- 曾在 VOO 中的发行人：744；证券：781
 - delisted 发行人：150；continued_by_successor 发行人：5
-- universe_v1 发行人：590；证券：644；其中 eligible_v1=1 的证券：607（段行数 639）
+- universe_v1 发行人：590；证券：625；其中 eligible_v1=1 的证券：589（段行数 621）
 
 ## 复核清单（条数，按类型）
 
@@ -49,8 +49,8 @@
 |---|---|
 | bridge_unmatched | 13 |
 | multiple_complete_snapshots | 1 |
-| nport_security_unmapped | 15 |
-| pre_name_unmapped | 31 |
+| nport_security_unmapped | 14 |
+| pre_name_unmapped | 30 |
 | status_review | 1 |
 | successor_candidate | 144 |
 | unidentified_security | 16 |

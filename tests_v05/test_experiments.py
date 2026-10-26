@@ -219,9 +219,9 @@ def test_reference_exit_counts_only_full_sells_per_signal_week(tmp_path):
 
 
 def test_registered_attempts_count_distinct_configurations_once(tmp_path):
-    # The repository now registers E0 (no new attempts), R1_mechanisms (twelve new configurations) and R2_robustness
-    # (twelve more): 72 + 12 + 12.
-    assert registered_attempts(ROOT) == 96
+    # The repository now registers E0 (no new attempts), R1_mechanisms (twelve new configurations), R2_robustness
+    # (twelve more) and R3_structure (five more): 72 + 12 + 12 + 5.
+    assert registered_attempts(ROOT) == 101
     write_spec(tmp_path, base_spec())  # L060 and L090 at N8: both already in the stage 4 grid
     assert registered_attempts(tmp_path) == 72
     write_spec(tmp_path, base_spec(id='T2', grid=[{'signal': [MOM(60)], 'N': [9], 'b': [2], 'rebalance': ['R2']}]))

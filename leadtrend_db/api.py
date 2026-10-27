@@ -198,6 +198,15 @@ def pool_company_amounts(version_id: str, db_path: Path | str = DB_PATH) -> dict
         'select issuer_id, amount_cents from top200_companies where version_id = ?', (version_id,))}
 
 
+def issuer_continuity(db_path: Path | str = DB_PATH) -> list[dict]:
+    """Dated, verified single-company continuations, for company-level statistics only."""
+    conn = connect(db_path)
+    return [dict(r) for r in conn.execute("""select predecessor_issuer_id, successor_issuer_id, effective_date
+        from issuer_links where relation in ('successor_reorganization','rename')
+        and confidence='high' and effective_date <> '' and effective_date <= '2024-06-28'
+        order by effective_date, predecessor_issuer_id""")]
+
+
 @lru_cache(maxsize=1)
 def _benchmark_bars() -> dict[str, dict[str, float]]:
     """VOO original daily bars from the archived benchmark responses (the benchmark is not in prices_daily)."""

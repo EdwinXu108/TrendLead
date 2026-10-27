@@ -205,3 +205,62 @@ def test_gehc_archive_close_repairs_scoring_and_entitlement():
     bt.action_sids = [sid]
     bt._apply_actions('2023-01-04')
     assert bt.pending_distributions[0]['per_share'] == pytest.approx(60.49/3)
+
+
+def test_sourced_cash_correction_changes_tri_and_entitled_cash_once():
+    sid = 'CUSIP:025537101'
+    bt = Backtest(base_cfg(protocol='terra_r1_v1', start='2020-01-01', end='2020-12-31'))
+    bt.tri = {sid: {'2020-02-06': 1.0, '2020-02-07': 1.014}}
+    bt.closes = {sid: {'2020-02-06': 100, '2020-02-07': 100}}
+    bt.actions = {sid: [dict(action_date='2020-02-07', action_type='cash_dividend', cash_amount=1.4)]}
+    bt._prepare_terra_cash_corrections()
+    assert bt.tri[sid]['2020-02-07'] == pytest.approx(1.007)
+    bt.tranches = [Tranche(0, 0, positions={sid: 10}, issuer_of={sid: 'I'})]
+    bt.action_sids = [sid]
+    bt._apply_actions('2020-02-07')
+    assert bt.tranches[0].cash == pytest.approx(7)
+    assert bt.tranches[0].income['I'] == pytest.approx(7)
+
+
+def test_true_regular_and_special_cash_is_not_halved():
+    sid = 'CUSIP:14040H105'
+    bt = Backtest(base_cfg(protocol='terra_r1_v1', start='2021-01-01', end='2022-12-31'))
+    bt.tri = {sid: {'2021-08-05': 1, '2021-08-06': 1.012}}
+    bt.closes = {sid: {'2021-08-05': 100, '2021-08-06': 100}}
+    bt.actions = {sid: [dict(action_date='2021-08-06', action_type='cash_dividend', cash_amount=1.2)]}
+    bt._prepare_terra_cash_corrections()
+    assert bt.actions[sid][0]['cash_amount'] == 1.2
+    assert bt.tri[sid]['2021-08-06'] == 1.012
+
+
+def test_hhi_merges_only_dated_verified_economic_continuity():
+    result = dict(config={'protocol': 'terra_r1_v1', 'capital': 100},
+        daily=[dict(date='2016-03-07', cash=50, positions_value=50, equity=100, benchmark=100)],
+        positions=[dict(date='2016-03-07', tranche=0, security_id='OLD', value=30),
+                   dict(date='2016-03-07', tranche=1, security_id='NEW', value=20)],
+        trades=[], pnl={}, issuers={'OLD': 'old', 'NEW': 'new'},
+        continuity_links=[dict(predecessor_issuer_id='old', successor_issuer_id='new', effective_date='2016-02-01')])
+    assert compute(result, {})['average_hhi'] == pytest.approx(.25)
+    result['continuity_links'][0]['effective_date'] = '2016-04-01'
+    assert compute(result, {})['average_hhi'] == pytest.approx(.13)
+
+
+def test_decision_isolation_detects_buy_order_and_buffer_changes():
+    from leadtrend_bt.cash_followup import decision_difference
+    old = [dict(security_id='A', action='keep'), dict(security_id='B', action='sell'),
+           dict(security_id='C', action='buy'), dict(security_id='D', action='buy')]
+    assert decision_difference(old, dict(keeps=['A'], sells=['B'], buys=['C','D'])) is None
+    assert decision_difference(old, dict(keeps=['A'], sells=['B'], buys=['D','C'])) is not None
+    assert decision_difference(old, dict(keeps=['A','B'], sells=[], buys=['C','D'])) is not None
+
+
+def test_cash_correction_retains_split_adjusted_gross_basis():
+    sid = 'CUSIP:025537101'
+    bt = Backtest(base_cfg(protocol='terra_r1_v1', start='2020-01-01', end='2020-12-31'))
+    bt.tri = {sid: {'2020-02-06': 1.0, '2020-02-07': 1.014}}
+    bt.closes = {sid: {'2020-02-06': 100, '2020-02-07': 50}}
+    bt.actions = {sid: [dict(action_date='2020-02-07', action_type='cash_dividend', cash_amount=1.4),
+                        dict(action_date='2020-02-07', action_type='split', ratio=2)]}
+    bt._prepare_terra_cash_corrections()
+    assert bt.tri[sid]['2020-02-07'] == pytest.approx(1.007)
+    assert bt.actions[sid][1]['ratio'] == 2

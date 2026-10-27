@@ -253,6 +253,7 @@ class Backtest:
         self._load_actions(sorted(ids), db)
         if self.terra_r1:
             self._prepare_terra_event_explanation()
+            self._prepare_terra_cash_corrections()
         bars = api.benchmark_bars(self.full_calendar[0], self.end)     # VOO is not in prices_daily
         self.opens[BENCH] = {d: b['open'] for d, b in bars.items()}
         self.closes[BENCH] = {d: b['close'] for d, b in bars.items()}
@@ -358,6 +359,38 @@ class Backtest:
                 self.actions[parent] = [row for row in self.actions[parent]
                     if not (row['action_type'] == 'split' and row['action_date'] in event['suppressed_vendor_splits'])]
                 self.actions[parent].sort(key=lambda r: (r['action_date'], 0 if r['action_type'] == 'spinoff' else 1))
+
+    def _prepare_terra_cash_corrections(self) -> None:
+        """Apply the same sourced amount to the event ledger and uncharged signal TRI."""
+        config = json.loads(Path('config/terra_r1_cash_v1.json').read_text(encoding='utf8'))
+        for event in config['entries']:
+            if event['status'] != 'corrected':
+                continue
+            sid, day = event['security_id'], event['ex_date']
+            series = self.tri.get(sid, {})
+            if not series:
+                continue
+            actions = [r for r in self.actions.get(sid, []) if r['action_date'] == day
+                       and r['action_type'] in ('cash_dividend', 'special_dividend')]
+            if not actions:
+                if day in series and day >= self.start:
+                    raise DataGapError(f'{sid} {day}: registered cash action missing')
+                continue
+            if len(actions) != 1 or abs(actions[0]['cash_amount'] - event['database_cash']) > 1e-8:
+                raise DataGapError(f'{sid} {day}: registered original cash differs')
+            if day in series:
+                prior = [d for d in series if d < day and d in self.closes.get(sid, {})]
+                if not prior:
+                    raise DataGapError(f'{sid} {day}: previous close unavailable for TRI correction')
+                prev = max(prior)
+                old_gross = self.closes[sid][prev] * series[day] / series[prev]
+                new_gross = old_gross + event['official_cash'] - event['database_cash']
+                if old_gross <= 0 or new_gross <= 0:
+                    raise DataGapError(f'{sid} {day}: invalid cash-adjusted return')
+                factor = new_gross / old_gross
+                self.tri[sid] = {d: v * factor if d >= day else v for d, v in series.items()}
+            actions[0].update(cash_amount=event['official_cash'], source_url=event['source_url'],
+                              resolution='terra_r1_cash_v1', needs_review=0)
 
     def _prepare_actions(self) -> None:
         self.action_sids = [sid for sid in sorted(self.actions) if self.actions[sid]]

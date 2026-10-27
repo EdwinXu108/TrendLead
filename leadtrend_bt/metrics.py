@@ -165,10 +165,18 @@ def compute(result: dict, rf_daily: dict[str, float], periods=(PERIOD_A, PERIOD_
         if eq:
             max_weight = max(max_weight, value / eq)
     issuers = result.get('issuers', {})
+    links = {r['predecessor_issuer_id']: (r['successor_issuer_id'], r['effective_date'])
+             for r in result.get('continuity_links', [])}
+    def economic_issuer(issuer: str, day: str) -> str:
+        seen = set()
+        while issuer in links and issuer not in seen and links[issuer][1] <= day:
+            seen.add(issuer)
+            issuer = links[issuer][0]
+        return issuer
     issuer_by_day: dict[str, dict[str, float]] = {}
     for (day, sid), value in value_by_key.items():
         bucket = issuer_by_day.setdefault(day, {})
-        issuer = issuers.get(sid, sid)
+        issuer = economic_issuer(issuers.get(sid, sid), day)
         bucket[issuer] = bucket.get(issuer, 0.0) + value
     max_top5 = 0.0
     for day, bucket in issuer_by_day.items():

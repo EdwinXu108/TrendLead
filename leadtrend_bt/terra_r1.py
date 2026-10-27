@@ -22,8 +22,6 @@ EVENTS = Path('config/terra_r1_events_v1.json')
 IDS = ('MOM_EQ', 'MOM_AMT', 'SIZE_EQ', 'SIZE_AMT', 'POOL_AMT', 'TOP10_AMT', 'TOP10_EQ')
 REGISTRATION = '6dc6979'
 SEED = 20261027
-PRIOR_FINGERPRINT = '32a6ab2dfb862e07ee346f1fe24cefbc145ef7294b3fae899ffd54bda4689e4e'
-PRIOR_COMMIT = 'f504c82d807f9deb7495562c0761a5ae2dd98d8b'
 
 
 def sha(p):
@@ -173,25 +171,8 @@ def main():
         rid=cfg['run_id']; out=ROOT/'runs'/rid; marker=out/'complete.json'
         item=dict(id=rid,status='not_started')
         old_marker=json.loads(marker.read_text(encoding='utf8')) if marker.exists() else {}
-        failure=out/'failure.json'
-        old_failure=json.loads(failure.read_text(encoding='utf8')) if failure.exists() else {}
-        unaffected_mode=cfg['ranking']=='size' or cfg['mode']=='pool'
-        actions_file=out/'corporate_actions.csv'
-        no_ge_exposure=(actions_file.exists() and not any(
-            r['security_id']=='CUSIP:369604301' and r['date'] in ('2023-01-04','2024-04-02')
-            for r in read_csv(actions_file)))
         if old_marker.get('fingerprint')==fingerprint:
             item['status']='complete_cached'
-        elif old_marker.get('fingerprint')==PRIOR_FINGERPRINT and unaffected_mode and no_ge_exposure:
-            # Size ranking only uses the completeness of GE's TRI, not its value. Structural baselines do not
-            # score it. Neither held GE on either event date, so the verified child values cannot affect their paths.
-            item.update(status='complete_reused_unaffected',source_commit=PRIOR_COMMIT,
-                        source_fingerprint=PRIOR_FINGERPRINT,
-                        reason='GE events not held; ranking does not use TRI values')
-        elif (old_failure.get('fingerprint')==PRIOR_FINGERPRINT and cfg['mode']=='pool'
-              and 'CUSIP:H1467J104 2015-12-01' in old_failure.get('error','')):
-            item.update(status='blocked_missing_prices',reason=old_failure['error'],source_commit=PRIOR_COMMIT,
-                        source_fingerprint=PRIOR_FINGERPRINT)
         else:
             bt=Backtest(cfg,db_path=DB,market=pool_market if cfg['mode']=='pool' else signal_market)
             try:
@@ -329,4 +310,5 @@ def main():
     (ROOT/'handoff.md').write_text(f'# TERRA_R1 交接\n\n登记 {REGISTRATION}；实现 {commit}。\n\n复现：先将 PYTHONDONTWRITEBYTECODE=1、TMPDIR/TMP/TEMP 指向 work/terra_r1/tmp，再运行 `python -B -m leadtrend_bt.terra_r1`。\n\n默认测试：{manifest["tests"]}\n\n准备阶段读取既有验证摘要时误读截止日后的若干单日差异；核对 GEHC 历史行时脚本遍历了包含截止日后行情的文件，后续行未显示或用于计算。这些内容没有用于参数选择或策略评价。请 reviewer 对两次过程偏差裁决。\n\nGoogle、DowDuPont 与 GE 的来源和事件解释见 config/terra_r1_events_v1.json；其他分拆保留标记的代理。ACE 的原始旧代码请求失败，未把另一公司的 CB 行情套用。\n\n详细状态与证据见 manifest.json、report.md 和各运行目录；事件代理与标记为 needs_review 的事项仍需 reviewer 审阅。\n',encoding='utf8')
 
 if __name__ == '__main__':
-    main()
+    from .cash_followup import main as followup_main
+    followup_main()

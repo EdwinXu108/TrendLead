@@ -1,0 +1,16 @@
+{
+  "kind": "development_data_migration_not_new_experiment",
+  "base_content_sha256": "97b55e453e09b5e40570ab5ab9ae9d6e317131ab448c9b11ec719cc3d06bde6f",
+  "base_file_sha256": "7564971e17d828289fdf46cb04413fce3d1ec60faac5461d5376774ce9751e87",
+  "end": "2024-06-28",
+  "rule_version": "top200_v2",
+  "cash_evidence": {
+    "path": "config/db_cash_overrides_v1.json",
+    "sha256": "4601590b5ee9e74c2f64c0c65f4d6951ed4c43a3cf2076a55c3400996ad42478"
+  },
+  "event_evidence": {
+    "path": "config/db_corporate_events_v1.json",
+    "sha256": "59f0f29b3e84a2e1d6d3e8858d2955a6557b9952c30a025376d64468e55db173"
+  },
+  "method": "versioned migration from sealed base; preserve post-development rows; no cohort or parameter change; no historical random reruns"
+}

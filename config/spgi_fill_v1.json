@@ -1,0 +1,188 @@
+{
+ "version": "spgi_fill_v1",
+ "security_id": "CUSIP:78409V104",
+ "factor": 1.057,
+ "source": {
+  "source_id": "SRC-2ea02fddebcb989d",
+  "kind": "other",
+  "url": "https://query1.finance.yahoo.com/v8/finance/chart/SPGI",
+  "raw_path": "yahoo/SPGI_2016-04-25_2016-05-27.json",
+  "sha256": "2ea02fddebcb989da4d708cc06072aa78a385b6249e6ea060ac3c7dafe2aa38e",
+  "bytes": 4289,
+  "retrieved_at_utc": "2026-10-27T15:33:00Z",
+  "note": "SPGI daily bars 2016-04-25..2016-05-27; Yahoo records a spurious 1057:1000 split on 2026-07-01, so raw prices are multiplied by 1.057"
+ },
+ "rows": [
+  {
+   "date": "2016-04-28",
+   "open": 107.92,
+   "high": 107.92,
+   "low": 107.92,
+   "close": 107.92,
+   "volume": 0,
+   "kind": "carry_forward"
+  },
+  {
+   "date": "2016-04-29",
+   "open": 106.66,
+   "high": 107.36,
+   "low": 105.9,
+   "close": 106.85,
+   "volume": 1893193,
+   "kind": "yahoo"
+  },
+  {
+   "date": "2016-05-02",
+   "open": 107.59,
+   "high": 107.77,
+   "low": 105.35,
+   "close": 107.17,
+   "volume": 2241263,
+   "kind": "yahoo"
+  },
+  {
+   "date": "2016-05-03",
+   "open": 102.29,
+   "high": 105.13,
+   "low": 102.01,
+   "close": 104.5,
+   "volume": 1477792,
+   "kind": "yahoo"
+  },
+  {
+   "date": "2016-05-04",
+   "open": 103.96,
+   "high": 105.03,
+   "low": 103.3,
+   "close": 104.29,
+   "volume": 1010809,
+   "kind": "yahoo"
+  },
+  {
+   "date": "2016-05-05",
+   "open": 104.4,
+   "high": 105.47,
+   "low": 104.39,
+   "close": 104.67,
+   "volume": 921704,
+   "kind": "yahoo"
+  },
+  {
+   "date": "2016-05-06",
+   "open": 100.68,
+   "high": 104.49,
+   "low": 97.65,
+   "close": 104.27,
+   "volume": 1157521,
+   "kind": "yahoo"
+  },
+  {
+   "date": "2016-05-09",
+   "open": 104.0,
+   "high": 104.81,
+   "low": 103.58,
+   "close": 104.52,
+   "volume": 698677,
+   "kind": "yahoo"
+  },
+  {
+   "date": "2016-05-10",
+   "open": 104.77,
+   "high": 105.72,
+   "low": 104.67,
+   "close": 104.96,
+   "volume": 917476,
+   "kind": "yahoo"
+  },
+  {
+   "date": "2016-05-11",
+   "open": 104.96,
+   "high": 106.06,
+   "low": 104.74,
+   "close": 105.14,
+   "volume": 1048650,
+   "kind": "yahoo"
+  },
+  {
+   "date": "2016-05-12",
+   "open": 105.64,
+   "high": 106.31,
+   "low": 104.93,
+   "close": 105.96,
+   "volume": 967895,
+   "kind": "yahoo"
+  },
+  {
+   "date": "2016-05-13",
+   "open": 105.74,
+   "high": 106.59,
+   "low": 104.67,
+   "close": 104.92,
+   "volume": 817590,
+   "kind": "yahoo"
+  },
+  {
+   "date": "2016-05-16",
+   "open": 104.73,
+   "high": 106.7,
+   "low": 104.44,
+   "close": 106.49,
+   "volume": 799726,
+   "kind": "yahoo"
+  },
+  {
+   "date": "2016-05-17",
+   "open": 106.44,
+   "high": 106.82,
+   "low": 105.49,
+   "close": 105.7,
+   "volume": 1110907,
+   "kind": "yahoo"
+  },
+  {
+   "date": "2016-05-18",
+   "open": 105.77,
+   "high": 107.43,
+   "low": 105.53,
+   "close": 107.05,
+   "volume": 1153081,
+   "kind": "yahoo"
+  },
+  {
+   "date": "2016-05-19",
+   "open": 106.19,
+   "high": 107.07,
+   "low": 105.25,
+   "close": 106.85,
+   "volume": 920858,
+   "kind": "yahoo"
+  },
+  {
+   "date": "2016-05-20",
+   "open": 107.54,
+   "high": 108.63,
+   "low": 107.27,
+   "close": 108.07,
+   "volume": 1176864,
+   "kind": "yahoo"
+  },
+  {
+   "date": "2016-05-23",
+   "open": 107.58,
+   "high": 109.11,
+   "low": 107.38,
+   "close": 108.84,
+   "volume": 998019,
+   "kind": "yahoo"
+  },
+  {
+   "date": "2016-05-24",
+   "open": 108.91,
+   "high": 112.0,
+   "low": 108.22,
+   "close": 111.66,
+   "volume": 1424096,
+   "kind": "yahoo"
+  }
+ ]
+}

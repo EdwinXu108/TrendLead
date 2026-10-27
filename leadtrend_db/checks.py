@@ -402,9 +402,11 @@ def run_checks(db_path: Path = S.DB_PATH, rebuild: bool = True, work_db: Path | 
 def check_prices(conn,out):
     if not _rows(conn,"select 1 from sqlite_master where name='price_quarter_coverage'"):return []
     bad=_rows(conn,"select count(*) from prices_daily where source<>'opend_none' or adj_close is not null or open<=0 or close<=0 or low>min(open,close)+0.001 or high<max(open,close)-0.001")[0][0]
+    # Excluded securities keep their price history on purpose, so membership is any strategy row,
+    # not only the eligible ones.
     unexpected=_rows(conn,"""select count(*) from prices_daily p where p.security_id not in (
-      select security_id from strategy_securities where strategy_eligible=1 union
-      select current_security_id from strategy_securities where strategy_eligible=1)""")[0][0]
+      select security_id from strategy_securities union
+      select current_security_id from strategy_securities)""")[0][0]
     invalid=_rows(conn,"select count(*) from price_quarter_coverage where present_sessions>expected_sessions or warmup_present>warmup_expected or warmup_expected>252")[0][0]
     out['prices']=dict(rows=_rows(conn,'select count(*) from prices_daily')[0][0],invalid_bars=bad,unexpected_securities=unexpected,
       invalid_coverage=invalid,actions=_rows(conn,'select count(*) from corporate_actions')[0][0],

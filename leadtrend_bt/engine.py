@@ -104,6 +104,10 @@ class Backtest:
         self.buy_weighting = str(self.cfg.get('buy_weighting', 'equal'))
         self.buy_plan = self.cfg.get('buy_plan') or {}
         self.size_fallback = 0
+        default_missing = 1 if self.protocol == 'research_v1' else 0
+        self.max_missing = int(self.cfg.get('max_missing_days', default_missing))
+        if self.max_missing not in (0, 1):
+            raise ValueError('max_missing_days must be 0 or 1')
         self.slip = float(self.cfg.get('cost_bps', 0)) / 10000.0
         self.fee = float(self.cfg.get('fee_per_order', 1.0))
         self.capital = float(self.cfg.get('capital', 100000.0))
@@ -139,6 +143,7 @@ class Backtest:
         self.pending_distributions: list[dict] = []
         self.missing_close: dict[str, int] = defaultdict(int)
         self.score_counts: list[dict] = []
+        self.window_missing: dict[str, int] = {}
         self.current_amounts: dict[str, float] = {}
 
     # -- data ---------------------------------------------------------------------------------------------------
@@ -507,18 +512,23 @@ class Backtest:
             return []
         base_day = self.full_calendar[i - self.L]
         rows = []
+        self.window_missing = {}
         for sec in self._in_range(pool):
             sid = sec['security_id']
             series = self.tri.get(sid)
             if not series or day not in series or base_day not in series or series[base_day] <= 0:
                 continue
-            if self.terra_r1 and any(series.get(d, 0) <= 0 for d in self.full_calendar[i-self.L:i+1]):
-                continue
+            missing = 0
+            if self.terra_r1:
+                missing = sum(1 for d in self.full_calendar[i - self.L:i + 1] if series.get(d, 0) <= 0)
+                if missing > self.max_missing:
+                    continue
             if self.protocol == 'research_v1':
                 conflict = next((r for r in self.actions.get(sid, []) if r.get('needs_review')
                                  and base_day < r['action_date'] <= day), None)
                 if conflict:
                     raise DataGapError(f'{sid} {conflict["action_date"]}: unresolved action in scoring window')
+            self.window_missing[sid] = missing
             rows.append((sid, series[day] / series[base_day] - 1.0, float(sec.get('amount_cents', 0.0))))
         if self.terra_r1 and self.cfg.get('ranking') == 'size':
             out = [(sid, amount) for sid, _, amount in rows]
@@ -557,7 +567,8 @@ class Backtest:
             buys.append(sid)
             used_issuer.add(issuer)
         scores = dict(ranked)
-        return dict(sells=sells, buys=buys, rank=rank, keeps=keeps, scores=scores)
+        return dict(sells=sells, buys=buys, rank=rank, keeps=keeps, scores=scores,
+                    missing=dict(self.window_missing))
 
     def _random_orders(self, tranche: Tranche, day: str, pool: dict) -> dict:
         """Random control (amendment 1).
@@ -594,7 +605,7 @@ class Backtest:
                     continue
                 buys.append(sid)
                 used_issuer.add(issuer)
-        return dict(sells=sells, buys=buys, rank={}, keeps=kept, scores={})
+        return dict(sells=sells, buys=buys, rank={}, keeps=kept, scores={}, missing={})
 
     def _random_size_buys(self, tranche: Tranche, day: str, range_secs: list[dict],
                           kept: list[str], used_issuer: set[str]) -> list[str]:
@@ -871,19 +882,23 @@ class Backtest:
                                    for s in pool['securities'])
                 self.score_counts.append(dict(date=day, pool_companies=len(pool['securities']),
                     scoreable=len(scoreable), insufficient_history=insufficient,
-                    missing_days=len(pool['securities'])-len(scoreable)-insufficient))
+                    missing_days=len(pool['securities'])-len(scoreable)-insufficient,
+                    partial_window=sum(1 for sid, _ in scoreable if self.window_missing.get(sid) == 1)))
         orders = (self._random_orders(tranche, day, pool) if self.mode in ('random', 'random_size')
                   else self._momentum_orders(tranche, day, pool))
         rank, scores = orders['rank'], orders['scores']
         for sid in orders['keeps']:
             self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid, action='keep',
-                                       rank=rank.get(sid, ''), score=scores.get(sid, '')))
+                                       rank=rank.get(sid, ''), score=scores.get(sid, ''),
+                                       window_missing=orders['missing'].get(sid, 0)))
         for sid in orders['sells']:
             self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid, action='sell',
-                                       rank=rank.get(sid, ''), score=scores.get(sid, '')))
+                                       rank=rank.get(sid, ''), score=scores.get(sid, ''),
+                                       window_missing=orders['missing'].get(sid, 0)))
         for sid in orders['buys']:
             self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid, action='buy',
-                                       rank=rank.get(sid, ''), score=scores.get(sid, '')))
+                                       rank=rank.get(sid, ''), score=scores.get(sid, ''),
+                                       window_missing=orders['missing'].get(sid, 0)))
         if self.rebalance == 'R1':
             # restore equal weight over the post-trade book, and only on a check day that changes a holding
             if orders['sells'] or orders['buys']:
@@ -962,7 +977,7 @@ class Backtest:
                 if want <= 0.0:                      # an exit without a price waits for the next session
                     if record:
                         self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid,
-                                                   action='sell', rank='', score=''))
+                                                   action='sell', rank='', score='', window_missing=''))
                     self.pending.append(dict(tranche=tranche.index, security_id=sid, side='sell',
                                              reason=reason, signal_date=day, shares=None))
                 continue
@@ -971,13 +986,13 @@ class Backtest:
                 shares = min(tranche.positions[sid], -delta / price)
                 if record:
                     self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid,
-                                               action='sell', rank='', score=''))
+                                               action='sell', rank='', score='', window_missing=''))
                 self.pending.append(dict(tranche=tranche.index, security_id=sid, side='sell', reason=reason,
                                          signal_date=day, shares=shares))
             elif delta > tolerance:
                 if record:
                     self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid,
-                                               action='buy', rank='', score=''))
+                                               action='buy', rank='', score='', window_missing=''))
                 self.pending.append(dict(tranche=tranche.index, security_id=sid, side='buy', reason=reason,
                                          signal_date=day, notional=delta))
         for sid in sorted(target):
@@ -988,7 +1003,7 @@ class Backtest:
                 continue
             if record:
                 self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid,
-                                           action='buy', rank='', score=''))
+                                           action='buy', rank='', score='', window_missing=''))
             self.pending.append(dict(tranche=tranche.index, security_id=sid, side='buy', reason=reason,
                                      signal_date=day, notional=target_value[sid]))
 

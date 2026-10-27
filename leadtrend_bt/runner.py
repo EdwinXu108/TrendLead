@@ -123,7 +123,7 @@ def run_core_satellite(core_cfg: dict, sat_cfg: dict, out_root: Path | str = OUT
     write_csv(out / 'trades.csv', ['date', 'sleeve', 'tranche', 'security_id', 'side', 'shares', 'price', 'fee',
                                    'reason', 'signal_date'], merged['trades'])
     write_csv(out / 'weekly_decisions.csv', ['signal_date', 'sleeve', 'tranche', 'security_id', 'action', 'rank',
-                                             'score'], merged['decisions'])
+                                             'score', 'window_missing'], merged['decisions'])
     (out / 'summary.json').write_text(json.dumps(summary, indent=2, sort_keys=True, default=str), encoding='utf8',
                                       newline='\n')
     return dict(summary=summary, result=merged, path=out)
@@ -139,6 +139,8 @@ def run(cfg: dict, out_root: Path | str = OUT_ROOT, db_path=None, write: bool = 
     summary = metrics.compute(result, rf)
     summary['config'] = dict(cfg)
     summary['tranches'] = bt.K
+    summary['partial_window_scores'] = len({(d['signal_date'], d['security_id']) for d in result['decisions']
+                                            if d.get('window_missing') == 1})
     if not write:
         return dict(summary=summary, result=result, engine=bt)
     out = Path(out_root) / cfg['run_id']
@@ -151,13 +153,13 @@ def run(cfg: dict, out_root: Path | str = OUT_ROOT, db_path=None, write: bool = 
                                        'signal_date'], result['trades'])
         write_csv(out / 'positions.csv', ['date', 'tranche', 'security_id', 'shares', 'close', 'value'],
                   result['positions'])
-        write_csv(out / 'weekly_decisions.csv', ['signal_date', 'tranche', 'security_id', 'action', 'rank', 'score'],
-                  result['decisions'])
+        write_csv(out / 'weekly_decisions.csv', ['signal_date', 'tranche', 'security_id', 'action', 'rank', 'score',
+                                                 'window_missing'], result['decisions'])
         if cfg['protocol'] in ('research_v1', 'terra_r1_v1'):
             write_csv(out / 'corporate_actions.csv', ['date','tranche','security_id','issuer','method','shares','ratio',
                 'per_share','child_security_id','gross','net','fee','cost','cash_available','source'], result['event_flows'])
-            write_csv(out / 'score_counts.csv', ['date','pool_companies','scoreable','insufficient_history','missing_days'],
-                      result['score_counts'])
+            write_csv(out / 'score_counts.csv', ['date','pool_companies','scoreable','insufficient_history','missing_days',
+                                                 'partial_window'], result['score_counts'])
     (out / 'summary.json').write_text(json.dumps(summary, indent=2, sort_keys=True, default=str), encoding='utf8',
                                       newline='\n')
     return dict(summary=summary, result=result, engine=bt, path=out)

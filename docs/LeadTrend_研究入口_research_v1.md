@@ -6,9 +6,9 @@
 
 | 项 | 值 |
 |---|---|
-| 正式库 | `data/db/leadtrend_db_v1.sqlite`（发布标识 `development_release_v1` + `pool_exclusions_v2`，股票池规则 `top200_v2`） |
-| 文件 SHA256 | `83c71cbea1f3a3bbaf40405a2c9cbcae0b754d9e10cbf773beb85fc0d6d840ae` |
-| 内容 SHA256 | `82426047a567879ab22e9e122395fe7b9dbc4adea2d9e28fafc0b011f9bd7b8d`（`meta.content_sha256`） |
+| 正式库 | `data/db/leadtrend_db_v1.sqlite`（发布标识 `development_release_v1` + `pool_exclusions_v2` + `spgi_fill_v1`，股票池规则 `top200_v2`） |
+| 文件 SHA256 | `4e46f93f6c7e836dbd5e30dfe3ecfd8ebbb076180ac2d0397c4f8789381862bc` |
+| 内容 SHA256 | `4c6e53e9240e11f743577160f4c7dc818eba555677e11d450da5bd67641c173b`（`meta.content_sha256`） |
 | 回测协议 | `research_v1`（默认）。`legacy_v1` 只用于复现旧结果，必须显式指定 |
 | 数据接口 | `leadtrend_db/api.py`（只读） |
 | 回测引擎 | `leadtrend_bt/`（`engine.py` 规则，`runner.py` 输出，`cache.py` 带校验的缓存入口） |
@@ -16,14 +16,17 @@
 
 **2026-10-27 投资者排除两个证券：** ACE Ltd（`CUSIP:H1467J104`）与 Comcast Special A（`CIKCLS:0001166691:CL_A_SPECIAL`）不再进入任何季度的股票池，理由与登记见 `config/pool_exclusions_v2.csv`。只改策略名单（`strategy_securities`、`strategy_companies`）与描述性的 `corr_groups`，价格、TRI、公司行动与覆盖事实一律未动；`meta.pool_exclusion_release = pool_exclusions_v2`，配置哈希记在 `meta.pool_exclusion_config_sha256`。Comcast 公司保留（CMCSA 不受影响）。
 
-**正式库坏了或丢了**，从封存基库按两步重新迁移，结果逐字节相同：
+**2026-10-27 补齐 SPGI 的 2016 年改名缺口：** OpenD 在 2016-04-28 至 2016-05-23 没有数据，2016-05-24 还是“前收盘减分红”的占位行。用 Yahoo Finance 的 17 个交易日补齐（原始返回归档在 `data/db/raw/yahoo/`，价格乘以 1.057 抵消 Yahoo 错误记录的 1057:1000 拆股），2016-04-28 用前收盘占位（`tri_daily.flags = placeholder_carry`），2016-05-24 换成真实价 111.66。新增 18 行价格、重建该证券的 TRI、刷新两张覆盖表；`meta.price_fill_release = spgi_fill_v1`。
 
-```powershell
+**正式库坏了或丢了**，从封存基库按三步重新迁移，结果逐字节相同：
+
+```text
 python -X utf8 -B -m leadtrend_db.development_release --base data/db/releases/leadtrend_db_base_7564971e.sqlite --out work/rebuilt_v1.sqlite --manifest work/rebuilt_v1_manifest.json
-python -X utf8 -B -m leadtrend_db.pool_exclusion_release --base work/rebuilt_v1.sqlite --out work/rebuilt.sqlite --manifest work/rebuilt_manifest.json
+python -X utf8 -B -m leadtrend_db.pool_exclusion_release --base work/rebuilt_v1.sqlite --out work/rebuilt_v2.sqlite --manifest work/rebuilt_v2_manifest.json
+python -X utf8 -B -m leadtrend_db.spgi_fill_release --base work/rebuilt_v2.sqlite --out work/rebuilt.sqlite --manifest work/rebuilt_manifest.json
 ```
 
-第一步约 2 分钟。确认无误后再替换 `data/db/leadtrend_db_v1.sqlite`。`data/db/releases/leadtrend_db_development_v1_c1a508a5.sqlite` 是排除前的 v1 快照，只作对照，不要用于研究。
+第一步约 2 分钟。确认无误后再替换 `data/db/leadtrend_db_v1.sqlite`。`data/db/releases/` 下的两个快照（`leadtrend_db_development_v1_c1a508a5.sqlite`、`leadtrend_db_pool_exclusions_v2_83c71cbe.sqlite`）只作对照，不要用于研究。
 
 ## 2. 必须遵守
 
@@ -98,10 +101,8 @@ print(out['status'], out['summary']['excess_cagr'])
 ## 6. 已知限制
 
 - **ACE 与 CMCSK 已于 2026-10-27 移出股票池**（见第 1 节），它们原先的缺价不再影响任何运行。
-- **剩余的行情缺口（开发段内、且当时可选）：**
-  - SPGI（`CUSIP:78409V104`）2016-04-28 至 2016-05-23 缺 18 个交易日，当时排第 155 名：`pool` 模式的 `top_n` 超过约 155 时（含全池）会报 `DataGapError` 并停止；动量配置不受影响（缺价期间不参与评分）；
-  - BIIB 2020-11-06、REGN 2015-06-09、VRTX 2015-05-12 各缺 1 个交易日：这些证券在之后 L 个交易日内无法评分；持有中缺 1 天按最后收盘价标市（`positions.csv` 的 `stale`），连续缺 2 天会报错停止。
-  - 这四处都已用 yfinance 复核：SPGI 的 18 天在 Yahoo 有真实行情（但 Yahoo 把 SPGI 历史按一个错误的 1057:1000 拆股缩放了 5.7%，水平不能直接使用）；BIIB/REGN/VRTX 那三天在 Yahoo 只是平盘占位行（开高低收相同、成交量异常小），没有真实价格。
+- **SPGI 的 2016 年缺口已补齐**（见第 1 节）：17 天用 Yahoo 真实行情，2016-04-28 用前收盘占位。`pool` 模式不再因它报 `DataGapError`。
+- **剩余的单日缺口：** BIIB 2020-11-06、REGN 2015-06-09、VRTX 2015-05-12。yfinance 复核确认 Yahoo 也只有平盘占位行（成交量 600 / 12,100 / 569,700），没有第二来源。自 2026-10-27 起，评分规则允许回看窗口缺 1 个交易日（`max_missing_days=1`，`research_v1` 默认），分数仍用两端点，并在 `weekly_decisions.csv` 的 `window_missing` 标 1；这三个缺口不再导致整只证券被排除 L 个交易日。持有中缺 1 天仍按最后收盘价标市（`positions.csv` 的 `stale`），连续缺 2 天报错停止。
 - **遇到未解决的公司行动会报错停止，不会默默算错。**目前开发段没有未解决的公司行动。
 - **少数分拆仍按有标识的代理估值**（复权因子或开盘缺口），见 `corporate_actions.resolution`。
-- **新库与旧库的经济结果：**TERRA_R1 的 28 条运行已核对，复用成立（见 `work/handoff/` 中的审阅记录）。排除 ACE/CMCSK 后，`MOM_EQ_10bp` 的成交、每日权益、持仓与公司行动现金流逐字节不变（仅 `weekly_decisions` 的排名与 `score_counts` 的池内公司数变化）。
+- **新库与旧库的经济结果：**TERRA_R1 的 28 条运行已核对，复用成立（见 `work/handoff/` 中的审阅记录）。2026-10-27 之后的两项变更会改变结果：排除 ACE/CMCSK（对 `MOM_EQ_10bp` 只改排名与池内公司数）与“缺一日容忍”（同一配置的 10bp 超额由 0.33% 变为 0.46%，成交 3830→3820 笔，17 个“信号日 × 证券”用到该容忍）。旧结果不再与当前引擎逐字节相同。

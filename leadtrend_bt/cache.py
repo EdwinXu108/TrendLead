@@ -11,7 +11,7 @@ from .runner import run
 ROOT = Path(__file__).resolve().parent.parent
 INPUTS = ("leadtrend_bt/engine.py", "leadtrend_bt/metrics.py", "leadtrend_bt/runner.py",
           "leadtrend_db/api.py", "config/db_cash_overrides_v1.json", "config/db_corporate_events_v1.json",
-          "config/pool_exclusions_v2.csv",
+          "config/pool_exclusions_v2.csv", "config/spgi_fill_v1.json",
           "research/bt_v3/TERRA_R1/spec.json", "research/bt_v3/TERRA_R1/development_release_v1.json",
           "data/v05/raw/external/DTB3.csv")
 OUTPUTS = ("config.json", "summary.json", "daily_equity.csv", "trades.csv", "positions.csv",

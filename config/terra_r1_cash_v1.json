@@ -1,0 +1,282 @@
+{
+  "version": "terra_r1_cash_v1",
+  "scope": "TERRA_R1 development window only; 26 supplied candidate security-date rows",
+  "entries": [
+    {
+      "security_id": "CUSIP:025537101",
+      "company": "American Electric Power Co. Inc.",
+      "ex_date": "2020-02-07",
+      "database_cash": 1.4,
+      "official_cash": 0.7,
+      "status": "corrected",
+      "source_url": "https://pr.aep.com/investors/stock",
+      "evidence_note": "one quarterly cash dividend"
+    },
+    {
+      "security_id": "CUSIP:025537101",
+      "company": "American Electric Power Co. Inc.",
+      "ex_date": "2020-05-07",
+      "database_cash": 1.4,
+      "official_cash": 0.7,
+      "status": "corrected",
+      "source_url": "https://pr.aep.com/investors/stock",
+      "evidence_note": "one quarterly cash dividend"
+    },
+    {
+      "security_id": "CUSIP:025537101",
+      "company": "American Electric Power Co. Inc.",
+      "ex_date": "2020-08-07",
+      "database_cash": 1.4,
+      "official_cash": 0.7,
+      "status": "corrected",
+      "source_url": "https://pr.aep.com/investors/stock",
+      "evidence_note": "one quarterly cash dividend"
+    },
+    {
+      "security_id": "CUSIP:09260D107",
+      "company": "Blackstone Inc",
+      "ex_date": "2022-07-29",
+      "database_cash": 1.828,
+      "official_cash": 1.27,
+      "status": "corrected",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1393818/000119312522198472/d383237dex991.htm",
+      "evidence_note": "one quarterly distribution"
+    },
+    {
+      "security_id": "CUSIP:09260D107",
+      "company": "Blackstone Inc",
+      "ex_date": "2024-02-02",
+      "database_cash": 1.271,
+      "official_cash": 0.94,
+      "status": "corrected",
+      "source_url": "https://s23.q4cdn.com/714267708/files/doc_downloads/2024/02/TBG-Memo.pdf",
+      "evidence_note": "0.331 is a component of 0.94, not an additional dividend"
+    },
+    {
+      "security_id": "CUSIP:12572Q105",
+      "company": "CME Group Inc.",
+      "ex_date": "2021-12-27",
+      "database_cash": 6.5,
+      "official_cash": 3.25,
+      "status": "corrected",
+      "source_url": "https://www.cmegroup.com/media-room/press-releases/2021/12/09/cme_group_declaresannualvariabledividend.html",
+      "evidence_note": "one annual variable dividend"
+    },
+    {
+      "security_id": "CUSIP:14040H105",
+      "company": "Capital One Financial Corp.",
+      "ex_date": "2021-08-06",
+      "database_cash": 1.2,
+      "official_cash": 1.2,
+      "status": "supported_unchanged",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/927628/000092762821000259/cof-20210728.htm",
+      "evidence_note": "two genuine components: regular 0.60 plus special 0.60"
+    },
+    {
+      "security_id": "CUSIP:20825C104",
+      "company": "ConocoPhillips",
+      "ex_date": "2023-05-15",
+      "database_cash": 1.02,
+      "official_cash": 0.51,
+      "status": "corrected",
+      "source_url": "https://www.conocophillips.com/investor-relations/stock-information/dividend-history/",
+      "evidence_note": "regular dividend; variable dividend has a separate record date"
+    },
+    {
+      "security_id": "CUSIP:30161N101",
+      "company": "Exelon Corp.",
+      "ex_date": "2019-08-14",
+      "database_cash": 0.725,
+      "official_cash": 0.3625,
+      "status": "corrected",
+      "source_url": "https://investors.exeloncorp.com/stock-information/dividends-splits",
+      "evidence_note": "one quarterly dividend"
+    },
+    {
+      "security_id": "CUSIP:35671D857",
+      "company": "Freeport-McMoRan Copper & Gold Inc.",
+      "ex_date": "2022-01-13",
+      "database_cash": 0.15,
+      "official_cash": 0.15,
+      "status": "supported_unchanged",
+      "source_url": "https://investors.fcx.com/investors/stock-and-dividend-information/dividend-history/default.aspx",
+      "evidence_note": "two genuine components: base 0.075 plus variable 0.075"
+    },
+    {
+      "security_id": "CUSIP:35671D857",
+      "company": "Freeport-McMoRan Copper & Gold Inc.",
+      "ex_date": "2023-07-13",
+      "database_cash": 0.225,
+      "official_cash": 0.15,
+      "status": "corrected",
+      "source_url": "https://investors.fcx.com/investors/stock-and-dividend-information/dividend-history/default.aspx",
+      "evidence_note": "two genuine components: base 0.075 plus variable 0.075"
+    },
+    {
+      "security_id": "CUSIP:438516205",
+      "company": "Honeywell International Inc.",
+      "ex_date": "2020-05-14",
+      "database_cash": 1.8,
+      "official_cash": 0.9,
+      "status": "corrected",
+      "source_url": "https://www.honeywell.com/us/en/news/press-releases/2020/09/honeywell-to-increase-dividend-effective-in-fourth-quarter-2020",
+      "evidence_note": "0.90 quarterly until Q3 2020, 0.93 effective Q4 2020"
+    },
+    {
+      "security_id": "CUSIP:438516205",
+      "company": "Honeywell International Inc.",
+      "ex_date": "2020-08-13",
+      "database_cash": 1.8,
+      "official_cash": 0.9,
+      "status": "corrected",
+      "source_url": "https://www.honeywell.com/us/en/news/press-releases/2020/09/honeywell-to-increase-dividend-effective-in-fourth-quarter-2020",
+      "evidence_note": "0.90 quarterly until Q3 2020, 0.93 effective Q4 2020"
+    },
+    {
+      "security_id": "CUSIP:438516205",
+      "company": "Honeywell International Inc.",
+      "ex_date": "2020-11-12",
+      "database_cash": 1.86,
+      "official_cash": 0.93,
+      "status": "corrected",
+      "source_url": "https://www.honeywell.com/us/en/news/press-releases/2020/09/honeywell-to-increase-dividend-effective-in-fourth-quarter-2020",
+      "evidence_note": "0.90 quarterly until Q3 2020, 0.93 effective Q4 2020"
+    },
+    {
+      "security_id": "CUSIP:438516205",
+      "company": "Honeywell International Inc.",
+      "ex_date": "2021-02-25",
+      "database_cash": 1.86,
+      "official_cash": 0.93,
+      "status": "corrected",
+      "source_url": "https://www.honeywell.com/us/en/news/press-releases/2020/09/honeywell-to-increase-dividend-effective-in-fourth-quarter-2020",
+      "evidence_note": "0.90 quarterly until Q3 2020, 0.93 effective Q4 2020"
+    },
+    {
+      "security_id": "CUSIP:743315103",
+      "company": "Progressive Corp.",
+      "ex_date": "2018-02-01",
+      "database_cash": 2.2494,
+      "official_cash": 1.1247,
+      "status": "corrected",
+      "source_url": "https://investor.progressive.com/files/doc_financials/2018/q3/Progressive-2018-Q3.pdf",
+      "evidence_note": "annual variable dividend"
+    },
+    {
+      "security_id": "CUSIP:743315103",
+      "company": "Progressive Corp.",
+      "ex_date": "2021-12-17",
+      "database_cash": 3.0,
+      "official_cash": 1.5,
+      "status": "corrected",
+      "source_url": "https://investor.progressive.com/financials/financial-news-releases/news-details/2021/Progressive-Announces-Dividend-Information-and-2022-Annual-Meeting-Record-Date/default.aspx",
+      "evidence_note": "annual variable dividend"
+    },
+    {
+      "security_id": "CUSIP:776696106",
+      "company": "Roper Industries Inc.",
+      "ex_date": "2022-07-07",
+      "database_cash": 1.24,
+      "official_cash": 0.62,
+      "status": "corrected",
+      "source_url": "https://investors.ropertech.com/stock-information/dividends-splits",
+      "evidence_note": "quarterly dividend"
+    },
+    {
+      "security_id": "CUSIP:776696106",
+      "company": "Roper Industries Inc.",
+      "ex_date": "2023-01-06",
+      "database_cash": 1.365,
+      "official_cash": 0.6825,
+      "status": "corrected",
+      "source_url": "https://www.ropertech.com/static-files/2c90551f-cb04-4a40-bdbd-845e0985b502",
+      "evidence_note": "issuer table rounds 0.6825 to 0.683"
+    },
+    {
+      "security_id": "CUSIP:G25508105",
+      "company": "CRH PLC",
+      "ex_date": "2023-10-19",
+      "database_cash": 0.5,
+      "official_cash": 0.25,
+      "status": "corrected",
+      "source_url": "https://www.crh.com/investors/shareholder-center/dividends/",
+      "evidence_note": "one interim dividend per ordinary share"
+    },
+    {
+      "security_id": "CUSIP:G5494J103",
+      "company": "Linde plc",
+      "ex_date": "2022-06-02",
+      "database_cash": 2.34,
+      "official_cash": 1.17,
+      "status": "corrected",
+      "source_url": "https://www.linde.com/news-and-media/2022/linde-plc-linde-declares-dividend-in-second-quarter-2022",
+      "evidence_note": "same Linde event across separate historical security keys"
+    },
+    {
+      "security_id": "CUSIP:G5494J103",
+      "company": "Linde plc",
+      "ex_date": "2022-09-01",
+      "database_cash": 2.34,
+      "official_cash": 1.17,
+      "status": "corrected",
+      "source_url": "https://www.linde.com/news-and-media/2022/linde-plc-linde-declares-dividend-in-third-quarter-2022",
+      "evidence_note": "same Linde event across separate historical security keys"
+    },
+    {
+      "security_id": "CUSIP:G5494J103",
+      "company": "Linde plc",
+      "ex_date": "2022-12-01",
+      "database_cash": 2.34,
+      "official_cash": 1.17,
+      "status": "corrected",
+      "source_url": "https://www.linde.com/news-and-media/2022/linde-plc-linde-declares-dividend-in-fourth-quarter-2022",
+      "evidence_note": "same Linde event across separate historical security keys"
+    },
+    {
+      "security_id": "CUSIP:G54950103",
+      "company": "Linde PLC",
+      "ex_date": "2022-06-02",
+      "database_cash": 2.34,
+      "official_cash": 1.17,
+      "status": "corrected",
+      "source_url": "https://www.linde.com/news-and-media/2022/linde-plc-linde-declares-dividend-in-second-quarter-2022",
+      "evidence_note": "same Linde event across separate historical security keys"
+    },
+    {
+      "security_id": "CUSIP:G54950103",
+      "company": "Linde PLC",
+      "ex_date": "2022-09-01",
+      "database_cash": 2.34,
+      "official_cash": 1.17,
+      "status": "corrected",
+      "source_url": "https://www.linde.com/news-and-media/2022/linde-plc-linde-declares-dividend-in-third-quarter-2022",
+      "evidence_note": "same Linde event across separate historical security keys"
+    },
+    {
+      "security_id": "CUSIP:G54950103",
+      "company": "Linde PLC",
+      "ex_date": "2022-12-01",
+      "database_cash": 2.34,
+      "official_cash": 1.17,
+      "status": "corrected",
+      "source_url": "https://www.linde.com/news-and-media/2022/linde-plc-linde-declares-dividend-in-fourth-quarter-2022",
+      "evidence_note": "same Linde event across separate historical security keys"
+    }
+  ],
+  "supported_needs_review": [
+    {
+      "security_id": "CUSIP:09260D107",
+      "ex_date": "2023-07-28",
+      "official_cash": 0.79,
+      "decision": "Database cash amount supported; no numerical correction required",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1393818/000119312523190073/d536731dex991.htm"
+    },
+    {
+      "security_id": "CUSIP:09260D107",
+      "ex_date": "2023-10-27",
+      "official_cash": 0.8,
+      "decision": "Database cash amount supported; no numerical correction required",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1393818/000119312523258911/d515078dex991.htm"
+    }
+  ]
+}

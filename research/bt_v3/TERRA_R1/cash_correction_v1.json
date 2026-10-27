@@ -1,0 +1,11 @@
+{
+  "registration": "research/bt_v3/TERRA_R1/spec.json",
+  "kind": "sourced_input_correction_not_new_experiment",
+  "cash_config": "config/terra_r1_cash_v1.json",
+  "cash_config_sha256": "ea494313c7e9417ab32250fd95e5793cd06ef8fe681d3426f23c7b2f34723d98",
+  "candidate_rows": 26,
+  "corrected_rows": 24,
+  "unchanged_rows": 2,
+  "blackstone_2023": "two additional needs_review amounts supported; unchanged",
+  "scope": "development data at or before 2024-06-28; no grid or strategy changes"
+}

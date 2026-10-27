@@ -134,12 +134,11 @@ def build_panel(db_path=None) -> dict:
     return dict(signal_days=signal_days, calendar=calendar, universe=universe, tri=tri, lookback=lookback)
 
 
-def compute(panel: dict) -> dict:
-    """All signal x horizon statistics. Returns plain dicts ready for JSON and the markdown report."""
+def build_rows(panel: dict) -> dict[str, list[dict]]:
+    """Per signal day: one row per company with the signals and future returns that exist."""
     days = panel['signal_days']
     cal = panel['calendar']
     index = {d: i for i, d in enumerate(cal)}
-    # one pass over days and securities
     panel_rows: dict[str, list[dict]] = {}
     for i, day in enumerate(days):
         ci = index[day]
@@ -169,7 +168,59 @@ def compute(panel: dict) -> dict:
                         futures[h] = value
             rows.append(dict(sid=sid, amount=amount, signals=signals, futures=futures))
         panel_rows[day] = rows
+    return panel_rows
 
+
+def restrict_universe(panel: dict, top_m: int) -> dict:
+    """A copy of the panel keeping only the top_m companies by fund amount on each signal day."""
+    out = dict(panel)
+    out['universe'] = {day: dict(sorted(secs.items(), key=lambda kv: (-kv[1], kv[0]))[:top_m])
+                       for day, secs in panel['universe'].items()}
+    return out
+
+
+def size_momentum(panel: dict, signal: str = 'MOM_90', horizon: int = 13) -> dict:
+    """Three size terciles x five momentum quintiles: equal-weight future return, annualised."""
+    rows_by_day = build_rows(panel)
+    scale = 52.0 / horizon
+    sizes = ('large', 'mid', 'small')
+    cells = {p: {size: [[] for _ in range(5)] for size in sizes} for p in ('all', 'A', 'B')}
+    spreads = {p: {size: [] for size in sizes} for p in ('all', 'A', 'B')}
+    for day, rows in rows_by_day.items():
+        pairs = [(r['sid'], r['signals'][signal], r['futures'][horizon], r['amount'])
+                 for r in rows if signal in r['signals'] and horizon in r['futures']]
+        if len(pairs) < 30:
+            continue
+        pairs.sort(key=lambda p: (-p[3], p[0]))
+        n = len(pairs)
+        period = _period(day)
+        for size, lo, hi in (('large', 0, n // 3), ('mid', n // 3, 2 * n // 3), ('small', 2 * n // 3, n)):
+            part = sorted(pairs[lo:hi], key=lambda p: (p[1], p[0]))
+            groups = []
+            for g in range(5):
+                members = part[g * len(part) // 5:(g + 1) * len(part) // 5]
+                value = sum(m[2] for m in members) / len(members)
+                groups.append(value)
+                cells['all'][size][g].append(value)
+                if period in ('A', 'B'):
+                    cells[period][size][g].append(value)
+            spreads['all'][size].append(groups[-1] - groups[0])
+            if period in ('A', 'B'):
+                spreads[period][size].append(groups[-1] - groups[0])
+    out = dict(signal=signal, horizon=horizon, cells={}, spread={}, n={})
+    for period in ('all', 'A', 'B'):
+        out['cells'][period] = {size: [sum(v) / len(v) * scale if v else None for v in cells[period][size]]
+                                for size in sizes}
+        out['spread'][period] = {size: sum(v) / len(v) * scale if v else None
+                                 for size, v in spreads[period].items()}
+        out['n'][period] = {size: len(v) for size, v in spreads[period].items()}
+    return out
+
+
+def compute(panel: dict) -> dict:
+    """All signal x horizon statistics. Returns plain dicts ready for JSON and the markdown report."""
+    days = panel['signal_days']
+    panel_rows = build_rows(panel)
     names = list(SIGNALS) + ['MOM_252_21']
     ic_series: dict[tuple[str, int], list[tuple[str, float]]] = defaultdict(list)
     q_series: dict[tuple[str, int], list[tuple[str, list[float], float]]] = defaultdict(list)
@@ -185,7 +236,6 @@ def compute(panel: dict) -> dict:
             have = [r for r in rows if name in r['signals']]
             if len(have) < 10:
                 continue
-            # top decile membership uses the signal itself, independent of the horizon
             ranked = sorted(have, key=lambda r: (r['signals'][name], r['sid']))
             cut = max(1, len(ranked) // 10)
             top_members[name].append((day, {r['sid'] for r in ranked[-cut:]}))
@@ -203,7 +253,6 @@ def compute(panel: dict) -> dict:
                 q_series[(name, h)].append((day, q, sum(fut) / len(fut)))
                 d = _bucket(sig, fut, 10)
                 d_series[(name, h)].append((day, d, sum(fut) / len(fut)))
-                # size terciles by fund amount
                 by_amount = sorted(pairs, key=lambda p: (-p[2], p[3]))
                 n = len(by_amount)
                 terciles = {}
@@ -214,8 +263,8 @@ def compute(panel: dict) -> dict:
                         continue
                     psig = [p[0] for p in part]
                     pfut = [p[1] for p in part]
-                    terciles[label] = dict(ic=spearman(psig, pfut),
-                                           spread=_bucket(psig, pfut, 5)[-1] - _bucket(psig, pfut, 5)[0])
+                    bucket = _bucket(psig, pfut, 5)
+                    terciles[label] = dict(ic=spearman(psig, pfut), spread=bucket[-1] - bucket[0])
                 if terciles:
                     size_series[(name, h)].append((day, terciles))
 

@@ -35,6 +35,27 @@ def _hash_key(seed, day: str, sid: str) -> str:
     return hashlib.sha256(f'{seed}|{day}|{sid}'.encode()).hexdigest()
 
 
+def _percentiles(values: list[float]) -> list[float]:
+    """Average-rank percentile in [0, 1] (0 = smallest, 1 = largest; ties share the average rank)."""
+    n = len(values)
+    if n == 0:
+        return []
+    if n == 1:
+        return [0.5]
+    order = sorted(range(n), key=lambda i: values[i])
+    ranks = [0.0] * n
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and values[order[j + 1]] == values[order[i]]:
+            j += 1
+        rank = (i + j) / 2.0
+        for k in range(i, j + 1):
+            ranks[order[k]] = rank
+        i = j + 1
+    return [r / (n - 1) for r in ranks]
+
+
 @dataclass
 class Tranche:
     index: int
@@ -66,6 +87,11 @@ class Backtest:
         self.top_n = int(self.cfg['top_n']) if self.cfg.get('top_n') else None
         self.weighting = str(self.cfg.get('weighting', 'cw'))
         self.rebalance = str(self.cfg.get('rebalance', 'R2'))
+        self.top_m = int(self.cfg['top_m']) if self.cfg.get('top_m') else None
+        self.w = float(self.cfg['w']) if self.cfg.get('w') is not None else None
+        self.buy_weighting = str(self.cfg.get('buy_weighting', 'equal'))
+        self.buy_plan = self.cfg.get('buy_plan') or {}
+        self.size_fallback = 0
         self.slip = float(self.cfg.get('cost_bps', 0)) / 10000.0
         self.fee = float(self.cfg.get('fee_per_order', 1.0))
         self.capital = float(self.cfg.get('capital', 100000.0))
@@ -84,6 +110,7 @@ class Backtest:
         self.spin_value: dict[tuple[str, str], float] = {}
         self.pools: dict[str, dict] = {}
         self.pool_days: dict[str, str] = {}
+        self.amounts: dict[str, dict[str, float]] = {}
         self.issuer: dict[str, str] = {}
         self.tranches: list[Tranche] = []
         self.decisions: list[dict] = []
@@ -118,6 +145,7 @@ class Backtest:
             self.opens = cached['opens']
             self.closes = cached['closes']
             self.issuer = cached['issuer']
+            self.amounts = cached['amounts']
             self.actions = cached['actions']
             self.action_sids = list(cached['action_sids'])
             self.spin_value = cached['spin_value']
@@ -126,6 +154,7 @@ class Backtest:
         _MARKET_CACHE[key] = dict(calendar=self.calendar, full_calendar=self.full_calendar,
                                   signal_days=self.signal_days, pools=self.pools, pool_days=self.pool_days,
                                   tri=self.tri, opens=self.opens, closes=self.closes, issuer=self.issuer,
+                                  amounts=self.amounts,
                                   actions=self.actions, action_sids=list(self.action_sids),
                                   spin_value=self.spin_value)
 
@@ -141,6 +170,13 @@ class Backtest:
             self.closes = self.market['closes']
             self.issuer = self.market.get('issuer', {})
             self.actions = self.market.get('actions', {})
+            self.amounts = {}
+            for day, info in self.pools.items():
+                if 'amounts' in info:
+                    self.amounts[day] = {sid: float(row['amount_cents']) for sid, row in info['amounts'].items()}
+                else:
+                    self.amounts[day] = {sec['security_id']: float(sec.get('amount_cents', 0.0))
+                                         for sec in info.get('securities', [])}
             self._prepare_actions()
             return
         db = self.db_path
@@ -170,12 +206,23 @@ class Backtest:
                 for sid, row in amounts.items():
                     self.issuer[sid] = row['issuer_id']
         else:
+            amount_cache: dict[str, dict] = {}
             for day in self.signal_days:
                 pool = api.pool_at(day, db)
+                version = pool['version_id']
+                if version not in amount_cache:
+                    amount_cache[version] = api.pool_amounts(version, db) if version else {}
+                amounts = amount_cache[version]
                 self.pools[day] = pool
+                self.amounts[day] = {}
                 ids.update(s['security_id'] for s in pool['securities'])
                 for sec in pool['securities']:
-                    self.issuer[sec['security_id']] = sec['issuer_id']
+                    sid = sec['security_id']
+                    self.issuer[sid] = sec['issuer_id']
+                    row = amounts.get(sid)
+                    amount = float(row['amount_cents']) if row else 0.0
+                    sec['amount_cents'] = amount
+                    self.amounts[day][sid] = amount
         ids.add(BENCH)
         series = api.tri_series(sorted(ids), self.full_calendar[0], self.end, db)
         for sid, rows in series.items():
@@ -244,25 +291,63 @@ class Backtest:
         return value if value is not None else self.last_close.get(sid)
 
     # -- signals ------------------------------------------------------------------------------------------------
+    def _in_range(self, pool: dict) -> list[dict]:
+        """The scoreable universe: all securities, or the top_m companies by fund amount (largest class per company)."""
+        if not self.top_m:
+            return list(pool['securities'])
+        best: dict[str, tuple[float, str]] = {}
+        for sec in pool['securities']:
+            issuer = sec['issuer_id']
+            amount = float(sec.get('amount_cents', 0.0))
+            if issuer not in best or amount > best[issuer][0]:
+                best[issuer] = (amount, issuer)
+        ranked = sorted(best.items(), key=lambda kv: (-kv[1][0], kv[0]))[:self.top_m]
+        keep = {issuer for issuer, _ in ranked}
+        return [sec for sec in pool['securities'] if sec['issuer_id'] in keep]
+
+    def _size_groups(self, securities: list[dict]) -> list[list[str]]:
+        """Five equal-count size groups by fund amount (0 = largest), one company per issuer."""
+        best: dict[str, float] = {}
+        for sec in securities:
+            issuer = sec['issuer_id']
+            amount = float(sec.get('amount_cents', 0.0))
+            if issuer not in best or amount > best[issuer]:
+                best[issuer] = amount
+        ranked = sorted(best.items(), key=lambda kv: (-kv[1], kv[0]))
+        n = len(ranked)
+        group_of_issuer = {issuer: min(4, i * 5 // n) for i, (issuer, _) in enumerate(ranked)} if n else {}
+        groups: list[list[str]] = [[] for _ in range(5)]
+        for sec in securities:
+            group = group_of_issuer.get(sec['issuer_id'])
+            if group is not None:
+                groups[group].append(sec['security_id'])
+        return groups
+
     def _scored(self, day: str, pool: dict) -> list[tuple[str, float]]:
         i = bisect.bisect_left(self.full_calendar, day)
         if i < self.L:
             return []
         base_day = self.full_calendar[i - self.L]
-        out = []
-        for sec in pool['securities']:
+        rows = []
+        for sec in self._in_range(pool):
             sid = sec['security_id']
             series = self.tri.get(sid)
             if not series or day not in series or base_day not in series or series[base_day] <= 0:
                 continue
-            out.append((sid, series[day] / series[base_day] - 1.0))
+            rows.append((sid, series[day] / series[base_day] - 1.0, float(sec.get('amount_cents', 0.0))))
+        if self.w is None or self.w == 0:
+            out = [(sid, mom) for sid, mom, _ in rows]
+        else:
+            p_mom = _percentiles([r[1] for r in rows])
+            p_size = _percentiles([r[2] for r in rows])
+            out = [(rows[k][0], self.w * p_size[k] + (1.0 - self.w) * p_mom[k]) for k in range(len(rows))]
         out.sort(key=lambda item: (-item[1], item[0]))
         return out
 
     def _momentum_orders(self, tranche: Tranche, day: str, pool: dict) -> dict:
         ranked = self._scored(day, pool)
         rank = {sid: n + 1 for n, (sid, _) in enumerate(ranked)}
-        in_pool = {s['security_id'] for s in pool['securities']}
+        in_pool = {s['security_id'] for s in self._in_range(pool)}
         held = list(tranche.positions)
         sells, keeps = [], []
         for sid in held:
@@ -289,11 +374,15 @@ class Backtest:
     def _random_orders(self, tranche: Tranche, day: str, pool: dict) -> dict:
         """Random control (amendment 1).
 
-        Forced exits of holdings that left the pool come first. If the original configuration decided more sells
+        Forced exits of holdings that left the range come first. If the original configuration decided more sells
         than that on this signal day, the difference is drawn from the remaining holdings in hash order. Then the
-        book is filled back to N from the pool in the same hash order, skipping held names and duplicate issuers.
+        book is filled back to N in the same hash order, skipping held names and duplicate issuers.
+
+        In `random_size` mode each buy slot takes the size quintile of the original configuration's buy of the same
+        slot on that day; an empty group borrows from the nearest non-empty group and counts a fallback.
         """
-        in_pool = {s['security_id'] for s in pool['securities']}
+        range_secs = self._in_range(pool)
+        in_pool = {s['security_id'] for s in range_secs}
         held = sorted(tranche.positions)
         forced = [sid for sid in held if sid not in in_pool]
         sells = list(forced)
@@ -305,16 +394,63 @@ class Backtest:
         used_issuer = {self.issuer.get(sid, '') for sid in kept}
         candidates = [sid for sid in sorted(in_pool)
                       if sid not in tranche.positions and day in self.tri.get(sid, {})]
-        buys = []
-        for sid in sorted(candidates, key=lambda sid: _hash_key(self.seed, day, sid)):
-            if len(kept) + len(buys) >= self.N:
-                break
-            issuer = self.issuer.get(sid, '')
-            if issuer and issuer in used_issuer:
-                continue
-            buys.append(sid)
-            used_issuer.add(issuer)
+        if self.mode == 'random_size':
+            buys = self._random_size_buys(tranche, day, range_secs, kept, used_issuer)
+        else:
+            buys = []
+            for sid in sorted(candidates, key=lambda sid: _hash_key(self.seed, day, sid)):
+                if len(kept) + len(buys) >= self.N:
+                    break
+                issuer = self.issuer.get(sid, '')
+                if issuer and issuer in used_issuer:
+                    continue
+                buys.append(sid)
+                used_issuer.add(issuer)
         return dict(sells=sells, buys=buys, rank={}, keeps=kept, scores={})
+
+    def _random_size_buys(self, tranche: Tranche, day: str, range_secs: list[dict],
+                          kept: list[str], used_issuer: set[str]) -> list[str]:
+        needed = self.N - len(kept)
+        if needed <= 0:
+            return []
+        groups = self._size_groups(range_secs)
+        group_of = {sid: g for g, sids in enumerate(groups) for sid in sids}
+        base = self.buy_plan.get(f'{day}|{tranche.index}', [])
+        available = [s['security_id'] for s in range_secs
+                     if s['security_id'] not in tranche.positions and day in self.tri.get(s['security_id'], {})]
+        buys: list[str] = []
+
+        def free(sid: str) -> bool:
+            issuer = self.issuer.get(sid, '')
+            return sid not in buys and not (issuer and issuer in used_issuer)
+
+        for slot in range(needed):
+            target = group_of.get(base[slot]) if slot < len(base) else None
+            chosen = None
+            if target is not None:
+                order = []
+                for distance in range(5):
+                    for group in (target - distance, target + distance):
+                        if 0 <= group < 5 and group not in order:
+                            order.append(group)
+                for group in order:
+                    pool = [sid for sid in available if group_of.get(sid) == group and free(sid)]
+                    if pool:
+                        chosen = min(pool, key=lambda sid: _hash_key(self.seed, day, sid))
+                        if group != target:
+                            self.size_fallback += 1
+                        break
+            if chosen is None:
+                pool = [sid for sid in available if free(sid)]
+                if not pool:
+                    break
+                chosen = min(pool, key=lambda sid: _hash_key(self.seed, day, sid))
+                self.size_fallback += 1
+            buys.append(chosen)
+            issuer = self.issuer.get(chosen, '')
+            if issuer:
+                used_issuer.add(issuer)
+        return buys
 
     def _pool_targets(self, day: str) -> dict[str, float]:
         info = self.pools.get(day)
@@ -462,7 +598,7 @@ class Backtest:
 
     def _queue_momentum(self, tranche: Tranche, day: str) -> None:
         pool = self.pools[day]
-        orders = (self._random_orders(tranche, day, pool) if self.mode == 'random'
+        orders = (self._random_orders(tranche, day, pool) if self.mode in ('random', 'random_size')
                   else self._momentum_orders(tranche, day, pool))
         rank, scores = orders['rank'], orders['scores']
         for sid in orders['keeps']:
@@ -487,10 +623,22 @@ class Backtest:
             self.pending.append(dict(tranche=tranche.index, security_id=sid, side='sell', reason='signal',
                                      signal_date=day, weight=0.0))
         if orders['buys']:
-            weight = 1.0 / len(orders['buys'])
+            weights = self._buy_weights(day, orders['buys'])
             for sid in orders['buys']:
                 self.pending.append(dict(tranche=tranche.index, security_id=sid, side='buy', reason='signal',
-                                         signal_date=day, weight=weight))
+                                         signal_date=day, weight=weights[sid]))
+
+    def _buy_weights(self, day: str, buys: list[str]) -> dict[str, float]:
+        """Equal split, or a split proportional to the fund amount of each new buy (buy_weighting='amount')."""
+        if not buys:
+            return {}
+        if self.buy_weighting != 'amount':
+            return {sid: 1.0 / len(buys) for sid in buys}
+        amounts = {sid: self.amounts.get(day, {}).get(sid, 0.0) for sid in buys}
+        total = sum(amounts.values())
+        if total <= 0:
+            return {sid: 1.0 / len(buys) for sid in buys}
+        return {sid: amounts[sid] / total for sid in buys}
 
     def _queue_pool(self, tranche: Tranche, day: str) -> None:
         """Rebalance to the new target at the opening price (amendment 1)."""
@@ -626,7 +774,8 @@ class Backtest:
                 issuer = tranche.issuer_of.get(sid, '')
                 pnl[issuer] += shares * (self.close_on(sid, last_day) or 0.0) - tranche.cost.get(sid, 0.0)
         return dict(daily=self.daily, trades=self.trades, decisions=self.decisions, pnl=dict(pnl),
-                    positions=self.position_rows, issuers=dict(self.issuer), config=self.cfg)
+                    positions=self.position_rows, issuers=dict(self.issuer), config=self.cfg,
+                    size_fallback=self.size_fallback)
 
     def _positions(self) -> list[dict]:
         rows = []

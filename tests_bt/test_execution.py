@@ -78,3 +78,42 @@ def test_close_execution_records_the_first_day():
     out = Backtest(cfg(execution='close'), market=mk).run()
     assert out['daily'][0]['date'] == dates()[0]
     assert out['daily'][-1]['equity'] > 0
+
+
+def drift_market():
+    """A rises, B is flat: weights drift, but the ranking never changes (no turnover)."""
+    cal = dates(20)
+    tri_a = {d: 1.0 + 0.01 * i for i, d in enumerate(cal)}
+    tri_b = {d: 1.0 for d in cal}
+    bench = {d: 1.0 + 0.001 * i for i, d in enumerate(cal)}
+    pools = {cal[i]: dict(version_id='v', securities=[dict(security_id='A', issuer_id='IA'),
+                                                     dict(security_id='B', issuer_id='IB')])
+             for i in (4, 9, 14)}
+    return dict(calendar=cal, signal_days=[cal[4], cal[9], cal[14]], pools=pools,
+                tri={'A': tri_a, 'B': tri_b, 'BENCH:VOO': bench},
+                opens={'A': dict(tri_a), 'B': dict(tri_b), 'BENCH:VOO': {d: 100.0 for d in cal}},
+                closes={'A': dict(tri_a), 'B': dict(tri_b), 'BENCH:VOO': {d: 100.0 for d in cal}},
+                issuer={'A': 'IA', 'B': 'IB'})
+
+
+def test_r1w_rebalances_on_a_week_without_turnover():
+    mk = drift_market()
+    cal = dates()
+    cfg_base = dict(protocol='research_v1', run_id='unit', start=cal[0], end=cal[-1], mode='momentum',
+                    L=2, N=2, b=1, K=1, cost_bps=0, fee_per_order=0.0, capital=1000.0,
+                    fractional=True, execution='close')
+    out_r1 = Backtest(dict(cfg_base, rebalance='R1'), market=mk).run()
+    out_r1w = Backtest(dict(cfg_base, rebalance='R1W'), market=mk).run()
+    assert cal[9] not in {t['date'] for t in out_r1['trades']}
+    assert cal[9] in {t['date'] for t in out_r1w['trades']}
+
+
+def test_r1w_ends_each_check_day_at_equal_weight():
+    mk = drift_market()
+    cal = dates()
+    out = Backtest(dict(protocol='research_v1', run_id='unit', start=cal[0], end=cal[-1], mode='momentum',
+                        L=2, N=2, b=1, K=1, cost_bps=0, fee_per_order=0.0, capital=1000.0,
+                        fractional=True, execution='close', rebalance='R1W'), market=mk).run()
+    for day in (cal[4], cal[9], cal[14]):
+        values = {r['security_id']: r['value'] for r in out['positions'] if r['date'] == day}
+        assert values['A'] == pytest.approx(values['B'], rel=1e-9)

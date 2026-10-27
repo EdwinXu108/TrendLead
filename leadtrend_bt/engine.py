@@ -820,7 +820,7 @@ class Backtest:
             notionals = sum(o['notional'] for o in orders if o.get('notional') is not None)
             scale = min(1.0, available / notionals) if notionals > 0 else 1.0
             for order in orders:
-                if self.terra_r1 and self.mode not in POOL_MODES:
+                if self.terra_r1 and self.mode not in POOL_MODES and order.get('reason') != 'rebalance':
                     sid = order['security_id']
                     issuer = self.issuer.get(sid, '')
                     if sid in tranche.positions or (issuer and issuer in tranche.issuer_of.values()):
@@ -907,14 +907,17 @@ class Backtest:
             self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid, action='buy',
                                        rank=rank.get(sid, ''), score=scores.get(sid, ''),
                                        window_missing=orders['missing'].get(sid, 0)))
-        if self.rebalance == 'R1':
-            # restore equal weight over the post-trade book, and only on a check day that changes a holding
-            if orders['sells'] or orders['buys']:
+        if self.rebalance in ('R1', 'R1W'):
+            # restore equal weight over the post-trade book.
+            # R1: only on a check day that changes a holding. R1W: on every check day.
+            if self.rebalance == 'R1W' or orders['sells'] or orders['buys']:
                 target = sorted(set(orders['keeps']) | set(orders['buys']))
                 nxt = bisect.bisect_right(self.calendar, day)
-                if target and nxt < len(self.calendar):
+                price_day = day if self.execution == 'close' else (
+                    self.calendar[nxt] if nxt < len(self.calendar) else None)
+                if target and price_day:
                     self._queue_target_values(tranche, day, {sid: 1.0 / len(target) for sid in target},
-                                              'rebalance', record=False, price_day=self.calendar[nxt])
+                                              'rebalance', record=False, price_day=price_day)
             return
         for sid in orders['sells']:
             replacement = any(self.issuer.get(buy) == self.issuer.get(sid) for buy in orders['buys'])

@@ -176,3 +176,22 @@ def test_pool_rebalancing_keeps_cash_non_negative_with_costs():
     for row in out['daily']:
         assert row['cash'] >= -1e-9
         assert row['equity'] == pytest.approx(row['cash'] + row['positions_value'], abs=1e-9)
+
+
+def test_a_deferred_exit_does_not_push_the_random_book_above_n():
+    """The exit has no opening price on the fill day, so it is deferred; the vacant slot must not be filled twice."""
+    series = {sid: [10.0] * 20 for sid in ('A', 'B', 'C', 'D')}
+    series['BENCH:VOO'] = [1.0] * 20
+    mk = market(series, signal_idx=(4, 9))
+    cal = mk['calendar']
+    p1 = [dict(security_id=s, issuer_id='I' + s) for s in ('A', 'B', 'C')]
+    p2 = [dict(security_id=s, issuer_id='I' + s) for s in ('A', 'B', 'D')]
+    mk['pools'] = {cal[4]: dict(version_id='v1', securities=p1), cal[9]: dict(version_id='v2', securities=p2)}
+    mk['opens']['C'].pop(cal[10])                       # the exit cannot fill on the day after the signal
+    cfg = base_cfg(N=3, b=2, L=1, mode='random', seed=0, plan={f'{cal[9]}|0': 1})
+    out = Backtest(cfg, market=mk).run()
+    on_day = [row['security_id'] for row in out['positions'] if row['date'] == cal[10]]
+    assert sorted(on_day) == ['A', 'B', 'C']
+    assert not [t for t in out['trades'] if t['date'] == cal[10] and t['security_id'] == 'D']
+    deferred = [t for t in out['trades'] if t['security_id'] == 'C' and t['side'] == 'sell']
+    assert deferred and deferred[0]['date'] == cal[11]

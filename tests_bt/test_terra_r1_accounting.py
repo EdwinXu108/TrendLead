@@ -172,3 +172,20 @@ def test_pool_open_uses_previous_close_when_open_is_missing():
     bt.closes = {'A': {'2024-01-08': 100}}
     bt._queue_target_values(t, '2024-01-08', {'A': .5, 'B': .5}, 'version')
     assert next(o for o in bt.pending if o['security_id'] == 'B')['notional'] == 50
+
+
+def test_vernova_uses_verified_child_close_in_signal_and_ledger():
+    bt = Backtest(base_cfg(protocol='terra_r1_v1'))
+    sid = 'CUSIP:369604301'
+    bt.tri = {sid: {'2024-04-01': 1, '2024-04-02': 1}}
+    bt.closes = {sid: {'2024-04-01': 175.36, '2024-04-02': 136.47},
+                 'CUSIP:36828A101': {'2024-04-02': 140}}
+    bt.actions = {sid: [dict(action_date='2024-04-02', action_type='spinoff',
+                             ratio=None, cash_amount=None, vendor_factor=.7975308)]}
+    bt._prepare_terra_event_explanation()
+    expected = (136.47 + 35) / (136.47 + (1-.7975308)*175.36)
+    assert bt.tri[sid]['2024-04-02'] == pytest.approx(expected)
+    bt.tranches = [Tranche(0, 0, positions={sid: 4}, issuer_of={sid: 'I'})]
+    bt.action_sids = [sid]
+    bt._apply_actions('2024-04-02')
+    assert bt.pending_distributions[0]['per_share'] == 35

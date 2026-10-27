@@ -22,6 +22,8 @@ EVENTS = Path('config/terra_r1_events_v1.json')
 IDS = ('MOM_EQ', 'MOM_AMT', 'SIZE_EQ', 'SIZE_AMT', 'POOL_AMT', 'TOP10_AMT', 'TOP10_EQ')
 REGISTRATION = '6dc6979'
 SEED = 20261027
+PRIOR_FINGERPRINT = '32a6ab2dfb862e07ee346f1fe24cefbc145ef7294b3fae899ffd54bda4689e4e'
+PRIOR_COMMIT = 'f504c82d807f9deb7495562c0761a5ae2dd98d8b'
 
 
 def sha(p):
@@ -154,7 +156,8 @@ def main():
     pool_market=market_snapshot(pool_loader)
     prep=ROOT/'prepared'; prep.mkdir(exist_ok=True)
     for sid, filename in [('CIKCLS:0001288776:CL_A','google_a_derived_tri.csv'),
-                          ('CUSIP:26614N201','dowdupont_derived_tri.csv')]:
+                          ('CUSIP:26614N201','dowdupont_derived_tri.csv'),
+                          ('CUSIP:369604301','ge_derived_tri.csv')]:
         write_csv(prep/filename,['date','tri'],[{'date':d,'tri':v} for d,v in signal_market['tri'].get(sid,{}).items()])
     plan=[config(name,bps,sigdays[0]) for name in IDS for bps in (5,10)]
     plan += [config(name,10,sigdays[s],s) for name in IDS[:4] for s in range(1,5)]
@@ -169,8 +172,26 @@ def main():
     for cfg in plan:
         rid=cfg['run_id']; out=ROOT/'runs'/rid; marker=out/'complete.json'
         item=dict(id=rid,status='not_started')
-        if marker.exists() and json.loads(marker.read_text(encoding='utf8')).get('fingerprint')==fingerprint:
+        old_marker=json.loads(marker.read_text(encoding='utf8')) if marker.exists() else {}
+        failure=out/'failure.json'
+        old_failure=json.loads(failure.read_text(encoding='utf8')) if failure.exists() else {}
+        unaffected_mode=cfg['ranking']=='size' or cfg['mode']=='pool'
+        actions_file=out/'corporate_actions.csv'
+        no_ge_exposure=(actions_file.exists() and not any(
+            r['security_id']=='CUSIP:369604301' and r['date']=='2024-04-02'
+            for r in read_csv(actions_file)))
+        if old_marker.get('fingerprint')==fingerprint:
             item['status']='complete_cached'
+        elif old_marker.get('fingerprint')==PRIOR_FINGERPRINT and unaffected_mode and no_ge_exposure:
+            # Size ranking only uses the completeness of GE's TRI, not its value. Structural baselines do not
+            # score it. Neither held GE on the event date, so the verified child value cannot affect their paths.
+            item.update(status='complete_reused_unaffected',source_commit=PRIOR_COMMIT,
+                        source_fingerprint=PRIOR_FINGERPRINT,
+                        reason='GE event not held; ranking does not use TRI values')
+        elif (old_failure.get('fingerprint')==PRIOR_FINGERPRINT and cfg['mode']=='pool'
+              and 'CUSIP:H1467J104 2015-12-01' in old_failure.get('error','')):
+            item.update(status='blocked_missing_prices',reason=old_failure['error'],source_commit=PRIOR_COMMIT,
+                        source_fingerprint=PRIOR_FINGERPRINT)
         else:
             bt=Backtest(cfg,db_path=DB,market=pool_market if cfg['mode']=='pool' else signal_market)
             try:

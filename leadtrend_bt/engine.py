@@ -242,7 +242,7 @@ class Backtest:
                     sec['amount_cents'] = amount
                     self.amounts[day][sid] = amount
         if self.terra_r1:
-            ids.update(('CIKCLS:0001288776:CL_C', 'CUSIP:260557103', 'CUSIP:22052L104'))
+            ids.update(('CIKCLS:0001288776:CL_C', 'CUSIP:260557103', 'CUSIP:22052L104', 'CUSIP:36828A101'))
         ids.add(BENCH)
         series = api.tri_series(sorted(ids), self.full_calendar[0], self.end, db)
         for sid, rows in series.items():
@@ -308,6 +308,23 @@ class Backtest:
                 if row['action_date'] == day and row['action_type'] == 'class_distribution':
                     row.update(child_security_id=child, child_ratio=event['child_shares_per_parent'],
                                source_url=event['source'])
+        event = config['ge_vernova_2024']
+        parent, child, day = event['parent_security_id'], event['child_security_id'], event['ex_date']
+        series = self.tri.get(parent, {})
+        if day in series:
+            close = self.closes.get(parent, {}).get(day)
+            child_close = self.closes.get(child, {}).get(day)
+            prior = [d for d in self.closes.get(parent, {}) if d < day]
+            rows = [r for r in self.actions.get(parent, []) if r['action_date'] == day and r['action_type'] == 'spinoff']
+            if not close or not child_close or not prior or not rows or rows[0].get('vendor_factor') is None:
+                raise DataGapError(f'{parent} {day}: documented child valuation missing')
+            prev_close = self.closes[parent][max(prior)]
+            old_value = (1 - rows[0]['vendor_factor']) * prev_close
+            value = child_close * event['child_shares_per_parent']
+            correction = (close + value) / (close + old_value)
+            self.tri[parent] = {d: v * correction if d >= day else v for d, v in series.items()}
+            rows[0].update(child_security_id=child, child_ratio=event['child_shares_per_parent'],
+                           source_url=event['source'])
         event = config['dowdupont_2019']
         parent = event['parent_security_id']
         series = self.tri.get(parent, {})

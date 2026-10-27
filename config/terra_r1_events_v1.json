@@ -11,6 +11,14 @@
       "valuation": "raw child close on ex-date; available for spending next session"
     }
   ],
+  "ge_vernova_2024": {
+    "parent_security_id": "CUSIP:369604301",
+    "child_security_id": "CUSIP:36828A101",
+    "ex_date": "2024-04-02",
+    "child_shares_per_parent": 0.25,
+    "source": "https://www.sec.gov/Archives/edgar/data/40545/000004054524000088/ge-20240402.htm",
+    "valuation": "raw child close on ex-date; available for spending next session"
+  },
   "dowdupont_2019": {
     "parent_security_id": "CUSIP:26614N201",
     "suppressed_vendor_splits": ["2019-04-01", "2019-04-02"],

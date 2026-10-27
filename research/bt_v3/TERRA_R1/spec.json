@@ -1,0 +1,129 @@
+{
+  "experiment_id": "TERRA_R1",
+  "protocol_version": "terra_r1_v1",
+  "status": "preregistered_before_new_returns",
+  "prior_history": "修复并重算已看过的开发段；research/bt_v2/trials.csv 保留累计试验记录，旧随机结果不作为本协议百分位。非独立样本验证，不选最终策略。",
+  "question": "同一历史池、可评分样本及执行规则下比较动量与基金公司金额排名，并比较新买入资金等额与按公司金额分配。规则产生的其他暴露并未完全控制。",
+  "non_goals": [
+    "不研究完整风格归因或最终实盘策略",
+    "不使用行业或板块",
+    "不使用保留段",
+    "不新增参数网格或随机对照"
+  ],
+  "data": {
+    "database": "data/db/leadtrend_db_v1.sqlite",
+    "schema": 6,
+    "pool_rule": "top200_v2",
+    "database_meta_sha256": "97b55e453e09b5e40570ab5ab9ae9d6e317131ab448c9b11ec719cc3d06bde6f",
+    "database_file_sha256": "7564971e17d828289fdf46cb04413fce3d1ec60faac5461d5376774ce9751e87",
+    "raw_manifest_sha256": "493e0758679992d9564cba25a9236da4e5e0dc392ad0657625ba1c719801fa13",
+    "pool_exclusions_sha256": "e3bf296ab284eddada2a6f487f48cdc7bbe9de840a3a98651e3e6e1acdf7445e",
+    "spinoff_overrides_sha256": "7fb5bd414b6a2831042d67c0aaf61647fa77354aecec1adb057c80d0ec3ba574",
+    "benchmark_config_sha256": "d5bfddd7b87a12289e829a993ae1abd4166d83cceb70907d21028228acf0d9aa",
+    "prior_trials_sha256": "6d08709316cecab00053239898e7722599a3f48b779049fcab26cf973edea402"
+  },
+  "window": {
+    "signal_start": "2014-02-28",
+    "entry_open": "2014-03-03",
+    "end_close": "2024-06-28",
+    "boundary_close": "2019-11-29",
+    "a": "首个开盘至边界收盘",
+    "b": "边界收盘之后至结束收盘",
+    "annualization": "252交易日；首开盘至首收盘计1日",
+    "partial_years": [
+      2014,
+      2024
+    ]
+  },
+  "main_common": {
+    "N": 10,
+    "K": 4,
+    "L": 90,
+    "buffer": 2,
+    "rebalance": "R2",
+    "signal": "每周最后交易日收盘；子账户按相位每4周检查",
+    "execution": "下个交易日开盘先卖后买；整股；无开盘顺延；不超额或重复排队",
+    "qualification": "代表证券先确定；同一历史证券91个NYSE交易日TRI完整",
+    "representative": "每公司当期可选类别金额最大，同额按历史security_id；公司金额为top200_companies.amount_cents"
+  },
+  "configurations": {
+    "MOM_EQ": {
+      "rank": "90日总回报",
+      "new_buy_weight": "equal"
+    },
+    "MOM_AMT": {
+      "rank": "90日总回报",
+      "new_buy_weight": "company_amount"
+    },
+    "SIZE_EQ": {
+      "rank": "company_amount",
+      "new_buy_weight": "equal"
+    },
+    "SIZE_AMT": {
+      "rank": "company_amount",
+      "new_buy_weight": "company_amount"
+    },
+    "POOL_AMT": {
+      "rank": "all",
+      "weight": "company_amount"
+    },
+    "TOP10_AMT": {
+      "rank": "company_amount top10",
+      "weight": "company_amount"
+    },
+    "TOP10_EQ": {
+      "rank": "company_amount top10",
+      "weight": "equal"
+    }
+  },
+  "baselines": "公开版本生效时开盘按目标差额交易，小数股，初始2014-03-03；无可评分历史条件，不替换缺价证券。仅结构参照。",
+  "costs": {
+    "capital_usd": 100000,
+    "commission_usd_per_order": 1,
+    "single_side_bps": [
+      5,
+      10
+    ],
+    "slippage_and_spread": "单项合并假设，不重复计费",
+    "tax": 0,
+    "cash_return": 0,
+    "voo": "同资本共同起点开盘入场，无交易成本，总回报单位，入场日无除权前分红权"
+  },
+  "corporate_actions": {
+    "ordinary_splits": "真实比例；待执行订单与可比价格同步调整",
+    "cash_dividend": "除权前持仓除权日入账",
+    "distributions": "权益收盘估值、模拟现金化，扣该配置卖出滑点及每笔1美元；次交易日开盘可用；无法估值不提前花费",
+    "google_2014": {
+      "parent": "CIKCLS:0001288776:CL_A",
+      "child": "CIKCLS:0001288776:CL_C",
+      "ratio": 1,
+      "event_date": "2014-04-03",
+      "child_close": 569.74,
+      "source": "https://www.sec.gov/Archives/edgar/data/1288776/000112760214030060/xslF345X03/form4.xml",
+      "listing_source": "https://www.sec.gov/Archives/edgar/data/1288776/000128877614000040/goog10-qq12014.htm",
+      "evidence": "Google Form 4: 2014-03-27 record, 2014-04-02 payment; 10-Q: C listed 2014-04-03; raw child close database",
+      "available_at": "2014-04-03 close"
+    },
+    "other_spinoffs": "有子股收盘及比例优先；否则保留vendor factor或开盘缺口代理并明确标记；重大未解决权益导致结论证据不足",
+    "signal_and_ledger": "同一事件解释；仅在work生成派生TRI，信号不含策略费"
+  },
+  "missing": "单日缺收盘无行动则此前收盘标记stale；无开盘不成交；连续第二日缺收盘停止该运行；事件时先处理可比权益；不可模拟的基线证券不得跳过或补位。",
+  "runs": {
+    "base": "7配置各5bp和10bp，共14",
+    "shift": "四主配置10bp信号起点推迟1至4周，共16；对应VOO同起点开盘；不挑最佳起点",
+    "total": 30
+  },
+  "comparisons": [
+    "MOM_EQ - SIZE_EQ",
+    "MOM_AMT - SIZE_AMT",
+    "MOM_AMT - MOM_EQ",
+    "SIZE_AMT - SIZE_EQ",
+    "(MOM_AMT - MOM_EQ) - (SIZE_AMT - SIZE_EQ)"
+  ],
+  "statistics": {
+    "metric": "10bp按总资本净CAGR减同期VOO CAGR；配对比较以百分点计，全期及A/B分别报告",
+    "bootstrap": "10bp基础路径共同ISO周净收益，保存周交易日数；循环移动块13周，5000次，seed 20261027，分全期/A/B独立抽样；对累积对数收益与抽取交易日数按252日年化",
+    "intervals": "普通95%；五个配对一族Bonferroni 99%边际区间，分段、成本、起点及历史试验未全面校正；条件于已实现开发段路径，不是保留段验证"
+  },
+  "reporting": "记录每日资产及权益流水、交易、决策、持仓、事件影响、对账和集中度；跨子账户先合并；完整及部分自然年分列；风险指标含同期VOO及日期；不声称因果隔离或选择赢家。"
+}

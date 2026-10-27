@@ -6,21 +6,24 @@
 
 | 项 | 值 |
 |---|---|
-| 正式库 | `data/db/leadtrend_db_v1.sqlite`（发布标识 `development_release_v1`，股票池规则 `top200_v2`） |
-| 文件 SHA256 | `c1a508a5b3fb219d526d0c935e5e5b60ac385c9134c887c189909deb08bf0147` |
-| 内容 SHA256 | `092f9076a27554d8d7c228f4d70595159cb3a45ad59cd5a646eb38afd6cd412e`（`meta.content_sha256`） |
+| 正式库 | `data/db/leadtrend_db_v1.sqlite`（发布标识 `development_release_v1` + `pool_exclusions_v2`，股票池规则 `top200_v2`） |
+| 文件 SHA256 | `83c71cbea1f3a3bbaf40405a2c9cbcae0b754d9e10cbf773beb85fc0d6d840ae` |
+| 内容 SHA256 | `82426047a567879ab22e9e122395fe7b9dbc4adea2d9e28fafc0b011f9bd7b8d`（`meta.content_sha256`） |
 | 回测协议 | `research_v1`（默认）。`legacy_v1` 只用于复现旧结果，必须显式指定 |
 | 数据接口 | `leadtrend_db/api.py`（只读） |
 | 回测引擎 | `leadtrend_bt/`（`engine.py` 规则，`runner.py` 输出，`cache.py` 带校验的缓存入口） |
 | 开发段 | 2014-02-28 至 2024-06-28（股票池首期 2013-12-31；行情从 2012-12 起，供回看） |
 
-**正式库坏了或丢了**，从封存基库重新迁移，约 2 分钟，结果逐字节相同：
+**2026-10-27 投资者排除两个证券：** ACE Ltd（`CUSIP:H1467J104`）与 Comcast Special A（`CIKCLS:0001166691:CL_A_SPECIAL`）不再进入任何季度的股票池，理由与登记见 `config/pool_exclusions_v2.csv`。只改策略名单（`strategy_securities`、`strategy_companies`）与描述性的 `corr_groups`，价格、TRI、公司行动与覆盖事实一律未动；`meta.pool_exclusion_release = pool_exclusions_v2`，配置哈希记在 `meta.pool_exclusion_config_sha256`。Comcast 公司保留（CMCSA 不受影响）。
+
+**正式库坏了或丢了**，从封存基库按两步重新迁移，结果逐字节相同：
 
 ```powershell
-python -X utf8 -B -m leadtrend_db.development_release --base data/db/releases/leadtrend_db_base_7564971e.sqlite --out work/rebuilt.sqlite --manifest work/rebuilt_manifest.json
+python -X utf8 -B -m leadtrend_db.development_release --base data/db/releases/leadtrend_db_base_7564971e.sqlite --out work/rebuilt_v1.sqlite --manifest work/rebuilt_v1_manifest.json
+python -X utf8 -B -m leadtrend_db.pool_exclusion_release --base work/rebuilt_v1.sqlite --out work/rebuilt.sqlite --manifest work/rebuilt_manifest.json
 ```
 
-确认无误后再替换 `data/db/leadtrend_db_v1.sqlite`。
+第一步约 2 分钟。确认无误后再替换 `data/db/leadtrend_db_v1.sqlite`。`data/db/releases/leadtrend_db_development_v1_c1a508a5.sqlite` 是排除前的 v1 快照，只作对照，不要用于研究。
 
 ## 2. 必须遵守
 
@@ -94,10 +97,11 @@ print(out['status'], out['summary']['excess_cagr'])
 
 ## 6. 已知限制
 
-- **ACE（Chubb，CUSIP:H1467J104）2015-11-30 至 2016-01-14 缺 32 个交易日行情。**当时它排在第 116–124 名：
-  - `pool` 模式的 `top_n` 超过约 115 时（含全池）会报 `DataGapError` 并停止，前 10、20、50、100 家不受影响；
-  - 动量配置不受影响（缺价期间不满足完整回看，不参与评分）；
-  - 怎么处理（例如把这几个季度从股票池中去掉）需投资者决定。
+- **ACE 与 CMCSK 已于 2026-10-27 移出股票池**（见第 1 节），它们原先的缺价不再影响任何运行。
+- **剩余的行情缺口（开发段内、且当时可选）：**
+  - SPGI（`CUSIP:78409V104`）2016-04-28 至 2016-05-23 缺 18 个交易日，当时排第 155 名：`pool` 模式的 `top_n` 超过约 155 时（含全池）会报 `DataGapError` 并停止；动量配置不受影响（缺价期间不参与评分）；
+  - BIIB 2020-11-06、REGN 2015-06-09、VRTX 2015-05-12 各缺 1 个交易日：这些证券在之后 L 个交易日内无法评分；持有中缺 1 天按最后收盘价标市（`positions.csv` 的 `stale`），连续缺 2 天会报错停止。
+  - 这四处都已用 yfinance 复核：SPGI 的 18 天在 Yahoo 有真实行情（但 Yahoo 把 SPGI 历史按一个错误的 1057:1000 拆股缩放了 5.7%，水平不能直接使用）；BIIB/REGN/VRTX 那三天在 Yahoo 只是平盘占位行（开高低收相同、成交量异常小），没有真实价格。
 - **遇到未解决的公司行动会报错停止，不会默默算错。**目前开发段没有未解决的公司行动。
 - **少数分拆仍按有标识的代理估值**（复权因子或开盘缺口），见 `corporate_actions.resolution`。
-- **新库与旧库的经济结果：**TERRA_R1 的 28 条运行已核对，复用成立（见 `work/handoff/` 中的审阅记录）。
+- **新库与旧库的经济结果：**TERRA_R1 的 28 条运行已核对，复用成立（见 `work/handoff/` 中的审阅记录）。排除 ACE/CMCSK 后，`MOM_EQ_10bp` 的成交、每日权益、持仓与公司行动现金流逐字节不变（仅 `weekly_decisions` 的排名与 `score_counts` 的池内公司数变化）。

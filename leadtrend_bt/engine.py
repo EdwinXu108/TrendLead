@@ -23,7 +23,7 @@ from leadtrend_db import api
 
 LAST_ALLOWED_END = '2024-06-28'
 BENCH = 'BENCH:VOO'
-POOL_MODES = ('pool_ew', 'pool_cw', 'top10_cw')
+POOL_MODES = ('pool_ew', 'pool_cw', 'top10_cw', 'pool')
 _MARKET_CACHE: dict[tuple, dict] = {}      # read-only market data shared by runs with the same window
 
 
@@ -63,6 +63,9 @@ class Backtest:
         self.N = int(self.cfg.get('N', 10))
         self.b = float(self.cfg.get('b', 2))
         self.K = int(self.cfg.get('K', 1))
+        self.top_n = int(self.cfg['top_n']) if self.cfg.get('top_n') else None
+        self.weighting = str(self.cfg.get('weighting', 'cw'))
+        self.rebalance = str(self.cfg.get('rebalance', 'R2'))
         self.slip = float(self.cfg.get('cost_bps', 0)) / 10000.0
         self.fee = float(self.cfg.get('fee_per_order', 1.0))
         self.capital = float(self.cfg.get('capital', 100000.0))
@@ -324,11 +327,14 @@ class Backtest:
             if issuer not in best or amount > best[issuer][0]:
                 best[issuer] = (amount, sid)
         chosen = {sid: amount for amount, sid in best.values()}
-        if self.mode == 'top10_cw':
-            chosen = dict(sorted(chosen.items(), key=lambda kv: (-kv[1], kv[0]))[:10])
+        top_n = 10 if self.mode == 'top10_cw' else (self.top_n if self.mode == 'pool' else None)
+        if top_n and len(chosen) > top_n:
+            chosen = dict(sorted(chosen.items(), key=lambda kv: (-kv[1], kv[0]))[:top_n])
         if not chosen:
             return {}
-        if self.mode == 'pool_ew':
+        weighting = ('ew' if self.mode == 'pool_ew' else
+                     ('cw' if self.mode in ('pool_cw', 'top10_cw') else self.weighting))
+        if weighting == 'ew':
             return {sid: 1.0 / len(chosen) for sid in chosen}
         total = sum(chosen.values())
         return {sid: value / total for sid, value in chosen.items()}
@@ -465,11 +471,21 @@ class Backtest:
         for sid in orders['sells']:
             self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid, action='sell',
                                        rank=rank.get(sid, ''), score=scores.get(sid, '')))
-            self.pending.append(dict(tranche=tranche.index, security_id=sid, side='sell', reason='signal',
-                                     signal_date=day, weight=0.0))
         for sid in orders['buys']:
             self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid, action='buy',
                                        rank=rank.get(sid, ''), score=scores.get(sid, '')))
+        if self.rebalance == 'R1':
+            # restore equal weight over the post-trade book, and only on a check day that changes a holding
+            if orders['sells'] or orders['buys']:
+                target = sorted(set(orders['keeps']) | set(orders['buys']))
+                nxt = bisect.bisect_right(self.calendar, day)
+                if target and nxt < len(self.calendar):
+                    self._queue_target_values(tranche, day, {sid: 1.0 / len(target) for sid in target},
+                                              'rebalance', record=False, price_day=self.calendar[nxt])
+            return
+        for sid in orders['sells']:
+            self.pending.append(dict(tranche=tranche.index, security_id=sid, side='sell', reason='signal',
+                                     signal_date=day, weight=0.0))
         if orders['buys']:
             weight = 1.0 / len(orders['buys'])
             for sid in orders['buys']:
@@ -477,21 +493,26 @@ class Backtest:
                                          signal_date=day, weight=weight))
 
     def _queue_pool(self, tranche: Tranche, day: str) -> None:
-        """Rebalance to the new target at the opening price (amendment 1).
+        """Rebalance to the new target at the opening price (amendment 1)."""
+        self._queue_target_values(tranche, day, self._pool_targets(day), 'version')
 
-        Target value = weight x the account's equity at the opening price. Only the difference between the target
-        value and the current value is traded, so a security whose target has not changed produces no order and no
-        fee. Exits come first, then the differences; a difference of zero (within a micro-dollar) is not traded.
+    def _queue_target_values(self, tranche: Tranche, day: str, target: dict[str, float], reason: str,
+                             record: bool = True, price_day: str | None = None) -> None:
+        """Trade only the difference between each target value and the current value at the opening price.
+
+        Target value = weight x the account's equity at the opening price. Exits come first, then the differences;
+        a difference of zero (within a micro-dollar) is not traded. `record` writes an order row to
+        weekly_decisions.csv (pool versions do; an R1 rebalance of already-decided holdings does not).
         """
-        target = self._pool_targets(day)
         if not target:
             return
         self.pending = [o for o in self.pending if o['tranche'] != tranche.index or o['side'] == 'sell']
-        prices = {sid: self.opens.get(sid, {}).get(day) for sid in set(tranche.positions) | set(target)}
+        price_day = day if price_day is None else price_day
+        prices = {sid: self.opens.get(sid, {}).get(price_day) for sid in set(tranche.positions) | set(target)}
         equity = tranche.cash
         for sid, shares in tranche.positions.items():
             price = prices.get(sid)
-            equity += shares * (price if price is not None else (self.close_on(sid, day) or 0.0))
+            equity += shares * (price if price is not None else (self.close_on(sid, price_day) or 0.0))
         tolerance = 1e-6
         target_value = {sid: weight * equity for sid, weight in target.items()}
         for sid in sorted(tranche.positions):
@@ -499,22 +520,25 @@ class Backtest:
             want = target_value.get(sid, 0.0)
             if price is None or price <= 0:
                 if want <= 0.0:                      # an exit without a price waits for the next session
-                    self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid,
-                                               action='sell', rank='', score=''))
+                    if record:
+                        self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid,
+                                                   action='sell', rank='', score=''))
                     self.pending.append(dict(tranche=tranche.index, security_id=sid, side='sell',
-                                             reason='version', signal_date=day, shares=None))
+                                             reason=reason, signal_date=day, shares=None))
                 continue
             delta = want - tranche.positions[sid] * price
             if delta < -tolerance:
                 shares = min(tranche.positions[sid], -delta / price)
-                self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid,
-                                           action='sell', rank='', score=''))
-                self.pending.append(dict(tranche=tranche.index, security_id=sid, side='sell', reason='version',
+                if record:
+                    self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid,
+                                               action='sell', rank='', score=''))
+                self.pending.append(dict(tranche=tranche.index, security_id=sid, side='sell', reason=reason,
                                          signal_date=day, shares=shares))
             elif delta > tolerance:
-                self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid,
-                                           action='buy', rank='', score=''))
-                self.pending.append(dict(tranche=tranche.index, security_id=sid, side='buy', reason='version',
+                if record:
+                    self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid,
+                                               action='buy', rank='', score=''))
+                self.pending.append(dict(tranche=tranche.index, security_id=sid, side='buy', reason=reason,
                                          signal_date=day, notional=delta))
         for sid in sorted(target):
             if sid in tranche.positions:
@@ -522,9 +546,10 @@ class Backtest:
             price = prices.get(sid)
             if price is None or price <= 0 or target_value[sid] <= tolerance:
                 continue
-            self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid,
-                                       action='buy', rank='', score=''))
-            self.pending.append(dict(tranche=tranche.index, security_id=sid, side='buy', reason='version',
+            if record:
+                self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid,
+                                           action='buy', rank='', score=''))
+            self.pending.append(dict(tranche=tranche.index, security_id=sid, side='buy', reason=reason,
                                      signal_date=day, notional=target_value[sid]))
 
     # -- main loop ----------------------------------------------------------------------------------------------

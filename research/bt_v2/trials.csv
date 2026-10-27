@@ -1,0 +1,29 @@
+config_id,level,mode,top_n,weighting,L,N,K,b,rebalance,start,end,costs,random,shifts
+TOPN_CW_10,0,pool,10,cw,,,,,,2014-02-28,2024-06-28,"5,10",,
+TOPN_CW_20,0,pool,20,cw,,,,,,2014-02-28,2024-06-28,"5,10",,
+TOPN_CW_50,0,pool,50,cw,,,,,,2014-02-28,2024-06-28,"5,10",,
+TOPN_CW_100,0,pool,100,cw,,,,,,2014-02-28,2024-06-28,"5,10",,
+TOPN_CW_200,0,pool,200,cw,,,,,,2014-02-28,2024-06-28,"5,10",,
+TOPN_EW_10,0,pool,10,ew,,,,,,2014-02-28,2024-06-28,"5,10",,
+TOPN_EW_20,0,pool,20,ew,,,,,,2014-02-28,2024-06-28,"5,10",,
+TOPN_EW_50,0,pool,50,ew,,,,,,2014-02-28,2024-06-28,"5,10",,
+TOPN_EW_100,0,pool,100,ew,,,,,,2014-02-28,2024-06-28,"5,10",,
+TOPN_EW_200,0,pool,200,ew,,,,,,2014-02-28,2024-06-28,"5,10",,
+G_L060_N05_K4_R2,2,momentum,,,60,5,4,2,R2,2014-02-28,2024-06-28,"5,10",100 seeds 0-99 at 10bp,1-4 signal weeks at 10bp
+G_L060_N10_K4_R2,2,momentum,,,60,10,4,2,R2,2014-02-28,2024-06-28,"5,10",100 seeds 0-99 at 10bp,1-4 signal weeks at 10bp
+G_L060_N20_K4_R2,2,momentum,,,60,20,4,2,R2,2014-02-28,2024-06-28,"5,10",100 seeds 0-99 at 10bp,1-4 signal weeks at 10bp
+G_L060_N40_K4_R2,2,momentum,,,60,40,4,2,R2,2014-02-28,2024-06-28,"5,10",100 seeds 0-99 at 10bp,1-4 signal weeks at 10bp
+G_L090_N05_K4_R2,2,momentum,,,90,5,4,2,R2,2014-02-28,2024-06-28,"5,10",100 seeds 0-99 at 10bp,1-4 signal weeks at 10bp
+G_L090_N10_K4_R2,2,momentum,,,90,10,4,2,R2,2014-02-28,2024-06-28,"5,10",100 seeds 0-99 at 10bp,1-4 signal weeks at 10bp
+G_L090_N20_K4_R2,2,momentum,,,90,20,4,2,R2,2014-02-28,2024-06-28,"5,10",100 seeds 0-99 at 10bp,1-4 signal weeks at 10bp
+G_L090_N40_K4_R2,2,momentum,,,90,40,4,2,R2,2014-02-28,2024-06-28,"5,10",100 seeds 0-99 at 10bp,1-4 signal weeks at 10bp
+G_L126_N05_K4_R2,2,momentum,,,126,5,4,2,R2,2014-02-28,2024-06-28,"5,10",100 seeds 0-99 at 10bp,1-4 signal weeks at 10bp
+G_L126_N10_K4_R2,2,momentum,,,126,10,4,2,R2,2014-02-28,2024-06-28,"5,10",100 seeds 0-99 at 10bp,1-4 signal weeks at 10bp
+G_L126_N20_K4_R2,2,momentum,,,126,20,4,2,R2,2014-02-28,2024-06-28,"5,10",100 seeds 0-99 at 10bp,1-4 signal weeks at 10bp
+G_L126_N40_K4_R2,2,momentum,,,126,40,4,2,R2,2014-02-28,2024-06-28,"5,10",100 seeds 0-99 at 10bp,1-4 signal weeks at 10bp
+G_L252_N05_K4_R2,2,momentum,,,252,5,4,2,R2,2014-02-28,2024-06-28,"5,10",100 seeds 0-99 at 10bp,1-4 signal weeks at 10bp
+G_L252_N10_K4_R2,2,momentum,,,252,10,4,2,R2,2014-02-28,2024-06-28,"5,10",100 seeds 0-99 at 10bp,1-4 signal weeks at 10bp
+G_L252_N20_K4_R2,2,momentum,,,252,20,4,2,R2,2014-02-28,2024-06-28,"5,10",100 seeds 0-99 at 10bp,1-4 signal weeks at 10bp
+G_L252_N40_K4_R2,2,momentum,,,252,40,4,2,R2,2014-02-28,2024-06-28,"5,10",100 seeds 0-99 at 10bp,1-4 signal weeks at 10bp
+G_L090_N10_K4_R1,2,momentum,,,90,10,4,2,R1,2014-02-28,2024-06-28,"5,10",100 seeds 0-99 at 10bp,1-4 signal weeks at 10bp
+G_L090_N10_K1_R1,2,momentum,,,90,10,1,2,R1,2014-02-28,2024-06-28,"5,10",100 seeds 0-99 at 10bp,1-4 signal weeks at 10bp

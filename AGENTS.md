@@ -15,6 +15,7 @@
 - 分工：代码改动由 Claude Haiku（Claude Code）按投资者交给它的任务说明进行；Claude 负责审阅。是否放行以投资者的聊天指示为准。
 - 2026-10-27 投资者授权 Codex 直接完成 Top 200 数据库修复与交付；范围限数据库、相关测试、修正文件和文档，不涉及策略代码与保留段。
 - 2026-10-27 投资者授权 DeepSeek 完成数据库收尾、回测引擎 leadtrend_bt v1、基线运行与相关性分组预览；范围不含 leadtrend_v05 与保留段。
+- 研究入口（2026-10-27 经 Claude 审阅）：新研究一律使用正式库 `data/db/leadtrend_db_v1.sqlite`（`development_release_v1`）与回测协议 `research_v1`，用法与限制见 `docs/LeadTrend_研究入口_research_v1.md`。不得用 `leadtrend_db build/promote` 生成或覆盖正式库。
 - 保留段（2024-07-05 起）尚未动用。全部策略轮次结束后，只用事先选定的一个配置检验一次。运行 `run-holdout` 需要投资者在 Claude 审阅后亲自创建 `research/v05/holdout/authorization.json`；任何模型不得自行创建该文件，也不得在策略轮次中途动用保留段。
 - 验证分级：
   - 测试：每次改动后跑全部测试；

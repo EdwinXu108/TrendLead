@@ -48,6 +48,8 @@ def main(argv: list[str] | None = None) -> int:
     q.add_argument('--as-of')
     p = sub.add_parser('promote')
     p.add_argument('--from', dest='source', default=str(WORK_DB))
+    p.add_argument('--replace-release', action='store_true',
+                   help='allow replacing a published development release (refused by default)')
     s = sub.add_parser('summary')
     s.add_argument('--db', default=str(S.DB_PATH))
     s.add_argument('--out', default='research/db_v1/summary.md')
@@ -83,6 +85,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == 'promote':
         from .checks import run_checks
         src = Path(args.source)
+        if S.DB_PATH.exists() and not args.replace_release:
+            import sqlite3
+            conn = sqlite3.connect(f'file:{S.DB_PATH.as_posix()}?mode=ro', uri=True)
+            try:
+                release = conn.execute("select value from meta where key='economic_data_version'").fetchone()
+            finally:
+                conn.close()
+            if release:
+                _log(f'promotion refused: {S.DB_PATH} is the published release {release[0]}; '
+                     'rebuild it with python -m leadtrend_db.development_release, or pass --replace-release')
+                return 1
         out, fails = run_checks(db_path=src, rebuild=True, work_db=Path('work/top200_v1/rebuild_check.sqlite'), log=_log)
         if fails:
             _log('promotion refused: checks failed; data/db was not changed')

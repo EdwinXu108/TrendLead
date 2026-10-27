@@ -306,3 +306,41 @@ def benchmark_bars(start: str, end: str, db_path: Path | str | None = None) -> d
         return {r['session_date']: dict(open=r['open'], close=r['close']) for r in conn.execute(
             'select session_date,open,close from benchmark_bars_development where session_date between ? and ? order by session_date', (start, end))}
     return _bounded_benchmark_archive(start, end)
+
+
+def close_series(ids, start: str, end: str, db_path: Path | str = DB_PATH) -> dict[str, dict[str, float]]:
+    """{security_id: {session_date: raw close}} inside [start, end]."""
+    if isinstance(ids, str):
+        ids = [ids]
+    conn = connect(db_path)
+    out: dict[str, dict[str, float]] = {}
+    for sid in ids:
+        rows = conn.execute("""select session_date, close from prices_daily
+                               where security_id=? and source='opend_none' and session_date between ? and ?
+                               order by session_date""", (sid, start, end))
+        out[sid] = {r[0]: float(r[1]) for r in rows if r[1]}
+    return out
+
+
+def volume_series(ids, start: str, end: str, db_path: Path | str = DB_PATH) -> dict[str, dict[str, float]]:
+    """{security_id: {session_date: share volume}} inside [start, end]."""
+    if isinstance(ids, str):
+        ids = [ids]
+    conn = connect(db_path)
+    out: dict[str, dict[str, float]] = {}
+    for sid in ids:
+        rows = conn.execute("""select session_date, volume from prices_daily
+                               where security_id=? and source='opend_none' and session_date between ? and ?
+                               order by session_date""", (sid, start, end))
+        out[sid] = {r[0]: float(r[1]) for r in rows if r[1] is not None}
+    return out
+
+
+def version_amounts(db_path: Path | str = DB_PATH) -> list[dict]:
+    """Every pool version with its report period and company amounts, oldest first."""
+    conn = connect(db_path)
+    versions = [dict(r) for r in conn.execute(
+        'select version_id, report_period from pool_versions order by report_period, version_id')]
+    for item in versions:
+        item['amounts'] = pool_company_amounts(item['version_id'], db_path)
+    return versions

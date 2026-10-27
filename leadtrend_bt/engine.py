@@ -104,6 +104,11 @@ class Backtest:
         self.buy_weighting = str(self.cfg.get('buy_weighting', 'equal'))
         self.buy_plan = self.cfg.get('buy_plan') or {}
         self.size_fallback = 0
+        self.ranking = str(self.cfg.get('ranking', 'momentum'))
+        if self.ranking not in ('momentum', 'size', 'signal'):
+            raise ValueError("ranking must be 'momentum', 'size' or 'signal'")
+        self.signal_name = str(self.cfg.get('signal', ''))
+        self.signal_scores: dict[str, dict[str, float]] = {}
         self.execution = str(self.cfg.get('execution', 'next_open'))
         if self.execution not in ('next_open', 'close'):
             raise ValueError("execution must be 'next_open' or 'close'")
@@ -152,7 +157,8 @@ class Backtest:
     # -- data ---------------------------------------------------------------------------------------------------
     def _cache_key(self):
         family = 'pool' if self.mode in POOL_MODES else ('voo' if self.mode == 'voo' else 'signal')
-        return (api.database_identity(self.db_path), self.start, self.end, family, self.protocol, self.L)
+        return (api.database_identity(self.db_path), self.start, self.end, family, self.protocol, self.L,
+                self.ranking, self.signal_name)
 
     def load(self) -> None:
         if self.market is not None:
@@ -283,6 +289,9 @@ class Backtest:
         bars = api.benchmark_bars(self.full_calendar[0], self.end, db)
         self.opens[BENCH] = {d: b['open'] for d, b in bars.items()}
         self.closes[BENCH] = {d: b['close'] for d, b in bars.items()}
+        if self.ranking == 'signal':
+            from . import signals
+            self.signal_scores = signals.scores(self.signal_name, db)
         self._prepare_actions()
         self._preflight_targets()
 
@@ -510,6 +519,13 @@ class Backtest:
         return groups
 
     def _scored(self, day: str, pool: dict) -> list[tuple[str, float]]:
+        if self.ranking == 'signal':
+            scores = self.signal_scores.get(day, {})
+            out = [(sec['security_id'], scores[sec['security_id']]) for sec in self._in_range(pool)
+                   if sec['security_id'] in scores]
+            out.sort(key=lambda item: (-item[1], self.issuer.get(item[0], ''), item[0]))
+            self.window_missing = {}
+            return out
         i = bisect.bisect_left(self.full_calendar, day)
         if i < self.L:
             return []

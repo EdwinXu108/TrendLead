@@ -182,6 +182,7 @@ class Backtest:
             self.spin_value = cached['spin_value']
             self.continuity_links = cached['continuity_links']
             self.economic_data_version = cached['economic_data_version']
+            self.signal_scores = cached.get('signal_scores', {})
             self._preflight_targets()
             return
         self._load()
@@ -191,6 +192,7 @@ class Backtest:
                                   amounts=self.amounts,
                                   actions=self.actions, action_sids=list(self.action_sids),
                                   spin_value=self.spin_value, continuity_links=self.continuity_links,
+                                  signal_scores=self.signal_scores,
                                   economic_data_version=self.economic_data_version)
 
     def _load(self) -> None:

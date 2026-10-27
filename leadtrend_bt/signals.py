@@ -140,10 +140,12 @@ def compute(name: str, ctx: dict) -> dict[str, dict[str, float]]:
     elif name == 'HIGHVOL_126':
         values = _rolling_std(rets, ci, 126)
     elif name == 'DIST_52W':
-        peak = np.full_like(close, np.nan)
+        peak = np.full((len(ci), close.shape[1]), np.nan)
+        import warnings
         for k, i in enumerate(ci):
             window = close[max(0, i - 252):i + 1]
-            with np.errstate(invalid='ignore'):
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', RuntimeWarning)
                 peak[k] = np.nanmax(window, axis=0) if window.size else np.nan
         with np.errstate(invalid='ignore', divide='ignore'):
             values = np.where(peak > 0, close[ci] / peak, np.nan)
@@ -158,7 +160,8 @@ def compute(name: str, ctx: dict) -> dict[str, dict[str, float]]:
             values = np.where(long > 0, short / long, np.nan)
     elif name == 'AMIHUD_126':
         dollar = close * volume
-        illiq = np.where((dollar > 0) & np.isfinite(rets), np.abs(rets) / dollar, np.nan)
+        with np.errstate(invalid='ignore', divide='ignore'):
+            illiq = np.where((dollar > 0) & np.isfinite(rets), np.abs(rets) / dollar, np.nan)
         values = _rolling_mean(illiq, ci, 126)
     elif name in ('FUND_ACCUM', 'FUND_RANK_UP'):
         values = np.full((len(ci), tri.shape[1]), np.nan)

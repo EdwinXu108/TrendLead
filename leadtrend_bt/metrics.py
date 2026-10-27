@@ -124,17 +124,36 @@ def compute(result: dict, rf_daily: dict[str, float], periods=(PERIOD_A, PERIOD_
     weights = []
     for row in daily:
         weights.append(row['positions_value'] / row['equity'] if row['equity'] else 0.0)
-    positions_count = []
-    by_day: dict[str, int] = {}
-    for row in result['positions']:
-        by_day[row['date']] = by_day.get(row['date'], 0) + 1
-    positions_count = [by_day.get(d, 0) for d in dates]
+    # Concentration is measured on the merged account: the market value of one security is summed over the tranches
+    # of the same day first, then divided by that day's merged equity.
     equity_by_day = {row['date']: row['equity'] for row in daily}
-    max_weight = 0.0
+    value_by_key: dict[tuple[str, str], float] = {}
+    rows_by_day: dict[str, int] = {}
     for row in result['positions']:
-        eq = equity_by_day.get(row['date'], 0.0)
+        key = (row['date'], row['security_id'])
+        value_by_key[key] = value_by_key.get(key, 0.0) + row['value']
+        rows_by_day[row['date']] = rows_by_day.get(row['date'], 0) + 1
+    distinct_by_day: dict[str, int] = {}
+    for day, _ in value_by_key:
+        distinct_by_day[day] = distinct_by_day.get(day, 0) + 1
+    max_weight = 0.0
+    for (day, _), value in value_by_key.items():
+        eq = equity_by_day.get(day, 0.0)
         if eq:
-            max_weight = max(max_weight, row['value'] / eq)
+            max_weight = max(max_weight, value / eq)
+    issuers = result.get('issuers', {})
+    issuer_by_day: dict[str, dict[str, float]] = {}
+    for (day, sid), value in value_by_key.items():
+        bucket = issuer_by_day.setdefault(day, {})
+        issuer = issuers.get(sid, sid)
+        bucket[issuer] = bucket.get(issuer, 0.0) + value
+    max_top5 = 0.0
+    for day, bucket in issuer_by_day.items():
+        eq = equity_by_day.get(day, 0.0)
+        if eq:
+            max_top5 = max(max_top5, sum(sorted(bucket.values(), reverse=True)[:5]) / eq)
+    positions_count = [distinct_by_day.get(d, 0) for d in dates]
+    positions_sum = [rows_by_day.get(d, 0) for d in dates]
     traded = sum(abs(t['shares'] * t['price']) for t in result['trades'])
     years = len(dates) / TRADING_DAYS
     avg_equity = sum(equity) / len(equity)
@@ -158,8 +177,11 @@ def compute(result: dict, rf_daily: dict[str, float], periods=(PERIOD_A, PERIOD_
         annual_excess={year: strat['annual_returns'][year] - voo['annual_returns'].get(year, 0.0)
                        for year in strat['annual_returns']},
         periods=periods_out,
-        turnover_one_way_annual=turnover, average_positions=sum(positions_count) / len(positions_count),
-        max_single_weight=max_weight, average_invested_ratio=sum(weights) / len(weights),
+        turnover_one_way_annual=turnover,
+        average_positions=sum(positions_count) / len(positions_count),
+        average_positions_sum=sum(positions_sum) / len(positions_sum),
+        max_single_weight=max_weight, max_top5_issuer_weight=max_top5,
+        average_invested_ratio=sum(weights) / len(weights),
         trades=len(result['trades']), fees=sum(t['fee'] for t in result['trades']),
         top_issuers=[dict(issuer=k, pnl=v, share=v / total_pnl) for k, v in top],
         total_pnl=sum(pnl.values()),

@@ -29,6 +29,21 @@ def write_csv(path: Path, header: list[str], rows: list[dict]) -> None:
             writer.writerow([_num(row.get(h)) for h in header])
 
 
+def sell_plan(result: dict) -> dict[str, int]:
+    """Number of sells the original configuration decided per (signal day, tranche), from weekly_decisions.
+
+    The random control uses this count, never the filled trades: a decision that could not be filled (no opening
+    price) must not inflate the number of names the random book is allowed to drop.
+    """
+    plan: dict[str, int] = {}
+    for decision in result['decisions']:
+        if decision['action'] != 'sell':
+            continue
+        key = f"{decision['signal_date']}|{decision['tranche']}"
+        plan[key] = plan.get(key, 0) + 1
+    return plan
+
+
 def run(cfg: dict, out_root: Path | str = OUT_ROOT, db_path=None, write: bool = True) -> dict:
     bt = Backtest(cfg, db_path=db_path)
     result = bt.run()

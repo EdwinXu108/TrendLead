@@ -164,6 +164,8 @@ class Backtest:
                 self.pools[day] = dict(version_id=window['version_id'], amounts=amounts)
                 self.pool_days[day] = window['version_id']
                 ids.update(amounts)
+                for sid, row in amounts.items():
+                    self.issuer[sid] = row['issuer_id']
         else:
             for day in self.signal_days:
                 pool = api.pool_at(day, db)
@@ -282,23 +284,34 @@ class Backtest:
         return dict(sells=sells, buys=buys, rank=rank, keeps=keeps, scores=scores)
 
     def _random_orders(self, tranche: Tranche, day: str, pool: dict) -> dict:
-        want = self.plan.get(f'{day}|{tranche.index}', dict(sells=0, buys=0))
-        held = list(tranche.positions)
-        sells = sorted(held, key=lambda sid: _hash_key(self.seed, day, sid))[:int(want['sells'])]
+        """Random control (amendment 1).
+
+        Forced exits of holdings that left the pool come first. If the original configuration decided more sells
+        than that on this signal day, the difference is drawn from the remaining holdings in hash order. Then the
+        book is filled back to N from the pool in the same hash order, skipping held names and duplicate issuers.
+        """
         in_pool = {s['security_id'] for s in pool['securities']}
+        held = sorted(tranche.positions)
+        forced = [sid for sid in held if sid not in in_pool]
+        sells = list(forced)
+        extra = int(self.plan.get(f'{day}|{tranche.index}', 0)) - len(forced)
+        if extra > 0:
+            rest = [sid for sid in held if sid in in_pool]
+            sells += sorted(rest, key=lambda sid: _hash_key(self.seed, day, sid))[:extra]
+        kept = [sid for sid in held if sid not in sells]
+        used_issuer = {self.issuer.get(sid, '') for sid in kept}
         candidates = [sid for sid in sorted(in_pool)
                       if sid not in tranche.positions and day in self.tri.get(sid, {})]
-        used_issuer = {self.issuer.get(sid, '') for sid in held if sid not in sells}
         buys = []
         for sid in sorted(candidates, key=lambda sid: _hash_key(self.seed, day, sid)):
+            if len(kept) + len(buys) >= self.N:
+                break
             issuer = self.issuer.get(sid, '')
             if issuer and issuer in used_issuer:
                 continue
             buys.append(sid)
             used_issuer.add(issuer)
-            if len(buys) >= int(want['buys']):
-                break
-        return dict(sells=sells, buys=buys, rank={}, keeps=[s for s in held if s not in sells], scores={})
+        return dict(sells=sells, buys=buys, rank={}, keeps=kept, scores={})
 
     def _pool_targets(self, day: str) -> dict[str, float]:
         info = self.pools.get(day)
@@ -361,17 +374,27 @@ class Backtest:
             tranche = self.tranches[order['tranche']]
             sid = order['security_id']
             price = self.opens.get(sid, {}).get(day)
-            shares = tranche.positions.get(sid, 0.0)
-            if price is None or price <= 0 or shares <= 0:
-                if shares > 0:
-                    remaining.append(order)
+            held = tranche.positions.get(sid, 0.0)
+            if held <= 0:
+                continue
+            shares = held if order.get('shares') is None else min(held, float(order['shares']))
+            if price is None or price <= 0:
+                remaining.append(order)
+                continue
+            if shares <= 0:
                 continue
             fill = price * (1 - self.slip)
             proceeds = shares * fill - self.fee
             tranche.cash += proceeds
-            tranche.positions.pop(sid, None)
-            issuer = tranche.issuer_of.pop(sid, '')
-            cost = tranche.cost.pop(sid, 0.0)
+            if shares >= held - 1e-12:
+                tranche.positions.pop(sid, None)
+                issuer = tranche.issuer_of.pop(sid, '')
+                cost = tranche.cost.pop(sid, 0.0)
+            else:
+                tranche.positions[sid] = held - shares
+                issuer = tranche.issuer_of.get(sid, '')
+                cost = tranche.cost.get(sid, 0.0) * (shares / held)
+                tranche.cost[sid] = tranche.cost.get(sid, 0.0) - cost
             tranche.sell_proceeds[issuer] = tranche.sell_proceeds.get(issuer, 0.0) + proceeds
             tranche.buy_cost[issuer] = tranche.buy_cost.get(issuer, 0.0) + cost
             tranche.trades += 1
@@ -381,15 +404,20 @@ class Backtest:
             by_tranche[order['tranche']].append(order)
         for index, orders in by_tranche.items():
             tranche = self.tranches[index]
-            weight_sum = sum(o['weight'] for o in orders) or 1.0
+            weight_sum = sum(o.get('weight', 0.0) for o in orders) or 1.0
             available = tranche.cash
+            notionals = sum(o['notional'] for o in orders if o.get('notional') is not None)
+            scale = min(1.0, available / notionals) if notionals > 0 else 1.0
             for order in orders:
                 sid = order['security_id']
                 price = self.opens.get(sid, {}).get(day)
                 if price is None or price <= 0:
                     remaining.append(order)
                     continue
-                budget = available * order['weight'] / weight_sum
+                if order.get('notional') is not None:
+                    budget = order['notional'] * scale
+                else:
+                    budget = available * order['weight'] / weight_sum
                 fill = price * (1 + self.slip)
                 if budget <= self.fee:
                     continue
@@ -446,20 +474,55 @@ class Backtest:
                                          signal_date=day, weight=weight))
 
     def _queue_pool(self, tranche: Tranche, day: str) -> None:
+        """Rebalance to the new target at the opening price (amendment 1).
+
+        Target value = weight x the account's equity at the opening price. Only the difference between the target
+        value and the current value is traded, so a security whose target has not changed produces no order and no
+        fee. Exits come first, then the differences; a difference of zero (within a micro-dollar) is not traded.
+        """
         target = self._pool_targets(day)
         if not target:
             return
         self.pending = [o for o in self.pending if o['tranche'] != tranche.index or o['side'] == 'sell']
+        prices = {sid: self.opens.get(sid, {}).get(day) for sid in set(tranche.positions) | set(target)}
+        equity = tranche.cash
+        for sid, shares in tranche.positions.items():
+            price = prices.get(sid)
+            equity += shares * (price if price is not None else (self.close_on(sid, day) or 0.0))
+        tolerance = 1e-6
+        target_value = {sid: weight * equity for sid, weight in target.items()}
         for sid in sorted(tranche.positions):
-            self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid, action='sell',
-                                       rank='', score=''))
-            self.pending.append(dict(tranche=tranche.index, security_id=sid, side='sell', reason='version',
-                                     signal_date=day, weight=0.0))
-        for sid, weight in sorted(target.items()):
-            self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid, action='buy',
-                                       rank='', score=''))
+            price = prices.get(sid)
+            want = target_value.get(sid, 0.0)
+            if price is None or price <= 0:
+                if want <= 0.0:                      # an exit without a price waits for the next session
+                    self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid,
+                                               action='sell', rank='', score=''))
+                    self.pending.append(dict(tranche=tranche.index, security_id=sid, side='sell',
+                                             reason='version', signal_date=day, shares=None))
+                continue
+            delta = want - tranche.positions[sid] * price
+            if delta < -tolerance:
+                shares = min(tranche.positions[sid], -delta / price)
+                self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid,
+                                           action='sell', rank='', score=''))
+                self.pending.append(dict(tranche=tranche.index, security_id=sid, side='sell', reason='version',
+                                         signal_date=day, shares=shares))
+            elif delta > tolerance:
+                self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid,
+                                           action='buy', rank='', score=''))
+                self.pending.append(dict(tranche=tranche.index, security_id=sid, side='buy', reason='version',
+                                         signal_date=day, notional=delta))
+        for sid in sorted(target):
+            if sid in tranche.positions:
+                continue
+            price = prices.get(sid)
+            if price is None or price <= 0 or target_value[sid] <= tolerance:
+                continue
+            self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid,
+                                       action='buy', rank='', score=''))
             self.pending.append(dict(tranche=tranche.index, security_id=sid, side='buy', reason='version',
-                                     signal_date=day, weight=weight))
+                                     signal_date=day, notional=target_value[sid]))
 
     # -- main loop ----------------------------------------------------------------------------------------------
     def run(self) -> dict:
@@ -535,7 +598,7 @@ class Backtest:
                 issuer = tranche.issuer_of.get(sid, '')
                 pnl[issuer] += shares * (self.close_on(sid, last_day) or 0.0) - tranche.cost.get(sid, 0.0)
         return dict(daily=self.daily, trades=self.trades, decisions=self.decisions, pnl=dict(pnl),
-                    positions=self.position_rows, config=self.cfg)
+                    positions=self.position_rows, issuers=dict(self.issuer), config=self.cfg)
 
     def _positions(self) -> list[dict]:
         rows = []

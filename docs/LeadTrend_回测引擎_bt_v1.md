@@ -16,7 +16,7 @@
 
 ## 配置项
 
-`run_id, mode, start, end, L, N, b, K, cost_bps, fee_per_order, capital, seed, plan, buy_plan, top_n, weighting, top_m, w, buy_weighting, rebalance`
+`run_id, mode, start, end, L, N, b, K, cost_bps, fee_per_order, capital, seed, plan, buy_plan, top_n, weighting, top_m, w, buy_weighting, rebalance, execution, max_missing_days`
 
 `mode`：`momentum`（默认）、`random`（随机对照，`plan` 给出每个信号日、每个子账户由原配置决定的卖出只数）、`pool`（参数化股票池：`top_n` 与 `weighting`）、`pool_ew`、`pool_cw`、`top10_cw`（旧别名）、`voo`（买入持有基准）。
 
@@ -98,6 +98,7 @@ CAGR（按 252 个交易日年化）、相对 VOO 的年化超额、年化波动
 | 规模参数 | `top_n` 按持仓金额选公司并按金额/等权配置；`top_n` 超过可选公司数时持有全部 |
 | R1 再平衡 | 检查日有换股时按成交日开盘价恢复等权；没有换股的检查日不交易；R2 在同一市场不调整保留持仓 |
 | 信号层 | 信号与未来收益完全一致时 IC = 1；信号只用 t 及以前的数据；未来窗口越过 2024-06-28 报错 |
+| 成交价口径 | `execution='close'` 时成交价等于信号日收盘价（信号与成交同一时点，基准也在该收盘买入）；默认 `next_open` 用下一交易日开盘价 |
 | 缺一日容忍 | 回看窗口缺 1 天仍按两端点评分并标 `window_missing=1`；缺 2 天不评分；`max_missing_days=0` 关闭；端点缺失不评分 |
 | 范围与合成评分 | `top_m` 截断可评分范围、掉出范围的持仓在检查日卖出；百分位为平均秩；`w=1` 只按规模排名；同分按 `security_id` |
 | 按金额配权 | 首次建仓按持仓金额比例分配资金（3:1 的金额得到 3:1 的市值） |

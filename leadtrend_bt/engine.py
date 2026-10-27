@@ -104,6 +104,9 @@ class Backtest:
         self.buy_weighting = str(self.cfg.get('buy_weighting', 'equal'))
         self.buy_plan = self.cfg.get('buy_plan') or {}
         self.size_fallback = 0
+        self.execution = str(self.cfg.get('execution', 'next_open'))
+        if self.execution not in ('next_open', 'close'):
+            raise ValueError("execution must be 'next_open' or 'close'")
         default_missing = 1 if self.protocol == 'research_v1' else 0
         self.max_missing = int(self.cfg.get('max_missing_days', default_missing))
         if self.max_missing not in (0, 1):
@@ -291,8 +294,8 @@ class Backtest:
                     continue
                 nxt = self.calendar[idx + 1]
                 for sid in self._pool_targets(day):
-                    if not self.opens.get(sid, {}).get(day) and not self.opens.get(sid, {}).get(nxt):
-                        raise DataGapError(f'{sid} {day}..{nxt}: structural target has no opening prices')
+                    if not self._exec_price(sid, day) and not self._exec_price(sid, nxt):
+                        raise DataGapError(f'{sid} {day}..{nxt}: structural target has no execution prices')
 
     def _load_closes(self, ids: list[str], db) -> None:
         conn = api.connect(db) if db else api.connect()
@@ -766,6 +769,11 @@ class Backtest:
                                     reason=event['method'], signal_date=''))
         self.pending_distributions = []
 
+    def _exec_price(self, sid: str, day: str):
+        """Fill price on `day`: the opening price, or the close when execution='close'."""
+        source = self.closes if self.execution == 'close' else self.opens
+        return source.get(sid, {}).get(day)
+
     def _execute(self, day: str) -> None:
         if not self.pending:
             return
@@ -773,7 +781,7 @@ class Backtest:
         for order in [o for o in self.pending if o['side'] == 'sell']:
             tranche = self.tranches[order['tranche']]
             sid = order['security_id']
-            price = self.opens.get(sid, {}).get(day)
+            price = self._exec_price(sid, day)
             held = tranche.positions.get(sid, 0.0)
             if held <= 0:
                 continue
@@ -782,7 +790,7 @@ class Backtest:
                 if self.terra_r1 and self.mode in POOL_MODES:
                     order['missing_days'] = order.get('missing_days', 0) + 1
                     if order['missing_days'] >= 2:
-                        raise DataGapError(f'{sid} {day}: structural target has no opening price for two sessions')
+                        raise DataGapError(f'{sid} {day}: structural target has no execution price for two sessions')
                 remaining.append(order)
                 continue
             if shares <= 0:
@@ -824,12 +832,12 @@ class Backtest:
                     # an exit without an opening price is deferred, so the book already holds N names: stop buying
                     continue
                 sid = order['security_id']
-                price = self.opens.get(sid, {}).get(day)
+                price = self._exec_price(sid, day)
                 if price is None or price <= 0:
                     if self.terra_r1 and self.mode in POOL_MODES:
                         order['missing_days'] = order.get('missing_days', 0) + 1
                         if order['missing_days'] >= 2:
-                            raise DataGapError(f'{sid} {day}: structural target has no opening price for two sessions')
+                            raise DataGapError(f'{sid} {day}: structural target has no execution price for two sessions')
                     remaining.append(order)
                     continue
                 if order.get('notional') is not None:
@@ -949,7 +957,7 @@ class Backtest:
             return
         self.pending = [o for o in self.pending if o['tranche'] != tranche.index or o['side'] == 'sell']
         price_day = day if price_day is None else price_day
-        prices = {sid: self.opens.get(sid, {}).get(price_day) for sid in set(tranche.positions) | set(target)}
+        prices = {sid: self._exec_price(sid, price_day) for sid in set(tranche.positions) | set(target)}
         equity = tranche.cash
         for sid, shares in tranche.positions.items():
             price = prices.get(sid)
@@ -1015,10 +1023,13 @@ class Backtest:
         for day in self.calendar:
             self._apply_actions(day)
             if self.mode in POOL_MODES:
-                # a new pool version is held from the opening price of its first session
+                # a new pool version is held from the execution price of its first session
                 if day in self.pool_days:
                     for tranche in self.tranches:
                         self._queue_pool(tranche, day)
+            if self.execution == 'close' and self.mode not in POOL_MODES and self.mode != 'voo' \
+                    and day in signal_index:
+                self._queue_signal_day(day, signal_index[day])
             self._execute(day)
             if self.terra_r1:
                 self._liquidate_distributions(day)
@@ -1026,15 +1037,17 @@ class Backtest:
                 pass
             elif self.mode in POOL_MODES:
                 pass
-            elif day in signal_index:
-                week = signal_index[day]
-                for tranche in self.tranches:
-                    if week < tranche.index or (week - tranche.index) % self.K:
-                        continue
-                    self._queue_momentum(tranche, day)
-            if not self.terra_r1 or day > self.start:
+            elif day in signal_index and self.execution != 'close':
+                self._queue_signal_day(day, signal_index[day])
+            if not self.terra_r1 or day > self.start or (self.execution == 'close' and day == self.start):
                 self._mark(day)
         return self.result()
+
+    def _queue_signal_day(self, day: str, week: int) -> None:
+        for tranche in self.tranches:
+            if week < tranche.index or (week - tranche.index) % self.K:
+                continue
+            self._queue_momentum(tranche, day)
 
     def _mark(self, day: str) -> None:
         if self.terra_r1:
@@ -1055,7 +1068,9 @@ class Backtest:
             tri = self.tri.get(BENCH, {}).get(day)
             if tri:
                 self.bench_entry = day
-                if self.terra_r1:
+                if self.execution == 'close':
+                    self.bench_units = self.capital / tri
+                elif self.terra_r1:
                     open_price = self.opens.get(BENCH, {}).get(day)
                     close = self.closes.get(BENCH, {}).get(day)
                     if not open_price or not close:
@@ -1095,12 +1110,19 @@ class Backtest:
                                                      value=round(shares * close, 6),
                                                      stale=bool(self.terra_r1 and self.missing_close[sid]),
                                                      company_amount_cents=self.current_amounts.get(sid, '')))
-        if self.bench_units == 0.0 and ((self.terra_r1 and day > self.start) or
-                                      (not self.terra_r1 and self.first_trade_day is not None and day == self.first_trade_day)):
+        if self.bench_units == 0.0 and (
+                (self.terra_r1 and (day > self.start or (self.execution == 'close' and day >= self.start)))
+                or (not self.terra_r1 and self.first_trade_day is not None and day == self.first_trade_day)):
             tri = self.tri.get(BENCH, {}).get(day)
             close = self.closes.get(BENCH, {}).get(day)
             open_price = self.opens.get(BENCH, {}).get(day)
-            if tri and close and open_price:
+            if self.execution == 'close':
+                if tri:
+                    self.bench_entry = day
+                    self.bench_units = self.capital / tri
+                elif self.terra_r1:
+                    raise DataGapError(f'VOO {day}: missing entry TRI')
+            elif tri and close and open_price:
                 self.bench_entry = day
                 self.bench_units = self.capital / (tri * open_price / close)
             elif self.terra_r1:

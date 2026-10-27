@@ -551,7 +551,7 @@ class Backtest:
             notionals = sum(o['notional'] for o in orders if o.get('notional') is not None)
             scale = min(1.0, available / notionals) if notionals > 0 else 1.0
             for order in orders:
-                if self.mode == 'random' and len(tranche.positions) >= self.N:
+                if self.mode in ('random', 'random_size') and len(tranche.positions) >= self.N:
                     # an exit without an opening price is deferred, so the book already holds N names: stop buying
                     continue
                 sid = order['security_id']

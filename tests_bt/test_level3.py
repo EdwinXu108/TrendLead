@@ -103,3 +103,17 @@ def test_core_satellite_holds_the_later_sleeve_as_cash_before_it_starts():
     merged = merge_results(core, sat, 100.0, 50.0)
     assert merged['daily'][0]['equity'] == pytest.approx(150.0)   # 100 core + 50 satellite cash
     assert merged['daily'][1]['equity'] == pytest.approx(151.0)
+
+
+def test_a_deferred_exit_does_not_push_the_size_random_book_above_n():
+    series = {sid: [10.0] * 20 for sid in ('A', 'B', 'C', 'D')}
+    series['BENCH:VOO'] = [1.0] * 20
+    cal = dates()
+    pools = {cal[4]: pool({'A': 4, 'B': 3, 'C': 2}, 'd1'), cal[9]: pool({'A': 4, 'B': 3, 'D': 1}, 'd2')}
+    mk = market(series, pools)
+    mk['opens']['C'].pop(cal[10])
+    out = Backtest(cfg(N=3, top_m=None, mode='random_size', seed=0, plan={f'{cal[9]}|0': 1},
+                       buy_plan={f'{cal[9]}|0': ['D']}), market=mk).run()
+    on_day = [row['security_id'] for row in out['positions'] if row['date'] == cal[10]]
+    assert sorted(on_day) == ['A', 'B', 'C']
+    assert not [t for t in out['trades'] if t['date'] == cal[10] and t['security_id'] == 'D']

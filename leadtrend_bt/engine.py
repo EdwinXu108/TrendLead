@@ -16,6 +16,7 @@ import bisect
 import hashlib
 import json
 import math
+from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -29,6 +30,10 @@ _MARKET_CACHE: dict[tuple, dict] = {}      # read-only market data shared by run
 
 class HoldoutError(ValueError):
     """The requested window touches the reserved segment."""
+
+
+class DataGapError(RuntimeError):
+    """A position or event cannot be valued under the registered protocol."""
 
 
 def _hash_key(seed, day: str, sid: str) -> str:
@@ -72,6 +77,7 @@ class Tranche:
 class Backtest:
     def __init__(self, cfg: dict, db_path=None, market: dict | None = None):
         self.cfg = dict(cfg)
+        self.terra_r1 = self.cfg.get('protocol') == 'terra_r1_v1'
         self.market = market
         self.start = self.cfg['start']
         self.end = self.cfg['end']
@@ -123,11 +129,16 @@ class Backtest:
         self.bench_units = 0.0
         self.bench_entry = None
         self.first_trade_day = None
+        self.event_flows: list[dict] = []
+        self.pending_distributions: list[dict] = []
+        self.missing_close: dict[str, int] = defaultdict(int)
+        self.score_counts: list[dict] = []
+        self.current_amounts: dict[str, float] = {}
 
     # -- data ---------------------------------------------------------------------------------------------------
     def _cache_key(self):
         family = 'pool' if self.mode in POOL_MODES else ('voo' if self.mode == 'voo' else 'signal')
-        return (str(self.db_path), self.start, self.end, family)
+        return (str(self.db_path), self.start, self.end, family, self.terra_r1)
 
     def load(self) -> None:
         if self.market is not None:
@@ -194,13 +205,16 @@ class Backtest:
             windows = [w for w in api.pool_windows(self.start, self.end, db) if w['effective_to'] >= self.start]
             for window in windows:
                 amounts = api.pool_amounts(window['version_id'], db)
-                day = max(window['effective_from'], self.start)
+                company_amounts = api.pool_company_amounts(window['version_id'], db) if self.terra_r1 else None
+                first_entry = next((d for d in self.calendar if d > self.start), self.start) if self.terra_r1 else self.start
+                day = max(window['effective_from'], first_entry)
                 if day > self.end:
                     continue
                 day = next((d for d in self.calendar if d >= day), None)
                 if day is None:
                     continue
-                self.pools[day] = dict(version_id=window['version_id'], amounts=amounts)
+                self.pools[day] = dict(version_id=window['version_id'], amounts=amounts,
+                                       company_amounts=company_amounts)
                 self.pool_days[day] = window['version_id']
                 ids.update(amounts)
                 for sid, row in amounts.items():
@@ -213,6 +227,9 @@ class Backtest:
                 if version not in amount_cache:
                     amount_cache[version] = api.pool_amounts(version, db) if version else {}
                 amounts = amount_cache[version]
+                if self.terra_r1:
+                    company_amounts = api.pool_company_amounts(version, db) if version else {}
+                    pool['securities'] = self._representatives(amounts, company_amounts)
                 self.pools[day] = pool
                 self.amounts[day] = {}
                 ids.update(s['security_id'] for s in pool['securities'])
@@ -220,9 +237,12 @@ class Backtest:
                     sid = sec['security_id']
                     self.issuer[sid] = sec['issuer_id']
                     row = amounts.get(sid)
-                    amount = float(row['amount_cents']) if row else 0.0
+                    amount = float(sec['company_amount_cents']) if self.terra_r1 else (
+                        float(row['amount_cents']) if row else 0.0)
                     sec['amount_cents'] = amount
                     self.amounts[day][sid] = amount
+        if self.terra_r1:
+            ids.update(('CIKCLS:0001288776:CL_C', 'CUSIP:260557103', 'CUSIP:22052L104'))
         ids.add(BENCH)
         series = api.tri_series(sorted(ids), self.full_calendar[0], self.end, db)
         for sid, rows in series.items():
@@ -230,6 +250,8 @@ class Backtest:
         self.opens = api.open_series(sorted(ids), self.start, self.end, db)
         self._load_closes(sorted(ids), db)
         self._load_actions(sorted(ids), db)
+        if self.terra_r1:
+            self._prepare_terra_event_explanation()
         bars = api.benchmark_bars(self.full_calendar[0], self.end)     # VOO is not in prices_daily
         self.opens[BENCH] = {d: b['open'] for d, b in bars.items()}
         self.closes[BENCH] = {d: b['close'] for d, b in bars.items()}
@@ -240,14 +262,15 @@ class Backtest:
         for sid in ids:
             rows = conn.execute("""select session_date, close from prices_daily where security_id=? and source='opend_none'
                                    and session_date between ? and ? order by session_date""",
-                                (sid, self.start, self.end))
-            self.closes[sid] = {r[0]: float(r[1]) for r in rows}
+                                (sid, self.full_calendar[0] if self.terra_r1 else self.start, self.end))
+            self.closes[sid] = {r[0]: float(r[1]) for r in rows if r[1] is not None and r[1] > 0}
 
     def _load_actions(self, ids: list[str], db) -> None:
         conn = api.connect(db) if db else api.connect()
         for sid in ids:
             rows = [dict(r) for r in conn.execute("""
-                select action_date, action_type, ratio, cash_amount, spin_value, vendor_factor
+                select action_date, action_type, ratio, cash_amount, spin_value, vendor_factor,
+                       sub_ticker, source, source_id, resolution, needs_review
                 from corporate_actions where security_id=? and action_date between ? and ? order by action_date""",
                 (sid, self.start, self.end))]
             self.actions[sid] = rows
@@ -266,6 +289,54 @@ class Backtest:
                 elif row['action_date'] in self.opens.get(sid, {}):
                     self.spin_value[(sid, row['action_date'])] = max(
                         0.0, prev_close - self.opens[sid][row['action_date']])
+
+    def _prepare_terra_event_explanation(self) -> None:
+        """Replace the vendor split approximation with the documented child share and close."""
+        config = json.loads(Path('config/terra_r1_events_v1.json').read_text(encoding='utf8'))
+        for event in config['class_distributions']:
+            parent, child, day = event['parent_security_id'], event['child_security_id'], event['ex_date']
+            series = self.tri.get(parent, {})
+            if day not in series:
+                continue
+            parent_close = self.closes.get(parent, {}).get(day)
+            child_close = self.closes.get(child, {}).get(day)
+            if not parent_close or not child_close:
+                raise DataGapError(f'{parent} {day}: documented child valuation missing')
+            correction = (parent_close + event['child_shares_per_parent'] * child_close) / (parent_close * 1.9981)
+            self.tri[parent] = {d: v * correction if d >= day else v for d, v in series.items()}
+            for row in self.actions.get(parent, []):
+                if row['action_date'] == day and row['action_type'] == 'class_distribution':
+                    row.update(child_security_id=child, child_ratio=event['child_shares_per_parent'],
+                               source_url=event['source'])
+        event = config['dowdupont_2019']
+        parent = event['parent_security_id']
+        series = self.tri.get(parent, {})
+        if series:
+            corrections = [('2019-04-01', 1 / 1.02492)]
+            for item in event['distributions']:
+                day, child = item['ex_date'], item['child_security_id']
+                if day not in series:
+                    continue
+                parent_close = self.closes.get(parent, {}).get(day)
+                child_close = self.closes.get(child, {}).get(day)
+                if not parent_close or not child_close:
+                    raise DataGapError(f'{parent} {day}: documented child valuation missing')
+                ratio = item['child_shares_per_parent']
+                old_factor = 1.48742 if day == '2019-04-02' else 1 / 3
+                new_factor = 1.0 if day == '2019-04-02' else 1 / 3
+                corrections.append((day, (parent_close * new_factor + child_close * ratio) /
+                                          (parent_close * old_factor)))
+                if day >= self.start:
+                    self.actions.setdefault(parent, []).append(dict(action_date=day, action_type='spinoff',
+                        ratio=None, cash_amount=None, spin_value=None, vendor_factor=None,
+                        child_security_id=child, child_ratio=ratio, source_url=item['source'],
+                        source_id='', resolution='verified_child_close', needs_review=0))
+            self.tri[parent] = {d: v * math.prod(f for day, f in corrections if d >= day)
+                                for d, v in series.items()}
+            if parent in self.actions:
+                self.actions[parent] = [row for row in self.actions[parent]
+                    if not (row['action_type'] == 'split' and row['action_date'] in event['suppressed_vendor_splits'])]
+                self.actions[parent].sort(key=lambda r: (r['action_date'], 0 if r['action_type'] == 'spinoff' else 1))
 
     def _prepare_actions(self) -> None:
         self.action_sids = [sid for sid in sorted(self.actions) if self.actions[sid]]
@@ -291,6 +362,20 @@ class Backtest:
         return value if value is not None else self.last_close.get(sid)
 
     # -- signals ------------------------------------------------------------------------------------------------
+    @staticmethod
+    def _representatives(amounts: dict, company_amounts: dict) -> list[dict]:
+        """Choose an eligible historical class, retaining the company's original ranking amount."""
+        best: dict[str, dict] = {}
+        for sid, row in amounts.items():
+            issuer = row['issuer_id']
+            candidate = dict(row, security_id=sid)
+            current = best.get(issuer)
+            if current is None or (-candidate['amount_cents'], sid) < (
+                    -current['amount_cents'], current['security_id']):
+                best[issuer] = candidate
+        return [dict(row, company_amount_cents=company_amounts[issuer])
+                for issuer, row in sorted(best.items()) if issuer in company_amounts]
+
     def _in_range(self, pool: dict) -> list[dict]:
         """The scoreable universe: all securities, or the top_m companies by fund amount (largest class per company)."""
         if not self.top_m:
@@ -334,14 +419,19 @@ class Backtest:
             series = self.tri.get(sid)
             if not series or day not in series or base_day not in series or series[base_day] <= 0:
                 continue
+            if self.terra_r1 and any(series.get(d, 0) <= 0 for d in self.full_calendar[i-self.L:i+1]):
+                continue
             rows.append((sid, series[day] / series[base_day] - 1.0, float(sec.get('amount_cents', 0.0))))
-        if self.w is None or self.w == 0:
+        if self.terra_r1 and self.cfg.get('ranking') == 'size':
+            out = [(sid, amount) for sid, _, amount in rows]
+        elif self.w is None or self.w == 0:
             out = [(sid, mom) for sid, mom, _ in rows]
         else:
             p_mom = _percentiles([r[1] for r in rows])
             p_size = _percentiles([r[2] for r in rows])
             out = [(rows[k][0], self.w * p_size[k] + (1.0 - self.w) * p_mom[k]) for k in range(len(rows))]
-        out.sort(key=lambda item: (-item[1], item[0]))
+        out.sort(key=lambda item: (-item[1], self.issuer.get(item[0], ''), item[0]) if self.terra_r1
+                 else (-item[1], item[0]))
         return out
 
     def _momentum_orders(self, tranche: Tranche, day: str, pool: dict) -> dict:
@@ -456,6 +546,16 @@ class Backtest:
         info = self.pools.get(day)
         if info is None:
             return {}
+        if self.terra_r1:
+            reps = self._representatives(info['amounts'], info['company_amounts'])
+            reps.sort(key=lambda r: (-r['company_amount_cents'], r['issuer_id'], r['security_id']))
+            if self.top_n:
+                reps = reps[:self.top_n]
+            total = sum(r['company_amount_cents'] for r in reps)
+            if not reps or not total:
+                return {}
+            return {r['security_id']: (1 / len(reps) if self.weighting == 'ew'
+                                       else r['company_amount_cents'] / total) for r in reps}
         best: dict[str, tuple[float, str]] = {}
         for sid, row in info['amounts'].items():
             issuer = row['issuer_id']
@@ -485,17 +585,45 @@ class Backtest:
             while self.applied[sid] < len(rows) and rows[self.applied[sid]]['action_date'] <= day:
                 row = rows[self.applied[sid]]
                 self.applied[sid] += 1
+                if (self.terra_r1 and row['action_type'] in ('split', 'reverse_split')
+                        and row['ratio'] and sid in self.last_close):
+                    self.last_close[sid] /= float(row['ratio'])
                 for tranche in self.tranches:
                     shares = tranche.positions.get(sid)
                     if not shares:
                         continue
                     if row['action_type'] in ('split', 'reverse_split') and row['ratio']:
                         tranche.positions[sid] = shares * float(row['ratio'])
+                        if self.terra_r1:
+                            ratio = float(row['ratio'])
+                            self.event_flows.append(dict(date=day, tranche=tranche.index, security_id=sid,
+                                issuer=tranche.issuer_of.get(sid, ''), method=row['action_type'], shares=shares,
+                                ratio=ratio, gross=0.0, net=0.0, source=row.get('source_id', '')))
+                            for order in self.pending:
+                                if order['tranche'] == tranche.index and order['security_id'] == sid and order.get('shares') is not None:
+                                    order['shares'] *= ratio
                     elif row['action_type'] in ('cash_dividend', 'special_dividend') and row['cash_amount']:
                         amount = shares * float(row['cash_amount'])
                         tranche.cash += amount
                         issuer = tranche.issuer_of.get(sid, '')
                         tranche.income[issuer] = tranche.income.get(issuer, 0.0) + amount
+                        if self.terra_r1:
+                            self.event_flows.append(dict(date=day, tranche=tranche.index, security_id=sid,
+                                issuer=issuer, method=row['action_type'], shares=shares, per_share=row['cash_amount'],
+                                gross=amount, net=amount, cash_available='ex_date_open', source=row.get('source_id', '')))
+                    elif self.terra_r1 and row['action_type'] in ('spinoff', 'class_distribution'):
+                        child = row.get('child_security_id')
+                        value = (self.closes.get(child, {}).get(day) * row.get('child_ratio', 1)
+                                 if child and self.closes.get(child, {}).get(day) else
+                                 self.spin_value.get((sid, row['action_date'])))
+                        if value is None or value <= 0:
+                            raise DataGapError(f'{sid} {day}: unvalued {row["action_type"]}')
+                        method = ('child_close' if child else 'documented_spin_value' if row.get('spin_value') is not None
+                                  else 'vendor_factor_proxy' if row.get('vendor_factor') is not None
+                                  else 'opening_gap_proxy')
+                        self.pending_distributions.append(dict(date=day, tranche=tranche.index, security_id=sid,
+                            issuer=tranche.issuer_of.get(sid, ''), shares=shares, per_share=value,
+                            child_security_id=child or '', method=method, source=row.get('source_url') or row.get('source_id', '')))
                     elif row['action_type'] == 'spinoff':
                         value = self.spin_value.get((sid, row['action_date']))
                         if value:
@@ -507,6 +635,25 @@ class Backtest:
                 done.append(sid)
         for sid in done:
             self.action_sids.remove(sid)
+
+    def _liquidate_distributions(self, day: str) -> None:
+        for event in self.pending_distributions:
+            tranche = self.tranches[event['tranche']]
+            gross = event['shares'] * event['per_share']
+            net = gross * (1 - self.slip) - self.fee
+            if tranche.cash + net < -1e-8:
+                raise DataGapError(f'{event["security_id"]} {day}: insufficient cash for distribution fee')
+            tranche.cash += net
+            issuer = event['issuer']
+            tranche.income[issuer] = tranche.income.get(issuer, 0.0) + net
+            event.update(gross=gross, net=net, fee=self.fee, cost=gross * self.slip + self.fee,
+                         cash_available='next_session_open')
+            self.event_flows.append(event)
+            self.trades.append(dict(date=day, tranche=tranche.index, security_id=event['security_id'],
+                                    side='corporate_action_liquidation', shares=event['shares'],
+                                    price=event['per_share'] * (1 - self.slip), fee=self.fee,
+                                    reason=event['method'], signal_date=''))
+        self.pending_distributions = []
 
     def _execute(self, day: str) -> None:
         if not self.pending:
@@ -521,6 +668,10 @@ class Backtest:
                 continue
             shares = held if order.get('shares') is None else min(held, float(order['shares']))
             if price is None or price <= 0:
+                if self.terra_r1 and self.mode in POOL_MODES:
+                    order['missing_days'] = order.get('missing_days', 0) + 1
+                    if order['missing_days'] >= 2:
+                        raise DataGapError(f'{sid} {day}: structural target has no opening price for two sessions')
                 remaining.append(order)
                 continue
             if shares <= 0:
@@ -538,7 +689,6 @@ class Backtest:
                 cost = tranche.cost.get(sid, 0.0) * (shares / held)
                 tranche.cost[sid] = tranche.cost.get(sid, 0.0) - cost
             tranche.sell_proceeds[issuer] = tranche.sell_proceeds.get(issuer, 0.0) + proceeds
-            tranche.buy_cost[issuer] = tranche.buy_cost.get(issuer, 0.0) + cost
             tranche.trades += 1
             self._record_trade(day, order, sid, 'sell', shares, fill)
         by_tranche: dict[int, list[dict]] = defaultdict(list)
@@ -551,12 +701,24 @@ class Backtest:
             notionals = sum(o['notional'] for o in orders if o.get('notional') is not None)
             scale = min(1.0, available / notionals) if notionals > 0 else 1.0
             for order in orders:
+                if self.terra_r1 and self.mode not in POOL_MODES:
+                    sid = order['security_id']
+                    issuer = self.issuer.get(sid, '')
+                    if sid in tranche.positions or (issuer and issuer in tranche.issuer_of.values()):
+                        continue
+                    if len(tranche.positions) >= self.N:
+                        remaining.append(order)
+                        continue
                 if self.mode in ('random', 'random_size') and len(tranche.positions) >= self.N:
                     # an exit without an opening price is deferred, so the book already holds N names: stop buying
                     continue
                 sid = order['security_id']
                 price = self.opens.get(sid, {}).get(day)
                 if price is None or price <= 0:
+                    if self.terra_r1 and self.mode in POOL_MODES:
+                        order['missing_days'] = order.get('missing_days', 0) + 1
+                        if order['missing_days'] >= 2:
+                            raise DataGapError(f'{sid} {day}: structural target has no opening price for two sessions')
                     remaining.append(order)
                     continue
                 if order.get('notional') is not None:
@@ -594,10 +756,22 @@ class Backtest:
             self.first_trade_day = day
         self.trades.append(dict(date=day, tranche=order['tranche'], security_id=sid, side=side,
                                 shares=round(shares, 8), price=round(fill, 8), fee=self.fee,
+                                market_price=fill / (1 + self.slip if side == 'buy' else 1 - self.slip),
                                 reason=order['reason'], signal_date=order['signal_date']))
 
     def _queue_momentum(self, tranche: Tranche, day: str) -> None:
         pool = self.pools[day]
+        if self.terra_r1:
+            self.pending = [o for o in self.pending if o['tranche'] != tranche.index]
+            if not self.score_counts or self.score_counts[-1]['date'] != day:
+                scoreable = self._scored(day, pool)
+                i = bisect.bisect_left(self.full_calendar, day)
+                days = self.full_calendar[max(0, i-self.L):i+1]
+                insufficient = sum(i < self.L or not self.tri.get(s['security_id'], {}).get(days[0])
+                                   for s in pool['securities'])
+                self.score_counts.append(dict(date=day, pool_companies=len(pool['securities']),
+                    scoreable=len(scoreable), insufficient_history=insufficient,
+                    missing_days=len(pool['securities'])-len(scoreable)-insufficient))
         orders = (self._random_orders(tranche, day, pool) if self.mode in ('random', 'random_size')
                   else self._momentum_orders(tranche, day, pool))
         rank, scores = orders['rank'], orders['scores']
@@ -620,12 +794,16 @@ class Backtest:
                                               'rebalance', record=False, price_day=self.calendar[nxt])
             return
         for sid in orders['sells']:
-            self.pending.append(dict(tranche=tranche.index, security_id=sid, side='sell', reason='signal',
+            replacement = any(self.issuer.get(buy) == self.issuer.get(sid) for buy in orders['buys'])
+            reason = 'representative_switch' if self.terra_r1 and replacement else 'signal'
+            self.pending.append(dict(tranche=tranche.index, security_id=sid, side='sell', reason=reason,
                                      signal_date=day, weight=0.0))
         if orders['buys']:
             weights = self._buy_weights(day, orders['buys'])
             for sid in orders['buys']:
-                self.pending.append(dict(tranche=tranche.index, security_id=sid, side='buy', reason='signal',
+                replacement = any(self.issuer.get(sell) == self.issuer.get(sid) for sell in orders['sells'])
+                reason = 'representative_switch' if self.terra_r1 and replacement else 'signal'
+                self.pending.append(dict(tranche=tranche.index, security_id=sid, side='buy', reason=reason,
                                          signal_date=day, weight=weights[sid]))
 
     def _buy_weights(self, day: str, buys: list[str]) -> dict[str, float]:
@@ -660,13 +838,27 @@ class Backtest:
         equity = tranche.cash
         for sid, shares in tranche.positions.items():
             price = prices.get(sid)
-            equity += shares * (price if price is not None else (self.close_on(sid, price_day) or 0.0))
+            equity += shares * (price if price is not None else
+                                (self.last_close.get(sid, 0.0) if self.terra_r1 else (self.close_on(sid, price_day) or 0.0)))
         tolerance = 1e-6
         target_value = {sid: weight * equity for sid, weight in target.items()}
         for sid in sorted(tranche.positions):
             price = prices.get(sid)
             want = target_value.get(sid, 0.0)
             if price is None or price <= 0:
+                if self.terra_r1:
+                    prior = self.last_close.get(sid)
+                    if not prior:
+                        raise DataGapError(f'{sid} {day}: no known price for held structural position')
+                    delta = want - tranche.positions[sid] * prior
+                    if delta < -tolerance:
+                        shares = None if want <= 0 else min(tranche.positions[sid], -delta / prior)
+                        self.pending.append(dict(tranche=tranche.index, security_id=sid, side='sell',
+                                                 reason=reason, signal_date=day, shares=shares))
+                    elif delta > tolerance:
+                        self.pending.append(dict(tranche=tranche.index, security_id=sid, side='buy',
+                                                 reason=reason, signal_date=day, notional=delta))
+                    continue
                 if want <= 0.0:                      # an exit without a price waits for the next session
                     if record:
                         self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid,
@@ -692,7 +884,7 @@ class Backtest:
             if sid in tranche.positions:
                 continue
             price = prices.get(sid)
-            if price is None or price <= 0 or target_value[sid] <= tolerance:
+            if (not self.terra_r1 and (price is None or price <= 0)) or target_value[sid] <= tolerance:
                 continue
             if record:
                 self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid,
@@ -713,6 +905,8 @@ class Backtest:
                     for tranche in self.tranches:
                         self._queue_pool(tranche, day)
             self._execute(day)
+            if self.terra_r1:
+                self._liquidate_distributions(day)
             if self.mode == 'voo':
                 pass
             elif self.mode in POOL_MODES:
@@ -723,19 +917,52 @@ class Backtest:
                     if week < tranche.index or (week - tranche.index) % self.K:
                         continue
                     self._queue_momentum(tranche, day)
-            self._mark(day)
+            if not self.terra_r1 or day > self.start:
+                self._mark(day)
         return self.result()
 
     def _mark(self, day: str) -> None:
+        if self.terra_r1:
+            current_by_issuer = {}
+            if day in self.amounts:
+                self.current_amounts.update(self.amounts[day])
+                current_by_issuer.update({self.issuer.get(sid): amount for sid, amount in self.amounts[day].items()})
+            info = self.pools.get(day, {})
+            if info.get('company_amounts'):
+                for row in self._representatives(info['amounts'], info['company_amounts']):
+                    self.current_amounts[row['security_id']] = row['company_amount_cents']
+                    current_by_issuer[row['issuer_id']] = row['company_amount_cents']
+            for tranche in self.tranches:
+                for sid, issuer in tranche.issuer_of.items():
+                    if issuer in current_by_issuer:
+                        self.current_amounts[sid] = current_by_issuer[issuer]
         if self.mode == 'voo' and self.bench_units == 0.0:
             tri = self.tri.get(BENCH, {}).get(day)
             if tri:
                 self.bench_entry = day
-                self.bench_units = self.capital / tri
+                if self.terra_r1:
+                    open_price = self.opens.get(BENCH, {}).get(day)
+                    close = self.closes.get(BENCH, {}).get(day)
+                    if not open_price or not close:
+                        raise DataGapError(f'VOO {day}: missing entry open or close')
+                    self.bench_units = self.capital / (tri * open_price / close)
+                else:
+                    self.bench_units = self.capital / tri
         if self.mode == 'voo':
             bench = self.bench_units * self.tri.get(BENCH, {}).get(day, 0.0)
             self.daily.append(dict(date=day, cash=0.0, positions_value=bench, equity=bench, benchmark=bench))
             return
+        held = {sid for tranche in self.tranches for sid in tranche.positions}
+        if self.terra_r1:
+            for sid in set(self.missing_close) - held:
+                self.missing_close.pop(sid, None)
+        for sid in held:
+            if self.terra_r1:
+                value = self.closes.get(sid, {}).get(day)
+                self.missing_close[sid] = 0 if value is not None and value > 0 else self.missing_close[sid] + 1
+                action_today = any(a['action_date'] == day for a in self.actions.get(sid, []))
+                if self.missing_close[sid] and (self.missing_close[sid] > 1 or action_today or sid not in self.last_close):
+                    raise DataGapError(f'{sid} {day}: cannot value held position (missing sessions={self.missing_close[sid]})')
         for tranche in self.tranches:
             for sid in tranche.positions:
                 value = self.closes.get(sid, {}).get(day)
@@ -750,15 +977,29 @@ class Backtest:
                 if close:
                     self.positions_today.append(dict(date=day, tranche=tranche.index, security_id=sid,
                                                      shares=round(shares, 8), close=close,
-                                                     value=round(shares * close, 6)))
-        if self.bench_units == 0.0 and self.first_trade_day is not None and day == self.first_trade_day:
+                                                     value=round(shares * close, 6),
+                                                     stale=bool(self.terra_r1 and self.missing_close[sid]),
+                                                     company_amount_cents=self.current_amounts.get(sid, '')))
+        if self.bench_units == 0.0 and ((self.terra_r1 and day > self.start) or
+                                      (not self.terra_r1 and self.first_trade_day is not None and day == self.first_trade_day)):
             tri = self.tri.get(BENCH, {}).get(day)
             close = self.closes.get(BENCH, {}).get(day)
             open_price = self.opens.get(BENCH, {}).get(day)
             if tri and close and open_price:
                 self.bench_entry = day
                 self.bench_units = self.capital / (tri * open_price / close)
+            elif self.terra_r1:
+                raise DataGapError(f'VOO {day}: missing entry open, close or TRI')
         bench = self.bench_units * self.tri.get(BENCH, {}).get(day, 0.0) if self.bench_units else 0.0
+        if self.terra_r1:
+            if not bench:
+                raise DataGapError(f'VOO {day}: missing TRI')
+            if any(t.cash < -1e-7 for t in self.tranches):
+                raise ArithmeticError(f'{day}: negative cash')
+            ledger = sum(sum(t.sell_proceeds.values()) + sum(t.income.values()) - sum(t.buy_cost.values())
+                         for t in self.tranches) + value
+            if abs(ledger - (cash + value - self.capital)) > 1e-5:
+                raise ArithmeticError(f'{day}: issuer ledger does not reconcile')
         self.daily.append(dict(date=day, cash=cash, positions_value=value, equity=cash + value, benchmark=bench))
         self.position_rows.extend(self.positions_today)
         self.positions_today = []
@@ -772,10 +1013,10 @@ class Backtest:
                                 - tranche.buy_cost.get(issuer, 0.0))
             for sid, shares in tranche.positions.items():
                 issuer = tranche.issuer_of.get(sid, '')
-                pnl[issuer] += shares * (self.close_on(sid, last_day) or 0.0) - tranche.cost.get(sid, 0.0)
+                pnl[issuer] += shares * (self.close_on(sid, last_day) or 0.0)
         return dict(daily=self.daily, trades=self.trades, decisions=self.decisions, pnl=dict(pnl),
                     positions=self.position_rows, issuers=dict(self.issuer), config=self.cfg,
-                    size_fallback=self.size_fallback)
+                    size_fallback=self.size_fallback, event_flows=self.event_flows, score_counts=self.score_counts)
 
     def _positions(self) -> list[dict]:
         rows = []

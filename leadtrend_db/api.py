@@ -191,6 +191,13 @@ def pool_amounts(version_id: str, db_path: Path | str = DB_PATH) -> dict[str, di
     return {r['security_id']: dict(r) for r in rows}
 
 
+def pool_company_amounts(version_id: str, db_path: Path | str = DB_PATH) -> dict[str, int]:
+    """Historical ranking amounts, including qualifying classes that cannot be purchased."""
+    conn = connect(db_path)
+    return {r['issuer_id']: r['amount_cents'] for r in conn.execute(
+        'select issuer_id, amount_cents from top200_companies where version_id = ?', (version_id,))}
+
+
 @lru_cache(maxsize=1)
 def _benchmark_bars() -> dict[str, dict[str, float]]:
     """VOO original daily bars from the archived benchmark responses (the benchmark is not in prices_daily)."""

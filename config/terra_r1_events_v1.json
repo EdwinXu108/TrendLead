@@ -1,0 +1,26 @@
+{
+  "version": "terra_r1_events_v1",
+  "class_distributions": [
+    {
+      "parent_security_id": "CIKCLS:0001288776:CL_A",
+      "child_security_id": "CIKCLS:0001288776:CL_C",
+      "ex_date": "2014-04-03",
+      "child_shares_per_parent": 1.0,
+      "source": "https://www.sec.gov/Archives/edgar/data/1288776/000112760214030060/xslF345X03/form4.xml",
+      "listing_source": "https://www.sec.gov/Archives/edgar/data/1288776/000128877614000040/goog10-qq12014.htm",
+      "valuation": "raw child close on ex-date; available for spending next session"
+    }
+  ],
+  "dowdupont_2019": {
+    "parent_security_id": "CUSIP:26614N201",
+    "suppressed_vendor_splits": ["2019-04-01", "2019-04-02"],
+    "evidence": "https://www.sec.gov/Archives/edgar/data/1666700/000166670019000027/rsp-1231201811xk.htm",
+    "explanation": "The vendor factors on April 1 and April 2 are not parent share splits; Dow was distributed after April 1 close, trading ex-distribution April 2. Corteva was distributed June 1, alongside the actual June 3 1-for-3 parent reverse split. Ratios are per pre-split parent share.",
+    "distributions": [
+      {"ex_date": "2019-04-02", "child_security_id": "CUSIP:260557103", "child_shares_per_parent": 0.3333333333333333,
+       "source": "https://www.sec.gov/Archives/edgar/data/1751788/000119312519095067/d716962dex991.htm"},
+      {"ex_date": "2019-06-03", "child_security_id": "CUSIP:22052L104", "child_shares_per_parent": 0.3333333333333333,
+       "source": "https://www.sec.gov/Archives/edgar/data/1755672/000119312519163314/d753864d8k.htm"}
+    ]
+  }
+}

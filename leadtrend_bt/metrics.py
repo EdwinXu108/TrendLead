@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+from datetime import date
 
 TRADING_DAYS = 252
 PERIOD_A = ('2014-02-28', '2019-11-29')
@@ -30,20 +31,23 @@ def _drawdown(dates: list[str], values: list[float]) -> dict:
     """Maximum drawdown with its peak, trough and recovery dates, and the longest run below the running peak."""
     peak, peak_date = values[0], dates[0]
     worst, worst_peak_date, trough_date = 0.0, dates[0], dates[0]
+    worst_peak_value = peak
     longest = streak = 0
+    longest_calendar = 0
     for day, value in zip(dates, values):
         if value >= peak:
             peak, peak_date, streak = value, day, 0
         else:
             streak += 1
             longest = max(longest, streak)
+            longest_calendar = max(longest_calendar, (date.fromisoformat(day) - date.fromisoformat(peak_date)).days)
         drawdown = value / peak - 1 if peak else 0.0
         if drawdown < worst:
             worst, trough_date, worst_peak_date = drawdown, day, peak_date
-    peak_value = dict(zip(dates, values))[worst_peak_date]
-    recovery = next((day for day, value in zip(dates, values) if day > trough_date and value >= peak_value), '')
+            worst_peak_value = peak
+    recovery = next((day for day, value in zip(dates, values) if day > trough_date and value >= worst_peak_value), '')
     return dict(max_drawdown=worst, peak_date=worst_peak_date, trough_date=trough_date, recovery_date=recovery,
-                longest_underwater_sessions=longest)
+                longest_underwater_sessions=longest, longest_underwater_calendar_days=longest_calendar)
 
 
 def _days(dates: list[str], start: str, end: str) -> int:
@@ -56,11 +60,13 @@ def _annual(dates: list[str], values: list[float]) -> dict:
         return out
     year_start = values[0]
     current = dates[0][:4]
+    previous = values[0]
     for day, value in zip(dates[1:], values[1:]):
         if day[:4] != current:
-            out[current] = value / year_start - 1
-            year_start = value
+            out[current] = previous / year_start - 1
+            year_start = previous
             current = day[:4]
+        previous = value
     out[current] = values[-1] / year_start - 1
     return out
 
@@ -85,8 +91,9 @@ def series_metrics(dates: list[str], values: list[float], rf_annual: dict[str, f
     for year in ('2020', '2022'):
         idx = [i for i, d in enumerate(dates) if d[:4] == year]
         if len(idx) > 1:
-            sub = [values[i] for i in idx]
-            intra[year] = _drawdown([dates[i] for i in idx], sub)['max_drawdown']
+            first = max(0, idx[0] - 1)
+            subidx = list(range(first, idx[-1] + 1))
+            intra[year] = _drawdown([dates[i] for i in subidx], [values[i] for i in subidx])['max_drawdown']
         else:
             intra[year] = float('nan')
     out = dict(start=dates[0], end=dates[-1], sessions=sessions, total_return=values[-1] / values[0] - 1,
@@ -114,9 +121,25 @@ def compute(result: dict, rf_daily: dict[str, float], periods=(PERIOD_A, PERIOD_
     dates = [r['date'] for r in daily]
     equity = [r['equity'] for r in daily]
     bench = [r['benchmark'] for r in daily]
+    terra = result.get('config', {}).get('protocol') == 'terra_r1_v1'
+    if terra:
+        # The first open is an additional starting observation, not a free first-day return.
+        capital = result['config']['capital']
+        dates.insert(0, dates[0])
+        equity.insert(0, capital)
+        bench.insert(0, capital)
     rf_annual = {d: rate * 360 for d, rate in rf_daily.items()}      # DTB3 percent, annualised
     strat = series_metrics(dates, equity, rf_annual)
     voo = series_metrics(dates, bench, rf_annual)
+    if terra:
+        for metrics in (strat, voo):
+            annual = metrics['annual_returns']
+            metrics['annual_year_kind'] = {year: ('partial' if year in ('2014', '2024') else 'complete')
+                                           for year in annual}
+            full = {year: value for year, value in annual.items() if year not in ('2014', '2024')}
+            if full:
+                year = min(full, key=full.get)
+                metrics['worst_complete_year'] = {'year': year, 'return_': full[year]}
     sr, br = _returns(equity), _returns(bench)
     n = min(len(sr), len(br))
     diff = [a - b for a, b in zip(sr[-n:], br[-n:])]
@@ -152,11 +175,21 @@ def compute(result: dict, rf_daily: dict[str, float], periods=(PERIOD_A, PERIOD_
         eq = equity_by_day.get(day, 0.0)
         if eq:
             max_top5 = max(max_top5, sum(sorted(bucket.values(), reverse=True)[:5]) / eq)
-    positions_count = [distinct_by_day.get(d, 0) for d in dates]
-    positions_sum = [rows_by_day.get(d, 0) for d in dates]
+    position_dates = [row['date'] for row in daily]
+    positions_count = [distinct_by_day.get(d, 0) for d in position_dates]
+    positions_sum = [rows_by_day.get(d, 0) for d in position_dates]
+    max_by_day: dict[str, float] = {}
+    if terra:
+        for (day, _), value in value_by_key.items():
+            max_by_day[day] = max(max_by_day.get(day, 0.0), value / equity_by_day[day])
+    max_weights = [max_by_day.get(d, 0.0) for d in position_dates] if terra else []
+    top5_weights = [sum(sorted(issuer_by_day.get(d, {}).values(), reverse=True)[:5]) / equity_by_day[d]
+                    for d in position_dates] if terra else []
+    hhi = [sum((v / equity_by_day[d]) ** 2 for v in issuer_by_day.get(d, {}).values())
+           for d in position_dates] if terra else []
     traded = sum(abs(t['shares'] * t['price']) for t in result['trades'])
-    years = len(dates) / TRADING_DAYS
-    avg_equity = sum(equity) / len(equity)
+    years = len(daily) / TRADING_DAYS
+    avg_equity = sum(r['equity'] for r in daily) / len(daily)
     turnover = (traded / 2) / avg_equity / years if years and avg_equity else float('nan')
     pnl = result['pnl']
     total_pnl = sum(pnl.values()) or 1.0
@@ -170,6 +203,26 @@ def compute(result: dict, rf_daily: dict[str, float], periods=(PERIOD_A, PERIOD_
                                      cagr=_cagr(e, len(e) - 1), voo_cagr=_cagr(b, len(b) - 1),
                                      excess=_cagr(e, len(e) - 1) - _cagr(b, len(b) - 1),
                                      total_return=e[-1] / e[0] - 1)
+    extra = {}
+    if terra:
+        amount_by_day: dict[str, float] = {}
+        for row in result['positions']:
+            amount = row.get('company_amount_cents')
+            if amount != '' and amount is not None:
+                day = row['date']
+                amount_by_day[day] = amount_by_day.get(day, 0.0) + row['value'] * float(amount) / equity_by_day[day]
+        slippage = sum(abs(t['price'] - t['market_price']) * t['shares']
+                       for t in result['trades'] if t.get('market_price') is not None)
+        slippage += sum(e.get('gross', 0) - e.get('net', 0) - e.get('fee', 0)
+                        for e in result.get('event_flows', []) if e.get('cash_available') == 'next_session_open')
+        extra = dict(average_single_weight=sum(max_weights)/len(max_weights),
+                     average_top5_issuer_weight=sum(top5_weights)/len(top5_weights),
+                     average_hhi=sum(hhi)/len(hhi), max_hhi=max(hhi),
+                     single_weight_ge_25=sum(v >= .25 for v in max_weights)/len(max_weights),
+                     single_weight_ge_35=sum(v >= .35 for v in max_weights)/len(max_weights),
+                     single_weight_ge_40=sum(v >= .40 for v in max_weights)/len(max_weights),
+                     average_company_amount_exposure_cents=sum(amount_by_day.values())/len(position_dates),
+                     total_execution_cost=sum(t['fee'] for t in result['trades']) + slippage)
     return dict(
         strategy=strat, benchmark=voo,
         excess_cagr=strat['cagr'] - voo['cagr'],
@@ -185,4 +238,5 @@ def compute(result: dict, rf_daily: dict[str, float], periods=(PERIOD_A, PERIOD_
         trades=len(result['trades']), fees=sum(t['fee'] for t in result['trades']),
         top_issuers=[dict(issuer=k, pnl=v, share=v / total_pnl) for k, v in top],
         total_pnl=sum(pnl.values()),
+        **extra,
     )

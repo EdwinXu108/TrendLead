@@ -189,3 +189,19 @@ def test_vernova_uses_verified_child_close_in_signal_and_ledger():
     bt.action_sids = [sid]
     bt._apply_actions('2024-04-02')
     assert bt.pending_distributions[0]['per_share'] == 35
+
+
+def test_gehc_archive_close_repairs_scoring_and_entitlement():
+    bt = Backtest(base_cfg(protocol='terra_r1_v1', start='2022-01-01', end='2023-12-31'))
+    sid = 'CUSIP:369604301'
+    bt.tri = {sid: {'2023-01-03': 1, '2023-01-04': 1}}
+    bt.closes = {sid: {'2023-01-03': 84.16, '2023-01-04': 66.75}}
+    bt.actions = {sid: [dict(action_date='2023-01-04', action_type='spinoff',
+                             ratio=None, cash_amount=None, vendor_factor=.7803407)]}
+    bt._prepare_terra_event_explanation()
+    expected = (66.75 + 60.49/3) / (66.75 + (1-.7803407)*84.16)
+    assert bt.tri[sid]['2023-01-04'] == pytest.approx(expected)
+    bt.tranches = [Tranche(0, 0, positions={sid: 3}, issuer_of={sid: 'I'})]
+    bt.action_sids = [sid]
+    bt._apply_actions('2023-01-04')
+    assert bt.pending_distributions[0]['per_share'] == pytest.approx(60.49/3)

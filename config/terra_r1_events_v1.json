@@ -11,6 +11,18 @@
       "valuation": "raw child close on ex-date; available for spending next session"
     }
   ],
+  "ge_healthcare_2023": {
+    "parent_security_id": "CUSIP:369604301",
+    "child_security_id": "CUSIP:36266G107",
+    "ex_date": "2023-01-04",
+    "child_shares_per_parent": 0.3333333333333333,
+    "child_raw_close": 60.49,
+    "source": "https://www.sec.gov/Archives/edgar/data/40545/000004054523000033/ge-20230103.htm",
+    "price_source": "data/v05/raw/opend_kline_none_v1/NONE_GEHC_2019-05-01_2026-12-31.csv",
+    "price_source_retrieved_utc": "2026-10-24T21:05:28.833339Z",
+    "price_row_sha256": "e0556507d288b69ba9edb4ed9e217777f218b57a140493a363dd31de07797c70",
+    "valuation": "raw child close on ex-date; available for spending next session"
+  },
   "ge_vernova_2024": {
     "parent_security_id": "CUSIP:369604301",
     "child_security_id": "CUSIP:36828A101",

@@ -178,16 +178,16 @@ def main():
         unaffected_mode=cfg['ranking']=='size' or cfg['mode']=='pool'
         actions_file=out/'corporate_actions.csv'
         no_ge_exposure=(actions_file.exists() and not any(
-            r['security_id']=='CUSIP:369604301' and r['date']=='2024-04-02'
+            r['security_id']=='CUSIP:369604301' and r['date'] in ('2023-01-04','2024-04-02')
             for r in read_csv(actions_file)))
         if old_marker.get('fingerprint')==fingerprint:
             item['status']='complete_cached'
         elif old_marker.get('fingerprint')==PRIOR_FINGERPRINT and unaffected_mode and no_ge_exposure:
             # Size ranking only uses the completeness of GE's TRI, not its value. Structural baselines do not
-            # score it. Neither held GE on the event date, so the verified child value cannot affect their paths.
+            # score it. Neither held GE on either event date, so the verified child values cannot affect their paths.
             item.update(status='complete_reused_unaffected',source_commit=PRIOR_COMMIT,
                         source_fingerprint=PRIOR_FINGERPRINT,
-                        reason='GE event not held; ranking does not use TRI values')
+                        reason='GE events not held; ranking does not use TRI values')
         elif (old_failure.get('fingerprint')==PRIOR_FINGERPRINT and cfg['mode']=='pool'
               and 'CUSIP:H1467J104 2015-12-01' in old_failure.get('error','')):
             item.update(status='blocked_missing_prices',reason=old_failure['error'],source_commit=PRIOR_COMMIT,
@@ -266,9 +266,10 @@ def main():
             i=bisect.bisect_left(calendar,d)
             if i>=90 and i-90<ei<=i and any(s['security_id']==sid for s in signal_market['pools'].get(d,{}).get('securities',[])) and all(series.get(x,0)>0 for x in calendar[i-90:i+1]):
                 touched.append(d)
-        watched.append(dict(security_id=sid,date=ed,method='tri_discrepancy',
+        corrected=(sid,ed) in (('CUSIP:26614N201','2019-06-03'),('CUSIP:369604301','2023-01-04'))
+        watched.append(dict(security_id=sid,date=ed,method='tri_discrepancy_corrected' if corrected else 'tri_discrepancy',
             source='work/bt_v1/tri_validation.json: development-period comparison with v05',
-            needs_review=1,touched=touched))
+            needs_review=0 if corrected else 1,touched=touched))
     event_rows=[]
     for rid in sorted(completed):
         own=[r for r in flows if r['run_id']==rid]
@@ -323,9 +324,9 @@ def main():
               '结构基线与主配置的检查频率及整股约束不同，不是单变量配对。',
               '公司行动代理与 needs_review 事项须结合 event_impact.csv 审阅；旧随机结果不适用于修复后路径。',
               '完整风险指标、逐年收益与持仓明细保存在各运行目录。']
-    lines += ['', '过程偏差：准备阶段读取既有 TRI 验证摘要时，工具意外返回了截止日之后的若干单日差异；这些值未用于选参数或评价本轮策略。']
+    lines += ['', '过程偏差：准备阶段读取既有 TRI 验证摘要时，工具意外返回了截止日之后的若干单日差异；核对 GEHC 历史行时脚本还遍历了包含截止日后行情的文件，后续行未显示或用于计算。两次越界均未用于选参数或评价策略，须由 reviewer 裁决。']
     (ROOT/'report.md').write_text('\n'.join(lines)+'\n',encoding='utf8')
-    (ROOT/'handoff.md').write_text(f'# TERRA_R1 交接\n\n登记 {REGISTRATION}；实现 {commit}。\n\n复现：先将 PYTHONDONTWRITEBYTECODE=1、TMPDIR/TMP/TEMP 指向 work/terra_r1/tmp，再运行 `python -B -m leadtrend_bt.terra_r1`。\n\n默认测试：{manifest["tests"]}\n\n准备阶段误读了既有验证摘要中截止日之后的若干单日差异；没有用于参数选择或策略评价。请 reviewer 对此过程偏差裁决。\n\nGoogle 与 DowDuPont 的来源和事件解释见 config/terra_r1_events_v1.json；其他分拆保留标记的代理。ACE 的原始旧代码请求失败，未把另一公司的 CB 行情套用。\n\n详细状态与证据见 manifest.json、report.md 和各运行目录；事件代理与标记为 needs_review 的事项仍需 reviewer 审阅。\n',encoding='utf8')
+    (ROOT/'handoff.md').write_text(f'# TERRA_R1 交接\n\n登记 {REGISTRATION}；实现 {commit}。\n\n复现：先将 PYTHONDONTWRITEBYTECODE=1、TMPDIR/TMP/TEMP 指向 work/terra_r1/tmp，再运行 `python -B -m leadtrend_bt.terra_r1`。\n\n默认测试：{manifest["tests"]}\n\n准备阶段读取既有验证摘要时误读截止日后的若干单日差异；核对 GEHC 历史行时脚本遍历了包含截止日后行情的文件，后续行未显示或用于计算。这些内容没有用于参数选择或策略评价。请 reviewer 对两次过程偏差裁决。\n\nGoogle、DowDuPont 与 GE 的来源和事件解释见 config/terra_r1_events_v1.json；其他分拆保留标记的代理。ACE 的原始旧代码请求失败，未把另一公司的 CB 行情套用。\n\n详细状态与证据见 manifest.json、report.md 和各运行目录；事件代理与标记为 needs_review 的事项仍需 reviewer 审阅。\n',encoding='utf8')
 
 if __name__ == '__main__':
     main()

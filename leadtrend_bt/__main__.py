@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from .runner import run
+from .cache import cached_run
 
 
 def main(argv=None) -> int:
@@ -15,12 +15,13 @@ def main(argv=None) -> int:
     r = sub.add_parser('run')
     r.add_argument('--config', required=True, help='JSON file with one configuration')
     r.add_argument('--out', default='work/bt_runs')
+    r.add_argument('--db', required=True, help='explicit development-release database')
     args = parser.parse_args(argv)
     if args.cmd == 'run':
         cfg = json.loads(Path(args.config).read_text(encoding='utf8'))
-        out = run(cfg, out_root=args.out)
-        print(json.dumps({k: v for k, v in out['summary'].items() if k in ('strategy', 'benchmark', 'excess_cagr')},
-                         indent=2, default=str))
+        out = cached_run(cfg, db=args.db, out_root=args.out)
+        print(json.dumps({"status": out["status"], "path": out["path"],
+                          "excess_cagr": out["summary"].get("excess_cagr")}, indent=2, default=str))
         return 0
     return 2
 

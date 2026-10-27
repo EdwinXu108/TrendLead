@@ -13,7 +13,7 @@ from leadtrend_db.sources import DB_PATH
 
 pytestmark = pytest.mark.skipif(not DB_PATH.exists(), reason='database not built')
 
-CFG = dict(run_id='test_repeat', mode='momentum', start='2023-01-03', end='2024-06-28', L=90, N=10, b=2, K=1,
+CFG = dict(protocol='legacy_v1', run_id='test_repeat', mode='momentum', start='2023-01-03', end='2024-06-28', L=90, N=10, b=2, K=1,
            cost_bps=10, fee_per_order=1.0, capital=100000.0)
 
 

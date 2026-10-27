@@ -188,3 +188,24 @@ daily_return_t = (close_t × 拆股因子_t + 现金分红_t + 分拆价值_t) �
 | `friday_signal_days(start, end)` | 每周最后一个交易日 |
 | `rf_daily(start, end)` | DTB3 日利率（百分比 / 100 / 360，按日历日） |
 | `pool_windows(start, end)` / `pool_amounts(version_id)` | 版本生效区间与基金持仓金额（权重组合用） |
+
+
+## 开发段数据发布 `development_release_v1`
+
+本发布只修复至 2024-06-28 的开发段及必要前置历史，后段行以机械摘要保留；不得据此使用保留段。持久封存基库、`config/db_cash_overrides_v1.json`、`config/db_corporate_events_v1.json` 和 `research/bt_v3/TERRA_R1/development_release_v1.json` 是版本化迁移输入。旧的无界 build/check/promote 会触及全库，不用于此发布。
+
+从封存基库重建候选（需要现有 VOO 原始档案；输出目录必须为空）：
+
+```powershell
+python -B -m leadtrend_db.development_release --base data/db/releases/leadtrend_db_base_7564971e.sqlite --out work/closeout_v1/rebuilt.sqlite --manifest work/closeout_v1/rebuilt_manifest.json
+```
+
+公共回测默认为 `research_v1`，要求指定该发布数据库并拒绝超出开发截止日。历史口径必须显式指定 `legacy_v1`，仅用于识别旧结果。新协议读取已迁移事件，不再叠加旧 TERRA 私有补丁。某些未核实分拆估值仍是明确标记的代理；冲突如进入评分窗口或持仓则停止。ACE 2015-11-30 至 2016-01-14 的价格缺口尚未补齐，涉及的全池路径安全阻断，不补位。
+
+一次已登记配置的冷启动/复用示例（不依赖旧 work manifest）：
+
+```powershell
+python -B -m leadtrend_bt run --config config/bt_research_confirmation_v1.json --db data/db/leadtrend_db_v1.sqlite --out work/closeout_v1/confirmation
+```
+
+每次运行以 `run_id` 选择单个配置。完成缓存校验配置、数据库身份、经济代码与输入摘要和全部输出摘要；任一不符则重新计算，不缓存失败。数据库同路径切换后只读连接和内存数据按身份失效。运行明细和本地数据库不提交、不推送。

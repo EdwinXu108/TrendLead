@@ -25,7 +25,7 @@ def market(series: dict[str, list[float]], signal_idx=(4, 9, 14, 19)):
 
 
 def base_cfg(**kw):
-    cfg = dict(run_id='unit', start=dates()[0], end=dates()[-1], mode='momentum', L=2, N=2, b=1, K=1,
+    cfg = dict(protocol='legacy_v1', run_id='unit', start=dates()[0], end=dates()[-1], mode='momentum', L=2, N=2, b=1, K=1,
                cost_bps=0, fee_per_order=0.0, capital=1000.0)
     cfg.update(kw)
     return cfg

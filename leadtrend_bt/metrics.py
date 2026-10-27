@@ -121,7 +121,7 @@ def compute(result: dict, rf_daily: dict[str, float], periods=(PERIOD_A, PERIOD_
     dates = [r['date'] for r in daily]
     equity = [r['equity'] for r in daily]
     bench = [r['benchmark'] for r in daily]
-    terra = result.get('config', {}).get('protocol') == 'terra_r1_v1'
+    terra = result.get('config', {}).get('protocol') in ('terra_r1_v1', 'research_v1')
     if terra:
         # The first open is an additional starting observation, not a free first-day return.
         capital = result['config']['capital']

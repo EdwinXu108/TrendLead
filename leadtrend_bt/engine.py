@@ -77,7 +77,13 @@ class Tranche:
 class Backtest:
     def __init__(self, cfg: dict, db_path=None, market: dict | None = None):
         self.cfg = dict(cfg)
-        self.terra_r1 = self.cfg.get('protocol') == 'terra_r1_v1'
+        self.cfg.setdefault('protocol', 'research_v1')
+        self.protocol = self.cfg['protocol']
+        if self.protocol not in ('research_v1', 'terra_r1_v1', 'legacy_v1'):
+            raise ValueError(f'unsupported backtest protocol: {self.protocol}')
+        self.terra_r1 = self.protocol in ('research_v1', 'terra_r1_v1')
+        self.economic_data_version = ''
+        self.continuity_links = []
         self.market = market
         self.start = self.cfg['start']
         self.end = self.cfg['end']
@@ -138,7 +144,7 @@ class Backtest:
     # -- data ---------------------------------------------------------------------------------------------------
     def _cache_key(self):
         family = 'pool' if self.mode in POOL_MODES else ('voo' if self.mode == 'voo' else 'signal')
-        return (str(self.db_path), self.start, self.end, family, self.terra_r1)
+        return (api.database_identity(self.db_path), self.start, self.end, family, self.protocol, self.L)
 
     def load(self) -> None:
         if self.market is not None:
@@ -160,6 +166,9 @@ class Backtest:
             self.actions = cached['actions']
             self.action_sids = list(cached['action_sids'])
             self.spin_value = cached['spin_value']
+            self.continuity_links = cached['continuity_links']
+            self.economic_data_version = cached['economic_data_version']
+            self._preflight_targets()
             return
         self._load()
         _MARKET_CACHE[key] = dict(calendar=self.calendar, full_calendar=self.full_calendar,
@@ -167,7 +176,8 @@ class Backtest:
                                   tri=self.tri, opens=self.opens, closes=self.closes, issuer=self.issuer,
                                   amounts=self.amounts,
                                   actions=self.actions, action_sids=list(self.action_sids),
-                                  spin_value=self.spin_value)
+                                  spin_value=self.spin_value, continuity_links=self.continuity_links,
+                                  economic_data_version=self.economic_data_version)
 
     def _load(self) -> None:
         if self.market is not None:
@@ -181,6 +191,7 @@ class Backtest:
             self.closes = self.market['closes']
             self.issuer = self.market.get('issuer', {})
             self.actions = self.market.get('actions', {})
+            self.continuity_links = self.market.get('continuity_links', [])
             self.amounts = {}
             for day, info in self.pools.items():
                 if 'amounts' in info:
@@ -191,8 +202,15 @@ class Backtest:
             self._prepare_actions()
             return
         db = self.db_path
+        conn = api.connect(db)
+        meta = dict(conn.execute('select key,value from meta'))
+        self.economic_data_version = meta.get('economic_data_version', '')
+        if self.protocol == 'research_v1' and self.economic_data_version != 'development_release_v1':
+            raise DataGapError('research_v1 requires a verified development_release_v1 database')
+        if self.terra_r1:
+            self.continuity_links = api.issuer_continuity(db)
         from datetime import date, timedelta
-        lookback = (date.fromisoformat(self.start) - timedelta(days=400)).isoformat()
+        lookback = (date.fromisoformat(self.start) - timedelta(days=max(400, (self.L + 10) * 2))).isoformat()
         self.full_calendar = api.trading_days(lookback, self.end, db)
         self.calendar = [d for d in self.full_calendar if d >= self.start]
         self.signal_days = [d for d in api.friday_signal_days(self.start, self.end, db) if d >= self.start]
@@ -251,13 +269,25 @@ class Backtest:
         self.opens = api.open_series(sorted(ids), self.start, self.end, db)
         self._load_closes(sorted(ids), db)
         self._load_actions(sorted(ids), db)
-        if self.terra_r1:
+        if self.terra_r1 and self.economic_data_version != 'development_release_v1':
             self._prepare_terra_event_explanation()
             self._prepare_terra_cash_corrections()
-        bars = api.benchmark_bars(self.full_calendar[0], self.end)     # VOO is not in prices_daily
+        bars = api.benchmark_bars(self.full_calendar[0], self.end, db)
         self.opens[BENCH] = {d: b['open'] for d, b in bars.items()}
         self.closes[BENCH] = {d: b['close'] for d, b in bars.items()}
         self._prepare_actions()
+        self._preflight_targets()
+
+    def _preflight_targets(self) -> None:
+        if self.protocol == 'research_v1' and self.mode in POOL_MODES:
+            for day in sorted(self.pool_days):
+                idx = bisect.bisect_left(self.calendar, day)
+                if idx + 1 >= len(self.calendar):
+                    continue
+                nxt = self.calendar[idx + 1]
+                for sid in self._pool_targets(day):
+                    if not self.opens.get(sid, {}).get(day) and not self.opens.get(sid, {}).get(nxt):
+                        raise DataGapError(f'{sid} {day}..{nxt}: structural target has no opening prices')
 
     def _load_closes(self, ids: list[str], db) -> None:
         conn = api.connect(db) if db else api.connect()
@@ -272,9 +302,18 @@ class Backtest:
         for sid in ids:
             rows = [dict(r) for r in conn.execute("""
                 select action_date, action_type, ratio, cash_amount, spin_value, vendor_factor,
-                       sub_ticker, source, source_id, resolution, needs_review
+                       sub_ticker, source, source_id, resolution, needs_review, notes
                 from corporate_actions where security_id=? and action_date between ? and ? order by action_date""",
-                (sid, self.start, self.end))]
+                (sid, self.full_calendar[0] if self.terra_r1 else self.start, self.end))]
+            if self.economic_data_version == 'development_release_v1':
+                for row in rows:
+                    marker = 'verified_entitlement='
+                    if marker in row['notes']:
+                        evidence = json.loads(row['notes'].split(marker, 1)[1])
+                        row.update(child_security_id=evidence['child_security_id'],
+                                   child_ratio=evidence['child_ratio'], source_url=evidence['source_url'])
+                        self.closes.setdefault(evidence['child_security_id'], {})[row['action_date']] = evidence['child_close']
+                rows.sort(key=lambda r: (r['action_date'], 0 if r['action_type'] in ('spinoff','class_distribution') else 1))
             self.actions[sid] = rows
             for row in rows:
                 if row['action_type'] != 'spinoff':
@@ -475,6 +514,11 @@ class Backtest:
                 continue
             if self.terra_r1 and any(series.get(d, 0) <= 0 for d in self.full_calendar[i-self.L:i+1]):
                 continue
+            if self.protocol == 'research_v1':
+                conflict = next((r for r in self.actions.get(sid, []) if r.get('needs_review')
+                                 and base_day < r['action_date'] <= day), None)
+                if conflict:
+                    raise DataGapError(f'{sid} {conflict["action_date"]}: unresolved action in scoring window')
             rows.append((sid, series[day] / series[base_day] - 1.0, float(sec.get('amount_cents', 0.0))))
         if self.terra_r1 and self.cfg.get('ranking') == 'size':
             out = [(sid, amount) for sid, _, amount in rows]
@@ -646,6 +690,8 @@ class Backtest:
                     shares = tranche.positions.get(sid)
                     if not shares:
                         continue
+                    if self.protocol == 'research_v1' and row.get('needs_review'):
+                        raise DataGapError(f'{sid} {day}: unresolved action for held position')
                     if row['action_type'] in ('split', 'reverse_split') and row['ratio']:
                         tranche.positions[sid] = shares * float(row['ratio'])
                         if self.terra_r1:
@@ -1070,7 +1116,8 @@ class Backtest:
                 pnl[issuer] += shares * (self.close_on(sid, last_day) or 0.0)
         return dict(daily=self.daily, trades=self.trades, decisions=self.decisions, pnl=dict(pnl),
                     positions=self.position_rows, issuers=dict(self.issuer), config=self.cfg,
-                    size_fallback=self.size_fallback, event_flows=self.event_flows, score_counts=self.score_counts)
+                    continuity_links=self.continuity_links, size_fallback=self.size_fallback,
+                    event_flows=self.event_flows, score_counts=self.score_counts)
 
     def _positions(self) -> list[dict]:
         rows = []

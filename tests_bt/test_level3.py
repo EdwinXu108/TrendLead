@@ -22,7 +22,7 @@ def market(series, pools):
 
 
 def cfg(**kw):
-    base = dict(run_id='unit', start=dates()[0], end=dates()[-1], mode='momentum', L=1, N=1, b=1, K=1,
+    base = dict(protocol='legacy_v1', run_id='unit', start=dates()[0], end=dates()[-1], mode='momentum', L=1, N=1, b=1, K=1,
                 cost_bps=0, fee_per_order=0.0, capital=1000.0)
     base.update(kw)
     return base

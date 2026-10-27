@@ -70,9 +70,12 @@ def build_series(sessions: list[str], bars: dict, actions: list[dict], calendar:
                 elif kind in ('cash_dividend', 'special_dividend') and row.get('cash_amount'):
                     cash += float(row['cash_amount'])
                     flags.append('cash')
-                elif kind == 'class_distribution' and row.get('ratio'):
-                    split *= float(row['ratio'])
-                    flags.append('class_distribution')
+                elif kind == 'class_distribution':
+                    value = row.get('spin_value')
+                    if value is None:
+                        raise ValueError('class distribution requires verified child valuation')
+                    spin += float(value)
+                    flags.append('class_distribution_child')
                 elif kind == 'spinoff':
                     value = row.get('spin_value')
                     if value is not None:

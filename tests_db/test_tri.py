@@ -88,3 +88,12 @@ def test_tri_starts_at_one_on_the_first_session_in_range():
     assert rows[0]['tri'] == 1.0
     assert rows[0]['daily_return'] is None
     assert rows[-1]['tri'] == pytest.approx(54.0 / 52.0)
+
+
+def test_class_distribution_uses_child_value_not_a_parent_share_split():
+    action = dict(action_date=CAL[1], action_type='class_distribution', ratio=1.0, spin_value=20.0)
+    result = tri.build_series(CAL, bars([100.0, 80.0, 80.0, 80.0, 80.0]), [action], CAL, CAL[0], CAL[-1])
+    assert result[1]['daily_return'] == pytest.approx(0)
+    action['spin_value'] = None
+    with pytest.raises(ValueError, match='verified child valuation'):
+        tri.build_series(CAL, bars([100.0, 80.0, 80.0, 80.0, 80.0]), [action], CAL, CAL[0], CAL[-1])

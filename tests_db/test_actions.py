@@ -36,33 +36,53 @@ def run(actions, raw, days=('2024-01-02', '2024-01-03')):
     return rows, stats, reviews
 
 
-def test_two_same_day_amounts_are_one_dividend_when_rehab_says_so():
+def test_multiple_unidentified_amounts_remain_unresolved_even_when_vendor_factor_matches():
     rows, stats, _ = run([cash('2024-01-03', 0.369), cash('2024-01-03', 0.451)],
                          [rehab('2024-01-03', per_cash=0.82)])
     assert len(rows) == 1
     assert rows[0]['cash_amount'] == pytest.approx(0.82)
-    assert rows[0]['resolution'] == 'vendor_adjustment_confirms_candidate'
+    assert rows[0]['resolution'] == 'cash_conflict_unresolved'
+    assert rows[0]['needs_review'] == 1
 
 
 def test_regular_plus_special_are_added_when_rehab_separates_them():
-    rows, _, _ = run([cash('2024-01-03', 0.58), cash('2024-01-03', 0.2, 'special_dividend')],
+    rows, _, _ = run([dict(cash('2024-01-03', 0.58), component_id='regular'),
+                      dict(cash('2024-01-03', 0.2, 'special_dividend'), component_id='special')],
                      [rehab('2024-01-03', per_cash=0.58, special=0.2)])
     assert len(rows) == 1
     assert rows[0]['cash_amount'] == pytest.approx(0.78)
-    assert rows[0]['resolution'] == 'vendor_adjustment_confirms_candidate'
+    assert rows[0]['resolution'] == 'identified_components'
 
 
-def test_a_special_that_repeats_part_of_the_total_is_not_double_counted():
-    rows, _, _ = run([cash('2024-01-03', 0.609), cash('2024-01-03', 0.331, 'special_dividend')],
-                     [rehab('2024-01-03', per_cash=0.94, special=0.331, factor=1 - 0.94 / 10)])
-    assert len(rows) == 1
-    assert rows[0]['cash_amount'] == pytest.approx(0.94)
+def test_official_total_does_not_add_its_tax_component():
+    result = actions_v2.resolve_cash_components([cash('2024-01-03', .609), cash('2024-01-03', .331)],
+        {'per_cash_div': .94, 'special_dividend': .331}, {'official_cash': .94, 'source_url': 'official'})
+    assert result['amount'] == pytest.approx(.94)
+    assert result['needs_review'] == 0
+
+
+def test_equal_independently_identified_components_are_both_included():
+    items = [dict(cash('2024-01-03', .6), component_id='regular'),
+             dict(cash('2024-01-03', .6), component_id='special')]
+    result = actions_v2.resolve_cash_components(items, {})
+    assert result['amount'] == pytest.approx(1.2)
+    assert result['needs_review'] == 0
+
+
+def test_revisions_are_not_added_and_order_does_not_change_resolution():
+    rows = [rehab('2024-01-03', per_cash=.7, factor=.93),
+            rehab('2024-01-03', per_cash=.7, factor=.931)]
+    forward, _, _ = run([cash('2024-01-03', .7)], rows)
+    backward, _, _ = run([cash('2024-01-03', .7)], list(reversed(rows)))
+    assert forward == backward
+    assert forward[0]['cash_amount'] == pytest.approx(.7)
+    assert forward[0]['resolution'] == 'vendor_reported'
 
 
 def test_cash_missing_from_the_endpoint_is_restored_from_rehab_on_its_ex_date():
     rows, _, _ = run([], [rehab('2024-01-03', per_cash=0.25)])
     assert len(rows) == 1
-    assert rows[0]['resolution'] == 'rehab_per_cash_div_exdate_only'
+    assert rows[0]['resolution'] == 'vendor_reported'
     assert rows[0]['cash_amount'] == pytest.approx(0.25)
     assert rows[0]['action_date'] == '2024-01-03'
 
@@ -111,3 +131,9 @@ def test_spinoff_override_file_adds_the_missing_distribution(tmp_path, monkeypat
     assert [r['action_type'] for r in rows] == ['spinoff']
     assert rows[0]['sub_ticker'] == 'CHILD'
     assert rows[0]['resolution'] == 'ex_date_open_drop'
+
+
+def test_equal_unidentified_records_do_not_claim_one_component():
+    result = actions_v2.resolve_cash_components([cash('2024-01-03', .6), cash('2024-01-03', .6)], {})
+    assert result['needs_review'] == 1
+    assert result['resolution'] == 'cash_conflict_unresolved'

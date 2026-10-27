@@ -131,6 +131,8 @@ def run_core_satellite(core_cfg: dict, sat_cfg: dict, out_root: Path | str = OUT
 
 def run(cfg: dict, out_root: Path | str = OUT_ROOT, db_path=None, write: bool = True,
         files: bool = True) -> dict:
+    cfg = dict(cfg)
+    cfg.setdefault('protocol', 'research_v1')
     bt = Backtest(cfg, db_path=db_path)
     result = bt.run()
     rf = api.rf_daily(cfg['start'], cfg['end'], db_path) if db_path else api.rf_daily(cfg['start'], cfg['end'])
@@ -151,6 +153,11 @@ def run(cfg: dict, out_root: Path | str = OUT_ROOT, db_path=None, write: bool = 
                   result['positions'])
         write_csv(out / 'weekly_decisions.csv', ['signal_date', 'tranche', 'security_id', 'action', 'rank', 'score'],
                   result['decisions'])
+        if cfg['protocol'] in ('research_v1', 'terra_r1_v1'):
+            write_csv(out / 'corporate_actions.csv', ['date','tranche','security_id','issuer','method','shares','ratio',
+                'per_share','child_security_id','gross','net','fee','cost','cash_available','source'], result['event_flows'])
+            write_csv(out / 'score_counts.csv', ['date','pool_companies','scoreable','insufficient_history','missing_days'],
+                      result['score_counts'])
     (out / 'summary.json').write_text(json.dumps(summary, indent=2, sort_keys=True, default=str), encoding='utf8',
                                       newline='\n')
     return dict(summary=summary, result=result, engine=bt, path=out)

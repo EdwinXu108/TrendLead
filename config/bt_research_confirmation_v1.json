@@ -1,0 +1,17 @@
+{
+  "K": 4,
+  "L": 90,
+  "N": 10,
+  "b": 2,
+  "buy_weighting": "equal",
+  "capital": 100000.0,
+  "cost_bps": 10,
+  "end": "2024-06-28",
+  "fee_per_order": 1.0,
+  "mode": "momentum",
+  "protocol": "research_v1",
+  "ranking": "momentum",
+  "rebalance": "R2",
+  "run_id": "MOM_EQ_10bp",
+  "start": "2014-02-28"
+}

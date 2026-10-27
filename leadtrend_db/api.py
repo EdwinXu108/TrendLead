@@ -14,6 +14,8 @@ from __future__ import annotations
 import bisect
 import csv
 import json
+import hashlib
+import re
 import sqlite3
 from functools import lru_cache
 from pathlib import Path
@@ -22,23 +24,43 @@ from .sources import DB_PATH, ROOT
 
 DTB3_PATH = ROOT / 'data' / 'v05' / 'raw' / 'external' / 'DTB3.csv'
 _CONN: dict[str, sqlite3.Connection] = {}
+_CONN_STAT: dict[str, tuple] = {}
+
+
+def _file_identity(path: Path) -> tuple:
+    stat = path.stat()
+    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
 
 
 def connect(db_path: Path | str | None = None) -> sqlite3.Connection:
     db_path = DB_PATH if db_path is None else db_path
-    key = str(Path(db_path).resolve())
+    path = Path(db_path).resolve()
+    key = str(path)
+    identity = _file_identity(path)
+    if key in _CONN and _CONN_STAT.get(key) != identity:
+        _CONN.pop(key).close()
+        _CONN_STAT.pop(key, None)
     if key not in _CONN:
         conn = sqlite3.connect(f'file:{Path(db_path).as_posix()}?mode=ro', uri=True)
         conn.row_factory = sqlite3.Row
         _CONN[key] = conn
+        _CONN_STAT[key] = identity
     return _CONN[key]
 
 
 def close(db_path: Path | str = DB_PATH) -> None:
     key = str(Path(db_path).resolve())
     conn = _CONN.pop(key, None)
+    _CONN_STAT.pop(key, None)
     if conn is not None:
         conn.close()
+
+
+def database_identity(db_path: Path | str | None = None) -> tuple:
+    path = Path(DB_PATH if db_path is None else db_path).resolve()
+    conn = connect(path)
+    row = conn.execute("select value from meta where key='content_sha256'").fetchone()
+    return (str(path), _file_identity(path), row[0] if row else '')
 
 
 def trading_days(start: str, end: str, db_path: Path | str = DB_PATH) -> list[str]:
@@ -121,12 +143,14 @@ def open_prices(ids, day: str, db_path: Path | str = DB_PATH) -> dict[str, float
     return out
 
 
-@lru_cache(maxsize=1)
-def _dtb3() -> tuple[list[str], list[float]]:
+@lru_cache(maxsize=8)
+def _dtb3(end: str) -> tuple[list[str], list[float]]:
     days: list[str] = []
     values: list[float] = []
     with DTB3_PATH.open(encoding='utf-8-sig', newline='') as f:
         for row in csv.DictReader(f):
+            if row['observation_date'] > end:
+                break
             text = (row.get('DTB3') or '').strip()
             if not text:
                 continue
@@ -138,7 +162,7 @@ def _dtb3() -> tuple[list[str], list[float]]:
 
 def rf_daily(start: str, end: str, db_path: Path | str = DB_PATH) -> dict[str, float]:
     """Daily risk-free rate per calendar day (DTB3 percent / 100 / 360), forward filled to every NYSE session."""
-    days, values = _dtb3()
+    days, values = _dtb3(end)
     out: dict[str, float] = {}
     for day in trading_days(start, end, db_path):
         i = bisect.bisect_right(days, day) - 1
@@ -207,9 +231,8 @@ def issuer_continuity(db_path: Path | str = DB_PATH) -> list[dict]:
         order by effective_date, predecessor_issuer_id""")]
 
 
-@lru_cache(maxsize=1)
-def _benchmark_bars() -> dict[str, dict[str, float]]:
-    """VOO original daily bars from the archived benchmark responses (the benchmark is not in prices_daily)."""
+def _bounded_benchmark_archive(start: str, end: str) -> dict[str, dict[str, float]]:
+    """Read only JSON records up to the requested date, stopping before decoding later price rows."""
     from .sources import RawStore
     config = ROOT / 'config' / 'db_benchmark_v1.json'
     if not config.exists():
@@ -219,14 +242,67 @@ def _benchmark_bars() -> dict[str, dict[str, float]]:
     index = json.loads(store._read(cfg['index_url']))
     bars: dict[str, dict[str, float]] = {}
     for url in index['kline']:
-        payload = json.loads(store._read(url))
-        for row in payload.get('data') or []:
-            day = str(row.get('time_key', ''))[:10]
-            if day:
-                bars[day] = dict(open=float(row['open']), close=float(row['close']))
+        rec = store.records[url]
+        path = store.raw_dir / rec['path']
+        digest = hashlib.sha256()
+        with path.open('rb') as raw:
+            for block in iter(lambda: raw.read(1024 * 1024), b''):
+                digest.update(block)
+        if digest.hexdigest() != rec['sha256']:
+            raise RuntimeError(f'benchmark raw hash mismatch: {rec["path"]}')
+        decoder = json.JSONDecoder()
+        with path.open(encoding='utf8') as f:
+            buffer = ''
+            while '"data"' not in buffer or '[' not in buffer[buffer.index('"data"'):]:
+                part = f.read(4096)
+                if not part:
+                    raise ValueError('benchmark archive has no data array')
+                buffer += part
+            buffer = buffer[buffer.index('[', buffer.index('"data"'))+1:]
+            previous = ''
+            while True:
+                buffer = buffer.lstrip(' \r\n\t,')
+                if not buffer:
+                    buffer = f.read(4096)
+                    if not buffer:
+                        break
+                    continue
+                if buffer[0] == ']':
+                    break
+                match = re.search(r'"time_key"\s*:\s*"(\d{4}-\d{2}-\d{2})', buffer)
+                while match is None:
+                    part = f.read(4096)
+                    if not part:
+                        raise ValueError('benchmark record missing time key')
+                    buffer += part
+                    match = re.search(r'"time_key"\s*:\s*"(\d{4}-\d{2}-\d{2})', buffer)
+                day = match.group(1)
+                if day > end:
+                    break
+                if previous and day < previous:
+                    raise ValueError('benchmark archive is not date ordered')
+                previous = day
+                while True:
+                    try:
+                        row, used = decoder.raw_decode(buffer)
+                        break
+                    except json.JSONDecodeError:
+                        part = f.read(4096)
+                        if not part:
+                            raise
+                        buffer += part
+                buffer = buffer[used:]
+                if day >= start:
+                    bars[day] = dict(open=float(row['open']), close=float(row['close']))
     return bars
 
 
-def benchmark_bars(start: str, end: str) -> dict[str, dict[str, float]]:
-    """VOO original bars inside [start, end]; used for the benchmark entry price and mark to market."""
-    return {day: bar for day, bar in _benchmark_bars().items() if start <= day <= end}
+def benchmark_bars(start: str, end: str, db_path: Path | str | None = None) -> dict[str, dict[str, float]]:
+    """VOO raw bars from the selected development database, with bounded legacy archive fallback."""
+    if end > '2024-06-28':
+        raise ValueError('benchmark query exceeds development cutoff')
+    conn = connect(db_path)
+    if conn.execute("select 1 from sqlite_master where type='table' and name='benchmark_bars_development'").fetchone():
+        return {r['session_date']: dict(open=r['open'], close=r['close']) for r in conn.execute(
+            'select session_date,open,close from benchmark_bars_development where session_date between ? and ? order by session_date', (start, end))}
+    return _bounded_benchmark_archive(start, end)

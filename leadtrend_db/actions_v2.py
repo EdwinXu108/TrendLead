@@ -1,29 +1,12 @@
-"""Corporate-action triage (2026-10-27 round).
+"""Triage corporate actions using identified economic events and versioned evidence.
 
-Input is what price_data.assemble read from the raw archive: the per-security actions it already normalised, the raw
-OpenD rehabilitation and dividend records per ticker, and the accepted price rows. Output is the final
-corporate_actions set used by the total-return index, with one resolution string per row.
-
-Rules, in the investor's order of precedence:
-  1. Cash on one ex-date: the vendor rehabilitation per-share cash field decides the amount. When the endpoint
-     reported two amounts, the candidates are the endpoint sum, the regular amount, the special amount and their sum;
-     the candidate closest to the vendor's own price adjustment (within 2%) wins. That keeps a regular-plus-special
-     pair, drops a duplicate classification, and restores a component the endpoint lost.
-  2. A cash amount the endpoint dropped (no pay date, or a bank feed that mixes two issuers) is restored on its
-     ex-date from the rehabilitation field, else from the vendor price adjustment. The pay date is never invented and
-     the total-return index never uses it.
-  3. An unparsed stock dividend ("1 share pays 0.00275 shares") is a split with ratio 1.00275.
-  4. A spinoff keeps the documented shares-per-parent-share and the subsidiary code when the v05 normalised archive
-     has them and the resulting value agrees with the vendor adjustment within 20%; otherwise the vendor price factor
-     is the value evidence; four distributions the vendor feed misses entirely are listed in
-     config/spinoff_overrides_v1.csv and valued at the ex-date opening drop.
-  5. One vendor row can be read as both a join and a spinoff (2026 Honeywell); the duplicate split is dropped.
-  6. Every session is checked against the vendor price factor: an adjustment that the stored actions do not explain
-     within 2% becomes a review item. The check never creates an action.
+Vendor adjustment factors are diagnostic, not independent confirmation of cash amounts.
+Ambiguous revisions or unidentified components remain explicitly under review.
 """
 from __future__ import annotations
 import bisect
 import csv
+import json
 import re
 from collections import defaultdict
 from datetime import date, timedelta
@@ -32,6 +15,7 @@ from .sources import ROOT, V05_NORMALIZED
 
 CASH_TYPES = ('cash_dividend', 'special_dividend')
 SPINOFF_CONFIG = ROOT / 'config' / 'spinoff_overrides_v1.csv'
+CASH_OVERRIDES = ROOT / 'config' / 'db_cash_overrides_v1.json'
 MATCH = 0.02                     # tolerance when matching a candidate against the vendor adjustment
 CHILD_TOL = 0.20                 # a child-price value this far from the vendor value is not used
 STOCK_DIV = re.compile(r'(\d+(?:\.\d+)?)\s*股\s*派\s*(\d+(?:\.\d+)?)\s*股')
@@ -96,11 +80,58 @@ def _vendor_implied_cash(vendor: dict, prev_close: float | None) -> float | None
     return value if value > 0 else None
 
 
+def resolve_cash_components(rows: list[dict], vendor: dict, override: dict | None = None) -> dict:
+    """Resolve only identified economic components; vendor adjustment factors are diagnostic.
+
+    An explicit component_id distinguishes real same-amount components. Unidentified competing
+    records remain unresolved; a provisional amount is never promoted to confirmed evidence.
+    """
+    if override is not None:
+        return dict(amount=float(override['official_cash']), resolution='official_cash_override',
+                    needs_review=0, evidence=override['source_url'])
+    components: dict[str, set[float]] = defaultdict(set)
+    unidentified = []
+    for row in rows:
+        amount = _num(row.get('cash_amount'))
+        if amount is None or amount <= 0:
+            continue
+        ident = str(row.get('component_id') or '')
+        if ident:
+            components[ident].add(amount)
+        else:
+            unidentified.append(amount)
+    if components and not unidentified and all(len(v) == 1 for v in components.values()):
+        return dict(amount=sum(next(iter(v)) for v in components.values()), resolution='identified_components',
+                    needs_review=0, evidence='explicit component identities')
+    amounts = sorted(set(unidentified))
+    per, special = _num(vendor.get('per_cash_div')) or 0, _num(vendor.get('special_dividend')) or 0
+    conflict = bool(components) or len(unidentified) > 1 or bool(vendor.get('_cash_revision_conflict'))
+    if len(amounts) == 1:
+        amount = amounts[0]
+        if per and abs(per-amount) > 1e-8:
+            conflict = True
+        if special and abs(special-amount) > 1e-8:
+            conflict = True
+    elif amounts:
+        amount = sum(amounts)
+    elif per or special:
+        amount = per if per else special
+        conflict = conflict or bool(per and special)
+    else:
+        return dict(amount=None, resolution='no_cash_evidence', needs_review=int(conflict), evidence='')
+    return dict(amount=amount, resolution='cash_conflict_unresolved' if conflict else 'vendor_reported',
+                needs_review=int(conflict), evidence='reported amount; factor is not independent confirmation')
+
+
 def finalize(actions: dict, action_raw: dict, prices: dict, code_of: dict, log=print):
     """Return (rows, stats, reviews). rows carry every column of corporate_actions except action_id."""
     stats = defaultdict(int)
     reviews: list[dict] = []
     children = _v05_spinoff_children()
+    overrides = {}
+    if CASH_OVERRIDES.exists():
+        data = json.loads(CASH_OVERRIDES.read_text(encoding='utf8'))
+        overrides = {(r['security_id'], r['ex_date']): r for r in data['entries']}
 
     def add_review(kind, subject, detail):
         reviews.append(dict(review_type=kind, subject_id=subject, snapshot_id='', detail=detail, source_id=''))
@@ -108,9 +139,8 @@ def finalize(actions: dict, action_raw: dict, prices: dict, code_of: dict, log=p
     def rehab(code: str, day: str):
         """Combined view of the archived rehabilitation rows of one ex-date.
 
-        The archive repeats rows from more than one source file, and a date can carry two distinct components (a base
-        and a variable dividend). Identical rows collapse; distinct rows add their cash and compose their price
-        factors (x -> A*x + B applied in order), which is what the vendor series does.
+        Deduplicate identical source records deterministically; do not add conflicting revisions or factors.
+        Component identity and independent evidence are required to resolve ambiguous cash.
         """
         rows = [r for r in action_raw.get(code, ([], []))[0] if str(r.get('ex_div_date', ''))[:10] == day]
         if not rows:
@@ -124,23 +154,21 @@ def finalize(actions: dict, action_raw: dict, prices: dict, code_of: dict, log=p
                 continue
             keys.add(key)
             distinct.append(row)
+        distinct.sort(key=lambda r: json.dumps(r, sort_keys=True, default=str, ensure_ascii=False))
         merged = {}
         for row in distinct:
             for key, value in row.items():
                 if merged.get(key) in (None, '') and value not in (None, ''):
                     merged[key] = value
-        merged['per_cash_div'] = sum(_num(r.get('per_cash_div')) or 0.0 for r in distinct) or None
-        merged['special_dividend'] = sum(_num(r.get('special_dividend')) or 0.0 for r in distinct) or None
-        a_total, b_total = 1.0, 0.0
-        for row in distinct:
-            factor = _num(row.get('forward_adj_factorA'))
-            offset = _num(row.get('forward_adj_factorB')) or 0.0
-            if factor is None:
-                continue
-            b_total = b_total * factor + offset
-            a_total *= factor
-        merged['forward_adj_factorA'] = a_total
-        merged['forward_adj_factorB'] = b_total
+        for key in ('per_cash_div', 'special_dividend'):
+            vals = sorted({_num(r.get(key)) for r in distinct if _num(r.get(key)) is not None})
+            merged[key] = vals[0] if vals else None
+            if len(vals) > 1:
+                merged['_cash_revision_conflict'] = True
+        # Only a single, unambiguous factor is meaningful as a diagnostic; never compose revisions.
+        factors = {(_num(r.get('forward_adj_factorA')), _num(r.get('forward_adj_factorB'))) for r in distinct}
+        if len(factors) != 1:
+            merged['forward_adj_factorA'] = merged['forward_adj_factorB'] = None
         return merged
 
     def previous_close(sid: str, day: str):
@@ -160,7 +188,9 @@ def finalize(actions: dict, action_raw: dict, prices: dict, code_of: dict, log=p
         kept: list[dict] = []
         for day in sorted(set(by_date) | (vendor_dates & set(prices.get(sid, {})))):
             group = by_date.get(day, [])
-            cash = [r for r in group if r['action_type'] in CASH_TYPES]
+            cash = sorted((r for r in group if r['action_type'] in CASH_TYPES),
+                          key=lambda r: (r['action_type'], r.get('cash_amount') or 0, r.get('source_id') or '',
+                                         r.get('notes') or ''))
             kept.extend(r for r in group if r['action_type'] not in CASH_TYPES)
             vendor = rehab(code, day) or {}
             per = _num(vendor.get('per_cash_div')) or 0.0
@@ -168,38 +198,28 @@ def finalize(actions: dict, action_raw: dict, prices: dict, code_of: dict, log=p
             implied = _vendor_implied_cash(vendor, previous_close(sid, day))
             if day in stock_dividend_days:
                 continue                       # the stock dividend is a share distribution, handled below
-            if not cash and not (per or special) and not implied:
+            if not cash and not (per or special):
                 continue
             if day not in prices.get(sid, {}):
                 continue                       # an action outside the accepted price history is not used
             our_total = sum(float(r['cash_amount'] or 0) for r in cash)
-            candidates = sorted({round(v, 6) for v in (our_total, per, special, per + special) if v > 1e-9})
             base = max(cash, key=lambda r: r['cash_amount'] or 0) if cash else dict(
                 security_id=sid, action_date=day, action_type='cash_dividend', ratio=None, cash_amount=None,
                 needs_review=0, currency='USD', source='opend', source_id=vendor.get('_source_id'), notes='')
-            if our_total > 1e-9 and implied:
-                best = min(candidates, key=lambda c: abs(c - implied))
-                if abs(best - implied) <= MATCH * implied:
-                    total, how = best, 'vendor_adjustment_confirms_candidate'
-                else:
-                    total, how = our_total, 'endpoint_amount_vendor_disagrees'
-                    if abs(implied / our_total - 1) > 0.20:
-                        add_review('price_action_scan', sid,
-                                   f'{day}: endpoint cash {our_total:g} vs vendor implied {implied:.4f}; endpoint kept')
-            elif our_total > 1e-9:
-                total, how = our_total, 'endpoint_amount'
-            elif candidates:
-                total, how = candidates[-1], 'rehab_per_cash_div_exdate_only'
-            else:
-                total, how = implied, 'vendor_factor_implied'
-                add_review('price_action_scan', sid, f'{day}: cash restored from the vendor factor only: {implied:.4f}')
+            resolved = resolve_cash_components(cash, vendor, overrides.get((sid, day)))
+            total, how = resolved['amount'], resolved['resolution']
+            if total is None:
+                continue
+            if resolved['needs_review']:
+                add_review('cash_conflict', sid, f'{day}: competing cash records; no independent resolution')
             kept.append(dict(base, action_type='cash_dividend', cash_amount=round(total, 6),
-                             needs_review=int(base.get('needs_review', 0) if how.startswith('endpoint_amount') else 0),
+                             needs_review=resolved['needs_review'],
                              resolution=how,
                              notes=(f'{base.get("notes", "")};triage={how};endpoint_amounts='
                                     + '|'.join(f'{float(r["cash_amount"]):.6g}' for r in cash if r['cash_amount'])
                                     + f';rehab_per_cash={per:g};rehab_special={special:g}'
-                                    + (f';vendor_implied={implied:.6f}' if implied else ''))))
+                                    + (f';vendor_implied_diagnostic={implied:.6f}' if implied else '')
+                                    + f';evidence={resolved["evidence"]}')))
             stats['cash_' + how] += 1
         final[sid] = kept
 
@@ -329,12 +349,13 @@ def _scan(action_raw, prices, code_of, final):
     for sid, bars in prices.items():
         code = code_of.get(sid, '')
         vendor_rows = action_raw.get(code, ([], []))[0]
-        seen = set()
+        by_date = defaultdict(set)
         for row in vendor_rows:                     # the archive repeats rows from more than one source file
             factor = _num(row.get('forward_adj_factorA'))
             if factor is not None:
-                seen.add((str(row.get('ex_div_date', ''))[:10], factor, _num(row.get('forward_adj_factorB')) or 0.0))
-        events = sorted(seen)
+                by_date[str(row.get('ex_div_date', ''))[:10]].add((factor, _num(row.get('forward_adj_factorB')) or 0.0))
+        # Different factors on one date may be revisions, not separate actions; omit ambiguous diagnostics.
+        events = sorted((day, *next(iter(values))) for day, values in by_date.items() if len(values) == 1)
         if not events:
             continue
         days = [e[0] for e in events]

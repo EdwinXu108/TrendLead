@@ -76,12 +76,16 @@ print(out['status'], out['summary']['excess_cagr'])
 | 字段 | 取值与含义 | 默认 |
 |---|---|---|
 | `mode` | `momentum`（按信号选股）；`pool`（被动持有前 `top_n` 家，每个版本生效后只交易差额）；`voo`（买入持有基准）；`random` / `random_size`（随机对照，需要原配置的 `plan`，见 bt_v2 的驱动脚本） | `momentum` |
-| `ranking` | `momentum`（`tri_t / tri_{t−L} − 1`，需要 L+1 日完整总回报）；`size`（按公司的基金持仓金额） | `momentum` |
-| `L` | 动量回看的交易日数 | 90 |
+| `ranking` | `momentum`（`tri_t / tri_{t−L} − 1`，需要 L+1 日完整总回报）；`size`（按公司的基金持仓金额）；`signal`（按 `signal` 指定的信号） | `momentum` |
+| `signal` | `ranking='signal'` 时必填，取值见 `leadtrend_bt/signals.py` 的 13 个信号：`MOM_126`、`MOM_252`、`MOM_12_1`、`REV_5`、`REV_21`、`LOWVOL_126`、`HIGHVOL_126`、`DIST_52W`、`TREND_MA200`、`VOLUME_SURGE`、`AMIHUD_126`、`FUND_ACCUM`、`FUND_RANK_UP` | 无 |
+| `L` | 动量回看的交易日数（`ranking='signal'` 时不影响信号，但配置里保留） | 90 |
 | `N` | 每个子账户的持仓数 | 10 |
 | `b` | 保留缓冲：排名不低于 b×N 就继续持有 | 2 |
 | `K` | 分批子账户数（子账户 j 在第 j 个信号周建仓，之后每 K 周检查一次） | 1 |
-| `rebalance` | `R2`：卖出所得买新股，保留的股票不调仓；`R1`：有换股的检查日恢复等权 | `R2` |
+| `rebalance` | `R2`：卖出所得买新股，保留的股票不调仓；`R1`：有换股的检查日恢复等权；`R1W`：每个检查日都恢复等权 | `R2` |
+| `execution` | `next_open`：下一交易日开盘价成交；`close`：信号日收盘价成交（信号与成交同一时点） | `next_open` |
+| `fractional` | 是否允许小数股；不设时 `pool` 与 `voo` 为真，其余为假 | 按 mode |
+| `max_missing_days` | 回看窗口允许缺几个交易日（0 或 1）；不设时 `research_v1` 为 1、`legacy_v1` 为 0 | 按协议 |
 | `buy_weighting` | `equal`：新买入等额；`amount`：新买入按公司持仓金额分配 | `equal` |
 | `top_m` | 只在持仓金额前 M 家里评分 | 不限 |
 | `w` | 合成分数 = w × 规模百分位 + (1 − w) × 动量百分位 | 不用 |
@@ -90,9 +94,38 @@ print(out['status'], out['summary']['excess_cagr'])
 | `start`、`end` | 信号起止日；`end` 不得晚于 2024-06-28 | — |
 
 **共同口径：**
-- 每周最后一个交易日收盘出信号，下一交易日开盘成交，先卖后买，整股（`pool`、`voo` 允许小数股）；
-- 现金收益为 0；基准为 VOO 总回报，与策略在同一天开盘买入；
+- 每周最后一个交易日收盘出信号，下一交易日开盘成交（`execution='close'` 时改为信号日收盘成交），先卖后买，整股（`pool`、`voo` 允许小数股）；
+- 现金收益为 0；基准为 VOO 总回报，与策略在同一天同一价格买入；
 - 同一公司的多个类别只取持仓金额最大的可选类别。
+
+## 4.1 信号层默认口径（2026-10-28 投资者决定）
+
+以后所有信号研究默认用这一层，目的是快速确认"有没有信号"，**接受不严谨**。定义见 `AGENTS.md`，代码见 `leadtrend_bt/signal_layer.py`：
+
+| 项 | 值 |
+|---|---|
+| 成交 | 周五收盘出信号，当天收盘价成交（`execution='close'`） |
+| 成本 | 零（`cost_bps=0`、`fee_per_order=0.0`） |
+| 股数与权重 | 小数股、绝对等权（`fractional=True`） |
+| 缓冲与分批 | 无（`b=1`、`K=1`） |
+| 等权维护 | 每个检查日拉回 1/N（`rebalance='R1W'`） |
+| 区间 | 2014-02-28 至 2024-06-28，一整段，不分时段 |
+| 本金 | 100,000 美元 |
+
+`signal_layer_config(run_id, **overrides)` 生成完整配置，固定字段不可覆盖（只有 `ranking`、`signal`、`L`、`N`、`rebalance`、`top_m`、`w`、`buy_weighting` 可以给）。`research_v1` 的默认值不变（仍是 `next_open` 且带成本），因为回测层还没定。
+
+跑一个零成本组合的最短代码（信号层模拟一般直接调 `runner.run`，`files=False` 只写 `config.json` 与 `summary.json`，不必走缓存）：
+
+```python
+from leadtrend_bt.runner import run
+from leadtrend_bt.signal_layer import signal_layer_config
+
+cfg = signal_layer_config('REV_5_N10', ranking='signal', signal='REV_5', N=10)
+out = run(cfg, out_root='work/my_runs', db_path='data/db/leadtrend_db_v1.sqlite', write=True, files=False)
+print(out['summary']['excess_cagr'])
+```
+
+整批实验用 `research/mom_v1/run_m2.py`、`run_m3.py`（支持 `--only RUN_ID[,RUN_ID...]`），全部配置见 `research/mom_v1/configs_m2_m3.csv`。
 
 ## 5. 输出（`<out>/<run_id>/`）
 

@@ -1,0 +1,5 @@
+run_id,frequency,cash_rate,start,end,types,fasts,slows
+WF_daily_zero,daily,zero,2014-02-28,2024-06-28,"sma,ema,wma,dema,tema,hma,kama","3,5,8,10,13,20,30,50","20,30,50,80,100,150,200,250,300"
+WF_daily_dtb3,daily,dtb3,2014-02-28,2024-06-28,"sma,ema,wma,dema,tema,hma,kama","3,5,8,10,13,20,30,50","20,30,50,80,100,150,200,250,300"
+WF_weekly_zero,weekly,zero,2014-02-28,2024-06-28,"sma,ema,wma,dema,tema,hma,kama","3,5,8,10,13,20,30,50","20,30,50,80,100,150,200,250,300"
+WF_weekly_dtb3,weekly,dtb3,2014-02-28,2024-06-28,"sma,ema,wma,dema,tema,hma,kama","3,5,8,10,13,20,30,50","20,30,50,80,100,150,200,250,300"

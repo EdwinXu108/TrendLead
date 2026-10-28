@@ -1,0 +1,3 @@
+run_id,segment,frequency,cash_rate,start,end,allow_holdout,database
+WF2_dev,dev,daily,zero,2014-02-28,2024-06-28,false,data/db/leadtrend_db_v1.sqlite
+WF2_holdout,holdout,daily,zero,2014-02-28,2026-06-30,true,data/db/leadtrend_db_full_v1.sqlite

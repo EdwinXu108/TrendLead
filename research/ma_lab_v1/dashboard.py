@@ -29,8 +29,8 @@ from leadtrend_db import api             # noqa: E402
 
 DEFAULT_DB = str(ROOT / 'data' / 'db' / 'leadtrend_db_v1.sqlite')
 TYPES = ('sma', 'ema', 'wma', 'dema', 'tema', 'hma', 'kama')
-FASTS = (5, 10, 20, 30, 50)
-SLOWS = (50, 100, 150, 200, 250)
+FASTS = (3, 5, 8, 10, 13, 20, 30, 50)
+SLOWS = (20, 30, 50, 80, 100, 150, 200, 250, 300)
 DEFAULT_START, DEFAULT_END = '2014-02-28', '2024-06-28'
 
 
@@ -89,29 +89,35 @@ def clean(value):
 class Lab:
     """One security and window, with every combination's metrics and a cache of average lines."""
 
-    def __init__(self, security: str, start: str, end: str, cash: str, db_path: str):
+    def __init__(self, security: str, start: str, end: str, cash: str, db_path: str, frequency: str = 'daily'):
         self.db = db_path
         self.cash = cash
+        self.frequency = frequency
         self.security = security
         self.sid = ma_lab.resolve_security(security, db_path)
         self.start, self.end = start, end
         self.days, self.values = ma_lab._total_return(self.sid, end, db_path)
-        self.signal_days = [d for d in api.friday_signal_days(start, end, db_path) if d >= start]
+        available = set(self.days)
+        if frequency == 'daily':
+            self.signal_days = [d for d in self.days if start <= d <= end]
+        else:
+            self.signal_days = [d for d in api.friday_signal_days(start, end, db_path)
+                                if d >= start and d in available]
         if not self.signal_days:
-            raise ValueError('no Friday signal day in the window')
+            raise ValueError('no signal day in the window')
         self.index = {d: i for i, d in enumerate(self.days)}
         self.signal_index = [self.index[d] for d in self.signal_days]
         self.rf = api.rf_daily(self.signal_days[0], end, db_path)
         self.lines: dict[tuple[str, int], np.ndarray] = {}
         self.result = ma_lab.run_lab(security, start=start, end=end, types=TYPES, fasts=FASTS, slows=SLOWS,
-                                     cash_rate=cash, db_path=db_path)
+                                     cash_rate=cash, db_path=db_path, frequency=frequency)
         window_start = self.index[self.result['evaluation_start']]
         self.window_days = self.days[window_start:]
         self.window_values = self.values[window_start:]
         closes = api.close_series([self.sid], self.window_days[0], end, db_path)[self.sid]
         self.closes = [closes.get(d) for d in self.window_days]
         self.meta = dict(ticker=self._ticker(), security_id=self.sid, name=self._name(),
-                         start=start, end=end, cash=cash,
+                         start=start, end=end, cash=cash, frequency=frequency,
                          evaluation_start=self.result['evaluation_start'],
                          evaluation_end=self.result['evaluation_end'],
                          signal_days=len(self.signal_days))
@@ -134,6 +140,7 @@ class Lab:
         return self.lines[key]
 
     def combo(self, kind: str, fast: int, slow: int) -> dict:
+        # the state is decided at every signal close (daily or weekly) and applied from that close
         if kind not in ma_lab.MOVING_AVERAGES:
             raise ValueError(f'unknown average type: {kind}')
         if not 0 < int(fast) < int(slow):
@@ -182,7 +189,9 @@ class Lab:
         end_i = self.index[self.signal_days[exit_]]
         if open_end:
             end_i = len(self.days) - 1
-        return dict(entry=self.signal_days[entry], exit=self.days[end_i], weeks=exit_ - entry + (1 if open_end else 0),
+        bars = exit_ - entry + (1 if open_end else 0)
+        return dict(entry=self.signal_days[entry], exit=self.days[end_i], bars=bars,
+                    weeks=round(bars * (1.0 if self.frequency == 'weekly' else 0.2), 4),
                     ret=round(float(self.values[end_i] / self.values[start_i] - 1), 6), open_end=open_end,
                     entry_tri=round(float(self.values[start_i] / self.window_values[0]), 6),
                     exit_tri=round(float(self.values[end_i] / self.window_values[0]), 6))
@@ -194,13 +203,13 @@ class Store:
         self.cache: dict[tuple, Lab] = {}
         self.lock = threading.Lock()
 
-    def lab(self, security: str, start: str, end: str, cash: str) -> Lab:
-        key = (security, start, end, cash)
+    def lab(self, security: str, start: str, end: str, cash: str, frequency: str = 'daily') -> Lab:
+        key = (security, start, end, cash, frequency)
         with self.lock:
             if key not in self.cache:
                 if len(self.cache) > 6:
                     self.cache.clear()
-                self.cache[key] = Lab(security, start, end, cash, self.db)
+                self.cache[key] = Lab(security, start, end, cash, self.db, frequency)
             return self.cache[key]
 
     def stocks(self) -> list[dict]:
@@ -208,7 +217,7 @@ class Store:
         rows = conn.execute("""select ss.current_ticker as ticker, ss.security_id as sid,
                                       coalesce(i.name, '') as name
                                from strategy_securities ss left join issuers i on i.issuer_id = ss.issuer_id
-                               where ss.strategy_eligible = 1 and ss.current_ticker <> ''
+                               where ss.current_ticker <> ''
                                order by ss.current_ticker""").fetchall()
         seen: dict[str, list] = {}
         for row in rows:
@@ -245,15 +254,25 @@ class Handler(BaseHTTPRequestHandler):
                 self._send((HERE / 'dashboard.html').read_bytes(), 'text/html; charset=utf-8')
             elif parsed.path == '/api/stocks':
                 self._json(dict(stocks=STORE.stocks(), types=TYPES, fasts=FASTS, slows=SLOWS))
+            elif parsed.path == '/api/leaderboard':
+                name = f"leaderboard_{query.get('freq', 'daily')}_{query.get('cash', 'zero')}.json"
+                path = HERE / name
+                if not path.exists():
+                    self._json(dict(error=f'排行榜还没生成（{name}）',
+                                    hint='python -X utf8 research/ma_lab_v1/build_leaderboard.py'), 404)
+                else:
+                    self._send(path.read_bytes(), 'application/json; charset=utf-8')
             elif parsed.path == '/api/overview':
                 lab = STORE.lab(query.get('security', 'MSFT'), query.get('start', DEFAULT_START),
-                                query.get('end', DEFAULT_END), query.get('cash', 'zero'))
+                                query.get('end', DEFAULT_END), query.get('cash', 'zero'),
+                                query.get('freq', 'daily'))
                 self._json(dict(meta=lab.meta, buy_hold=lab.result['buy_hold'], combos=lab.result['rows'],
                                 price=dict(dates=lab.window_days, tri=_round(lab.window_values / lab.window_values[0]),
                                            close=_round(lab.closes))))
             elif parsed.path == '/api/combo':
                 lab = STORE.lab(query.get('security', 'MSFT'), query.get('start', DEFAULT_START),
-                                query.get('end', DEFAULT_END), query.get('cash', 'zero'))
+                                query.get('end', DEFAULT_END), query.get('cash', 'zero'),
+                                query.get('freq', 'daily'))
                 self._json(lab.combo(query['type'], int(query['fast']), int(query['slow'])))
             else:
                 self._json(dict(error='not found'), 404)

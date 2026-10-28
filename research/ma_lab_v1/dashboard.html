@@ -3,138 +3,194 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LeadTrend · 单只股票均线看板</title>
+<title>LeadTrend · 均线看板</title>
 <style>
   :root {
-    --bg: #f6f7f9; --card: #ffffff; --line: #e3e6ea; --text: #1f2328; --muted: #6b7280;
-    --up: #d14b4b; --down: #2e9e5b; --accent: #2f6fdb; --accent-soft: #e8f0fd;
-    --fast: #e08a1e; --slow: #7a53c4;
+    --bg: #f6f7f9; --card: #ffffff; --line: #e3e6ea; --ink: #1f2328; --muted: #6b7280;
+    /* Okabe-Ito hues: blue and orange stay distinguishable with red-green colour vision deficiency */
+    --good: #0072B2; --bad: #D55E00; --fast: #E69F00; --slow: #56B4E9;
+    --accent-soft: #e7f1f9;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text);
+  body { margin: 0; background: var(--bg); color: var(--ink);
          font: 13px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
-  header { display: flex; align-items: center; gap: 14px; padding: 12px 20px; background: var(--card);
+  header { display: flex; align-items: center; gap: 10px; padding: 10px 18px; background: var(--card);
            border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20; flex-wrap: wrap; }
-  header h1 { font-size: 15px; margin: 0 8px 0 0; font-weight: 650; letter-spacing: .2px; }
-  header .sub { color: var(--muted); font-size: 12px; }
-  .ctrl { display: flex; align-items: center; gap: 6px; }
+  header h1 { font-size: 15px; margin: 0 6px 0 0; font-weight: 650; }
+  .tabs { display: flex; gap: 3px; background: #eef0f3; padding: 3px; border-radius: 8px; }
+  .tabs button { border: 0; background: transparent; padding: 4px 13px; border-radius: 6px; cursor: pointer;
+                 font: inherit; color: var(--muted); }
+  .tabs button.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .ctrl { display: flex; align-items: center; gap: 5px; }
   .ctrl label { color: var(--muted); font-size: 12px; }
   select, input { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px;
-                  background: #fff; color: var(--text); }
-  input[type=date] { width: 130px; }
-  button { font: inherit; padding: 4px 12px; border: 1px solid var(--line); border-radius: 6px;
-           background: #fff; cursor: pointer; }
-  button:hover { border-color: var(--accent); color: var(--accent); }
-  main { display: grid; grid-template-columns: 300px 1fr; gap: 14px; padding: 14px 20px 28px; }
+                  background: #fff; color: var(--ink); }
+  input[type=date] { width: 126px; }
+  #stock { width: 96px; text-transform: uppercase; }
+  button.act { font: inherit; padding: 4px 12px; border: 1px solid var(--line); border-radius: 6px;
+               background: #fff; cursor: pointer; }
+  button.act:hover { border-color: var(--good); color: var(--good); }
+  .sub { color: var(--muted); font-size: 11.5px; }
+  main { padding: 14px 18px 26px; }
+  main[hidden] { display: none; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
-  .card h2 { font-size: 12px; font-weight: 650; color: var(--muted); margin: 0; padding: 10px 12px 6px;
-             letter-spacing: .3px; }
+  .card h2 { font-size: 12px; font-weight: 650; color: var(--muted); margin: 0; padding: 9px 12px 6px; }
   .panel { padding: 0 12px 12px; }
-  .types { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 12px 10px; }
-  .types button { padding: 3px 8px; font-size: 12px; }
-  .types button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .row { display: flex; gap: 8px; padding: 0 12px 10px; }
+  .types { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 12px 8px; }
+  .types button { padding: 2px 8px; font-size: 11.5px; border: 1px solid var(--line); background: #fff;
+                  border-radius: 6px; cursor: pointer; color: var(--ink); }
+  .types button.on { background: var(--good); border-color: var(--good); color: #fff; }
+  .row { display: flex; gap: 8px; padding: 0 12px 8px; }
   .row > div { flex: 1; }
   .row label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 2px; }
   .row select { width: 100%; }
   table { border-collapse: collapse; width: 100%; }
-  th, td { padding: 3px 6px; text-align: right; font-variant-numeric: tabular-nums; }
-  th { color: var(--muted); font-weight: 500; font-size: 11px; }
-  .matrix td { cursor: pointer; border-radius: 4px; font-size: 11.5px; }
-  .matrix td:hover { outline: 1px solid var(--accent); }
-  .matrix td.on { outline: 2px solid var(--accent); }
-  .matrix td.na { color: #c3c8d0; cursor: default; }
-  .matrix th { font-size: 10.5px; }
-  .kpis { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; margin-bottom: 12px; }
-  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  th, td { padding: 3px 5px; text-align: right; font-variant-numeric: tabular-nums; }
+  th { color: var(--muted); font-weight: 500; font-size: 10.5px; }
+  .matrix td { cursor: pointer; font-size: 9.5px; line-height: 1.25; border-radius: 3px; padding: 2px 1px;
+               text-align: center; }
+  .matrix td b { font-weight: 600; }
+  .matrix td span { color: #5c636d; }
+  .matrix td:hover { outline: 1px solid var(--good); }
+  .matrix td.on { outline: 2px solid var(--good); }
+  .matrix th { font-size: 10px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; }
   .kpi .k { color: var(--muted); font-size: 11px; }
-  .kpi .v { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
-  .kpi .b { color: var(--muted); font-size: 11px; margin-top: 1px; }
-  .up { color: var(--up); } .down { color: var(--down); }
-  .chart { position: relative; padding: 4px 8px 8px; }
+  .kpi .v { font-size: 16px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 1px; }
+  .kpi .b { color: var(--muted); font-size: 11px; }
+  .good { color: var(--good); } .bad { color: var(--bad); }
+  .chart { position: relative; padding: 2px 8px 6px; }
   .chart svg { display: block; width: 100%; }
-  .legend { display: flex; gap: 14px; padding: 2px 12px 0; color: var(--muted); font-size: 11.5px; }
-  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 5px;
+  .legend { display: flex; gap: 12px; padding: 0 12px 2px; color: var(--muted); font-size: 11px; flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 4px;
               vertical-align: middle; }
-  .tip { position: absolute; pointer-events: none; background: rgba(31,35,40,.92); color: #fff; padding: 6px 8px;
+  .tip { position: absolute; pointer-events: none; background: rgba(31,35,40,.94); color: #fff; padding: 6px 8px;
          border-radius: 6px; font-size: 11.5px; line-height: 1.45; white-space: nowrap; opacity: 0;
          transition: opacity .08s; z-index: 5; }
-  .grid2 { display: grid; grid-template-columns: 1.25fr 1fr; gap: 12px; margin-top: 12px; }
-  .scroll { max-height: 300px; overflow: auto; }
-  .scroll thead th { position: sticky; top: 0; background: var(--card); }
-  .note { color: var(--muted); font-size: 11.5px; padding: 0 12px 10px; }
-  .err { margin: 20px; padding: 12px; border: 1px solid #f0c2c2; background: #fdf3f3; color: #8a2b2b;
+  .grid2 { display: grid; grid-template-columns: 1.15fr 1fr; gap: 12px; margin-top: 12px; }
+  .scroll { max-height: 320px; overflow: auto; }
+  .scroll thead th { position: sticky; top: 0; background: var(--card); z-index: 1; }
+  .note { color: var(--muted); font-size: 11.5px; padding: 8px 12px 10px; line-height: 1.6; }
+  .err { margin: 18px; padding: 12px; border: 1px solid #f3cdb0; background: #fdf5ee; color: #8a4b16;
          border-radius: 8px; }
-  .pill { display: inline-block; padding: 1px 6px; border-radius: 999px; background: var(--accent-soft);
-          color: var(--accent); font-size: 11px; }
+  .pill { display: inline-block; padding: 0 5px; border-radius: 999px; background: var(--accent-soft);
+          color: var(--good); font-size: 10.5px; }
+  .layout { display: grid; grid-template-columns: 430px 1fr; gap: 12px; }
+  .board-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .board-bar .tabs button { padding: 3px 12px; font-size: 12px; }
+  .board th.sort { color: var(--ink); font-weight: 700; }
+  .board td.tick { text-align: left; font-weight: 600; }
+  .board tr:hover td { background: #f4f8fc; cursor: pointer; }
+  .board .combo { color: var(--muted); font-size: 11px; }
+  #loading { position: fixed; inset: 0; background: rgba(246,247,249,.5); display: none; align-items: center;
+             justify-content: center; z-index: 50; font-size: 13px; color: var(--muted); }
+  #loading.on { display: flex; }
 </style>
 </head>
 <body>
 <header>
-  <h1>LeadTrend · 单只股票均线看板</h1>
-  <div class="ctrl"><label>股票</label><select id="stock"></select></div>
+  <h1>LeadTrend</h1>
+  <div class="tabs" id="tabs">
+    <button data-view="single" class="on">单股</button>
+    <button data-view="board">排行榜</button>
+  </div>
+  <div class="ctrl"><label>股票</label>
+    <input id="stock" list="stockList" placeholder="代码" autocomplete="off">
+    <datalist id="stockList"></datalist>
+  </div>
   <div class="ctrl"><label>起</label><input id="start" type="date" value="2014-02-28"></div>
   <div class="ctrl"><label>止</label><input id="end" type="date" value="2024-06-28"></div>
-  <div class="ctrl"><label>空仓现金</label>
-    <select id="cash"><option value="zero">0 收益</option><option value="dtb3">3 个月国债</option></select>
+  <div class="ctrl"><label>现金</label>
+    <select id="cash"><option value="zero">0 收益</option><option value="dtb3">国债</option></select>
   </div>
-  <button id="reload">重新加载</button>
+  <div class="ctrl"><label>信号</label>
+    <select id="freq"><option value="daily">每日</option><option value="weekly">每周</option></select>
+  </div>
+  <button class="act" id="reload">重新计算</button>
   <span class="sub" id="meta"></span>
 </header>
 
-<main>
-  <section>
-    <div class="card">
-      <h2>均线组合</h2>
-      <div class="types" id="types"></div>
-      <div class="row">
-        <div><label>快线</label><select id="fast"></select></div>
-        <div><label>慢线</label><select id="slow"></select></div>
-      </div>
-      <div class="panel">
-        <table class="matrix" id="matrix"></table>
-        <div class="note">单元格：年化 / 最大回撤；颜色按 年化÷|回撤|，红好绿差。点击选中。</div>
-      </div>
-    </div>
-  </section>
-
-  <section>
-    <div class="kpis" id="kpis"></div>
-
-    <div class="card">
-      <h2><span id="priceTitle">价格与买卖点</span>
-        <label style="float:right;font-weight:400;cursor:pointer">
-          <input type="checkbox" id="logScale" checked style="vertical-align:-1px"> 对数轴</label></h2>
-      <div class="legend" id="priceLegend"></div>
-      <div class="chart" id="priceChart"><div class="tip" id="priceTip"></div></div>
-    </div>
-
-    <div class="card" style="margin-top:12px">
-      <h2>累计收益（起点 = 100）</h2>
-      <div class="legend" id="equityLegend"></div>
-      <div class="chart" id="equityChart"><div class="tip" id="equityTip"></div></div>
-    </div>
-
-    <div class="grid2">
+<main id="view-single">
+  <div class="layout">
+    <section>
       <div class="card">
-        <h2>每段持有（按信号切换切分）</h2>
-        <div class="scroll panel"><table id="segments"></table></div>
+        <h2>均线组合（点击选中）</h2>
+        <div class="types" id="types"></div>
+        <div class="row">
+          <div><label>快线</label><select id="fast"></select></div>
+          <div><label>慢线</label><select id="slow"></select></div>
+        </div>
+        <div class="panel">
+          <table class="matrix" id="matrix"></table>
+          <div class="note">单元格：年化 / 最大回撤（%）。底色按 年化÷|回撤|：<b class="good">蓝=较好</b>、
+            <b class="bad">橙=较差</b>。</div>
+        </div>
       </div>
+    </section>
+    <section>
+      <div class="kpis" id="kpis"></div>
       <div class="card">
-        <h2>年度收益</h2>
-        <div class="scroll panel"><table id="annual"></table></div>
+        <h2><span id="priceTitle">价格与买卖点</span>
+          <label style="float:right;font-weight:400;cursor:pointer;color:var(--muted)">
+            <input type="checkbox" id="logScale" checked style="vertical-align:-1px"> 对数轴</label></h2>
+        <div class="legend" id="priceLegend"></div>
+        <div class="chart" id="priceChart"><div class="tip" id="priceTip"></div></div>
       </div>
-    </div>
-  </section>
+      <div class="card" style="margin-top:12px">
+        <h2>累计收益（起点 = 100）</h2>
+        <div class="legend" id="equityLegend"></div>
+        <div class="chart" id="equityChart"><div class="tip" id="equityTip"></div></div>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <h2>每段持有</h2>
+          <div class="scroll panel"><table id="segments"></table></div>
+        </div>
+        <div class="card">
+          <h2>年度收益</h2>
+          <div class="scroll panel"><table id="annual"></table></div>
+        </div>
+      </div>
+    </section>
+  </div>
 </main>
+
+<main id="view-board" hidden>
+  <div class="board-bar">
+    <div class="tabs" id="boardTabs">
+      <button data-metric="total_return">总收益榜</button>
+      <button data-metric="cagr">年化榜</button>
+      <button data-metric="cagr_over_dd" class="on">收益÷回撤榜</button>
+      <button data-metric="sharpe">夏普榜</button>
+    </div>
+    <label class="sub"><input type="checkbox" id="boardFull" checked> 只看从起点就有效的组合</label>
+    <div class="ctrl"><label>显示</label>
+      <select id="boardLimit"><option>30</option><option selected>50</option><option>100</option>
+        <option value="0">全部</option></select>
+    </div>
+    <span class="sub" id="boardMeta"></span>
+  </div>
+  <div class="card">
+    <div class="panel scroll" style="max-height:calc(100vh - 180px)">
+      <table class="board" id="boardTable"></table>
+    </div>
+    <div class="note">
+      每只股票在 7 种均线 × 66 组快慢线里取该指标最好的一组，再按这个指标给股票排名。这是<b>样本内最优</b>，
+      不能当作可预期的收益；点击一行跳到那只股票的组合详情。
+    </div>
+  </div>
+</main>
+
+<div id="loading">计算中…</div>
 
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { meta: null, overview: null, combo: null, type: 'sma', fast: 50, slow: 200 };
-const pct = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? '—'
-  : (v * 100).toFixed(d) + '%';
+const state = { info: null, overview: null, combo: null, type: 'sma', fast: 20, slow: 100, view: 'single',
+                board: { metric: 'cagr_over_dd', full: true, limit: 50, data: null } };
+const pct = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? '—' : (v * 100).toFixed(d) + '%';
 const sgn = (v, d = 1) => (v === null || v === undefined) ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(d) + '%';
-const cls = (v) => v === null || v === undefined ? '' : (v >= 0 ? 'up' : 'down');
+const cls = (v) => (v === null || v === undefined) ? '' : (v >= 0 ? 'good' : 'bad');
 const num = (v, d = 2) => (v === null || v === undefined) ? '—' : v.toFixed(d);
 
 async function getJSON(url) {
@@ -143,92 +199,116 @@ async function getJSON(url) {
   if (!response.ok || body.error) throw new Error(body.error || response.statusText);
   return body;
 }
-
-function params() {
-  return `security=${encodeURIComponent($('stock').value)}&start=${$('start').value}` +
-         `&end=${$('end').value}&cash=${$('cash').value}`;
-}
+const busy = (on) => $('loading').classList.toggle('on', on);
+const params = () => `security=${encodeURIComponent($('stock').value)}&start=${$('start').value}` +
+                     `&end=${$('end').value}&cash=${$('cash').value}&freq=${$('freq').value}`;
 
 async function boot() {
   try {
     const info = await getJSON('/api/stocks');
-    const stock = $('stock');
-    stock.innerHTML = info.stocks.map(s =>
-      `<option value="${s.ticker}">${s.ticker}${s.name ? ' · ' + s.name : ''}</option>`).join('');
-    stock.value = info.stocks.some(s => s.ticker === 'MSFT') ? 'MSFT' : info.stocks[0].ticker;
-    const link = new URLSearchParams(location.search);
-    if (link.get('security') && info.stocks.some(s => s.ticker === link.get('security'))) {
-      stock.value = link.get('security');
-    }
-    if (link.get('start')) $('start').value = link.get('start');
-    if (link.get('end')) $('end').value = link.get('end');
-    if (link.get('cash')) $('cash').value = link.get('cash');
-    if (link.get('type') && info.types.includes(link.get('type'))) state.type = link.get('type');
-    if (link.get('fast')) state.fast = +link.get('fast');
-    if (link.get('slow')) state.slow = +link.get('slow');
+    state.info = info;
+    $('stockList').innerHTML = info.stocks.map(s => `<option value="${s.ticker}">${s.name || ''}</option>`).join('');
+    $('stock').value = info.stocks.some(s => s.ticker === 'MSFT') ? 'MSFT' : info.stocks[0].ticker;
     $('types').innerHTML = info.types.map(t => `<button data-type="${t}">${t.toUpperCase()}</button>`).join('');
     $('types').querySelectorAll('button').forEach(b => b.onclick = () => {
       state.type = b.dataset.type; state.fast = null; state.slow = null; loadOverview();
     });
+    const link = new URLSearchParams(location.search);
+    if (link.get('security') && info.stocks.some(s => s.ticker === link.get('security'))) {
+      $('stock').value = link.get('security');
+    }
+    for (const key of ['start', 'end']) if (link.get(key)) $(key).value = link.get(key);
+    if (link.get('cash')) $('cash').value = link.get('cash');
+    if (link.get('freq') === 'weekly') $('freq').value = 'weekly';
+    if (link.get('type') && info.types.includes(link.get('type'))) state.type = link.get('type');
+    if (link.get('fast')) state.fast = +link.get('fast');
+    if (link.get('slow')) state.slow = +link.get('slow');
+    if (link.get('view') === 'board') state.view = 'board';
+
     $('reload').onclick = () => loadOverview();
     $('stock').onchange = () => loadOverview();
-    $('cash').onchange = () => loadOverview();
+    $('cash').onchange = () => { loadOverview(); if (state.view === 'board') loadBoard(); };
+    $('freq').onchange = () => { loadOverview(); if (state.view === 'board') loadBoard(); };
     $('start').onchange = () => loadOverview();
     $('end').onchange = () => loadOverview();
+    $('tabs').querySelectorAll('button').forEach(b => b.onclick = () => setView(b.dataset.view));
+    $('boardTabs').querySelectorAll('button').forEach(b => b.onclick = () => {
+      state.board.metric = b.dataset.metric;
+      $('boardTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      renderBoard();
+    });
+    $('boardFull').onchange = () => { state.board.full = $('boardFull').checked; renderBoard(); };
+    $('boardLimit').onchange = () => { state.board.limit = +$('boardLimit').value; renderBoard(); };
+    $('logScale').onchange = () => { if (state.combo) renderPrice(state.combo); };
+    setView(state.view);
     await loadOverview();
   } catch (error) {
     document.querySelector('main').innerHTML = `<div class="err">加载失败：${error.message}</div>`;
   }
 }
 
-async function loadOverview() {
-  const data = await getJSON('/api/overview?' + params());
-  state.overview = data;
-  state.meta = data.meta;
-  $('meta').textContent = `${data.meta.security_id} · ${data.meta.evaluation_start} 至 ${data.meta.evaluation_end}` +
-                          ` · ${data.meta.signal_days} 个信号周`;
-  document.querySelectorAll('#types button').forEach(b =>
-    b.classList.toggle('on', b.dataset.type === state.type));
-  const combos = data.combos.filter(c => c.type === state.type);
-  const fasts = [...new Set(combos.map(c => c.fast))].sort((a, b) => a - b);
-  const slows = [...new Set(combos.map(c => c.slow))].sort((a, b) => a - b);
-  $('fast').innerHTML = fasts.map(v => `<option>${v}</option>`).join('');
-  $('slow').innerHTML = slows.map(v => `<option>${v}</option>`).join('');
-  const current = combos.find(c => c.fast === state.fast && c.slow === state.slow) || combos[0];
-  state.fast = current.fast; state.slow = current.slow;
-  $('fast').value = state.fast; $('slow').value = state.slow;
-  $('fast').onchange = () => { state.fast = +$('fast').value; selectCombo(); };
-  $('slow').onchange = () => { state.slow = +$('slow').value; selectCombo(); };
-  renderMatrix(combos, fasts, slows);
+function setView(view) {
+  state.view = view;
+  $('view-single').hidden = view !== 'single';
+  $('view-board').hidden = view !== 'board';
+  $('tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.view === view));
   const url = new URL(location.href);
-  url.search = `security=${encodeURIComponent($('stock').value)}&start=${$('start').value}` +
-               `&end=${$('end').value}&cash=${$('cash').value}` +
-               `&type=${state.type}&fast=${state.fast}&slow=${state.slow}`;
+  url.searchParams.set('view', view);
   history.replaceState(null, '', url);
-  await selectCombo();
+  if (view === 'board') loadBoard();
+}
+
+async function loadOverview() {
+  busy(true);
+  try {
+    const data = await getJSON('/api/overview?' + params());
+    state.overview = data;
+    $('meta').textContent = `${data.meta.security_id} · ${data.meta.evaluation_start} 至 ${data.meta.evaluation_end}` +
+      ` · ${data.meta.signal_days} 个信号${data.meta.frequency === 'daily' ? '日' : '周'}`;
+    document.querySelectorAll('#types button').forEach(b => b.classList.toggle('on', b.dataset.type === state.type));
+    const combos = data.combos.filter(c => c.type === state.type);
+    const fasts = [...new Set(combos.map(c => c.fast))].sort((a, b) => a - b);
+    const slows = [...new Set(combos.map(c => c.slow))].sort((a, b) => a - b);
+    $('fast').innerHTML = fasts.map(v => `<option>${v}</option>`).join('');
+    $('slow').innerHTML = slows.map(v => `<option>${v}</option>`).join('');
+    const current = combos.find(c => c.fast === state.fast && c.slow === state.slow) || combos[0];
+    state.fast = current.fast; state.slow = current.slow;
+    $('fast').value = state.fast; $('slow').value = state.slow;
+    $('fast').onchange = () => { state.fast = +$('fast').value; selectCombo(); };
+    $('slow').onchange = () => { state.slow = +$('slow').value; selectCombo(); };
+    renderMatrix(combos, fasts, slows);
+    const url = new URL(location.href);
+    for (const [k, v] of Object.entries({ security: $('stock').value, start: $('start').value, end: $('end').value,
+                                          cash: $('cash').value, freq: $('freq').value, type: state.type,
+                                          fast: state.fast, slow: state.slow })) url.searchParams.set(k, v);
+    history.replaceState(null, '', url);
+    await selectCombo();
+  } finally { busy(false); }
+}
+
+function shade(value, lo, hi) {
+  if (value === null) return '';
+  const t = hi === lo ? 0.5 : (value - lo) / (hi - lo);
+  const good = [0, 114, 178], bad = [213, 94, 0];
+  const mix = good.map((c, i) => Math.round(c * t + bad[i] * (1 - t)));
+  return `background: rgba(${mix[0]},${mix[1]},${mix[2]},${0.12 + 0.32 * t});`;
 }
 
 function renderMatrix(combos, fasts, slows) {
   const index = new Map(combos.map(c => [c.fast + '/' + c.slow, c]));
   const ratios = combos.map(c => c.cagr_over_dd).filter(v => v !== null);
   const lo = Math.min(...ratios), hi = Math.max(...ratios);
-  const shade = (v) => {
-    if (v === null) return '';
-    const t = hi === lo ? 0.5 : (v - lo) / (hi - lo);
-    const good = [209, 75, 75], bad = [46, 158, 91];
-    const mix = good.map((c, i) => Math.round(c * t + bad[i] * (1 - t)));
-    return `background: rgba(${mix[0]},${mix[1]},${mix[2]},${0.10 + 0.22 * t});`;
-  };
   let html = '<thead><tr><th></th>' + slows.map(s => `<th>${s}</th>`).join('') + '</tr></thead><tbody>';
   for (const f of fasts) {
     html += `<tr><th>${f}</th>`;
     for (const s of slows) {
       const c = index.get(f + '/' + s);
-      if (!c) { html += '<td class="na">—</td>'; continue; }
+      if (!c) { html += '<td style="color:#c3c8d0">—</td>'; continue; }
       const on = c.fast === state.fast && c.slow === state.slow ? ' on' : '';
-      html += `<td class="${on}" data-f="${f}" data-s="${s}" style="${shade(c.cagr_over_dd)}" ` +
-              `title="${c.type}_${f}_${s} 年化 ${pct(c.cagr)} 回撤 ${pct(c.max_drawdown)} 夏普 ${num(c.sharpe)}">` +
-              `${pct(c.cagr)}<br><span style="color:#6b7280">${pct(c.max_drawdown)}</span></td>`;
+      html += `<td class="${on}" data-f="${f}" data-s="${s}" style="${shade(c.cagr_over_dd, lo, hi)}" ` +
+              `title="${c.type.toUpperCase()} ${f}/${s} | 年化 ${pct(c.cagr)} | 回撤 ${pct(c.max_drawdown)} | ` +
+              `收益÷回撤 ${num(c.cagr_over_dd)} | 夏普 ${num(c.sharpe)} | 在场 ${pct(c.invested_share, 0)}">` +
+              `<b>${(c.cagr * 100).toFixed(0)}</b><br><span>${(c.max_drawdown * 100).toFixed(0)}</span></td>`;
     }
     html += '</tr>';
   }
@@ -241,32 +321,33 @@ function renderMatrix(combos, fasts, slows) {
 }
 
 async function selectCombo() {
-  const url = `/api/combo?${params()}&type=${state.type}&fast=${state.fast}&slow=${state.slow}`;
-  const data = await getJSON(url);
-  state.combo = data;
-  document.querySelectorAll('#matrix td[data-f]').forEach(td =>
-    td.classList.toggle('on', +td.dataset.f === state.fast && +td.dataset.s === state.slow));
-  renderKpis(data);
-  renderPrice(data);
-  renderEquity(data);
-  renderSegments(data);
-  renderAnnual(data);
+  busy(true);
+  try {
+    const data = await getJSON(`/api/combo?${params()}&type=${state.type}&fast=${state.fast}&slow=${state.slow}`);
+    state.combo = data;
+    document.querySelectorAll('#matrix td[data-f]').forEach(td =>
+      td.classList.toggle('on', +td.dataset.f === state.fast && +td.dataset.s === state.slow));
+    renderKpis(data);
+    renderPrice(data);
+    renderEquity(data);
+    renderSegments(data);
+    renderAnnual(data);
+  } finally { busy(false); }
 }
 
 function renderKpis(c) {
   const m = c.metrics, h = state.overview.buy_hold;
   const card = (k, v, base, klass = '') =>
-    `<div class="kpi"><div class="k">${k}</div><div class="v ${klass}">${v}</div>` +
-    `<div class="b">${base}</div></div>`;
+    `<div class="kpi"><div class="k">${k}</div><div class="v ${klass}">${v}</div><div class="b">${base}</div></div>`;
   $('kpis').innerHTML =
-    card('年化', pct(m.cagr), '持有 ' + pct(h.cagr), cls(m.cagr)) +
-    card('总收益', pct(m.total_return, 0), '持有 ' + pct(h.total_return, 0), cls(m.total_return)) +
-    card('最大回撤', pct(m.max_drawdown), '持有 ' + pct(h.max_drawdown), 'down') +
+    card('年化', pct(m.cagr), '持有 ' + pct(h.cagr), cls(m.cagr - h.cagr)) +
+    card('总收益', pct(m.total_return, 0), '持有 ' + pct(h.total_return, 0), cls(m.total_return - h.total_return)) +
+    card('最大回撤', pct(m.max_drawdown), '持有 ' + pct(h.max_drawdown), 'bad') +
     card('收益÷回撤', num(m.cagr_over_dd), '持有 ' + num(h.cagr_over_dd)) +
     card('夏普', num(m.sharpe), '持有 ' + num(h.sharpe)) +
     card('在场比例', pct(m.invested_share, 0), `买入 ${m.buys} 次`) +
     card('平均持有', num(m.average_holding_weeks, 1) + ' 周', `共 ${c.segments.length} 段`) +
-    card('回撤区间', m.trough_date || '—', '峰 ' + (m.peak_date || '—'));
+    card('回撤谷底', m.trough_date || '—', '峰 ' + (m.peak_date || '—'));
 }
 
 function niceTicks(min, max, count) {
@@ -274,9 +355,8 @@ function niceTicks(min, max, count) {
   const step = Math.pow(10, Math.floor(Math.log10(span / count)));
   const mult = [1, 2, 2.5, 5, 10].find(k => span / (step * k) <= count) || 10;
   const size = step * mult;
-  const start = Math.ceil(min / size) * size;
   const ticks = [];
-  for (let v = start; v <= max + 1e-9; v += size) ticks.push(v);
+  for (let v = Math.ceil(min / size) * size; v <= max + 1e-9; v += size) ticks.push(v);
   return ticks;
 }
 
@@ -295,7 +375,7 @@ function drawChart(container, tip, cfg) {
   const box = container.getBoundingClientRect();
   const width = Math.max(520, box.width - 16);
   const height = cfg.height;
-  const pad = { l: 54, r: 12, t: 10, b: 22 };
+  const pad = { l: 56, r: 12, t: 10, b: 22 };
   const n = cfg.dates.length;
   const raw = cfg.series.flatMap(s => s.values).filter(v => v !== null && Number.isFinite(v) && v > 0);
   const useLog = !!cfg.log && raw.length > 0;
@@ -305,10 +385,8 @@ function drawChart(container, tip, cfg) {
   lo -= padY; hi += padY;
   const X = (i) => pad.l + (n <= 1 ? 0 : (i / (n - 1)) * (width - pad.l - pad.r));
   const Y = (v) => pad.t + (1 - (T(v) - lo) / (hi - lo)) * (height - pad.t - pad.b);
-  const parts = [];
-  parts.push(`<svg viewBox="0 0 ${width} ${height}" height="${height}" preserveAspectRatio="none">`);
-  const ticks = useLog ? logTicks(lo, hi) : niceTicks(lo, hi, 5);
-  for (const tick of ticks) {
+  const parts = [`<svg viewBox="0 0 ${width} ${height}" height="${height}" preserveAspectRatio="none">`];
+  for (const tick of (useLog ? logTicks(lo, hi) : niceTicks(lo, hi, 5))) {
     const y = Y(tick);
     parts.push(`<line x1="${pad.l}" x2="${width - pad.r}" y1="${y}" y2="${y}" stroke="#eceef1"/>`);
     parts.push(`<text x="${pad.l - 8}" y="${y + 3.5}" text-anchor="end" font-size="10.5" fill="#8b929c">` +
@@ -319,9 +397,8 @@ function drawChart(container, tip, cfg) {
     const year = cfg.dates[i].slice(0, 4);
     if (year !== lastYear) {
       lastYear = year;
-      const x = X(i);
-      parts.push(`<line x1="${x}" x2="${x}" y1="${pad.t}" y2="${height - pad.b}" stroke="#f4f5f7"/>`);
-      parts.push(`<text x="${x}" y="${height - 6}" font-size="10.5" fill="#8b929c">${year}</text>`);
+      parts.push(`<line x1="${X(i)}" x2="${X(i)}" y1="${pad.t}" y2="${height - pad.b}" stroke="#f4f5f7"/>`);
+      parts.push(`<text x="${X(i)}" y="${height - 6}" font-size="10.5" fill="#8b929c">${year}</text>`);
     }
   }
   for (const s of cfg.series) {
@@ -338,38 +415,34 @@ function drawChart(container, tip, cfg) {
   for (const marker of (cfg.markers || [])) {
     const x = X(marker.i), y = Y(marker.value);
     if (marker.side === 'buy') {
-      parts.push(`<path d="M${x} ${y + 12} l-6 10 l12 0 z" fill="#d14b4b" stroke="#fff" stroke-width="1"/>`);
+      parts.push(`<path d="M${x} ${y + 11} l-6 10 l12 0 z" fill="#0072B2" stroke="#fff" stroke-width="1"/>`);
     } else {
-      parts.push(`<path d="M${x} ${y - 12} l-6 -10 l12 0 z" fill="#2e9e5b" stroke="#fff" stroke-width="1"/>`);
+      parts.push(`<path d="M${x} ${y - 11} l-6 -10 l12 0 z" fill="#D55E00" stroke="#fff" stroke-width="1"/>`);
     }
   }
   parts.push(`<line id="cross" x1="0" x2="0" y1="${pad.t}" y2="${height - pad.b}" stroke="#b9c0ca" ` +
              `stroke-dasharray="3 3" opacity="0"/>`);
   parts.push(`<rect x="${pad.l}" y="${pad.t}" width="${width - pad.l - pad.r}" height="${height - pad.t - pad.b}" ` +
-             `fill="transparent" class="hover"/>`);
-  parts.push('</svg>');
+             `fill="transparent" class="hover"/></svg>`);
   container.querySelectorAll('svg').forEach(s => s.remove());
   container.insertAdjacentHTML('beforeend', parts.join(''));
 
   const svg = container.querySelector('svg');
   const cross = svg.querySelector('#cross');
-  const hover = svg.querySelector('.hover');
-  hover.addEventListener('mousemove', (event) => {
+  svg.querySelector('.hover').addEventListener('mousemove', (event) => {
     const rect = svg.getBoundingClientRect();
     const px = (event.clientX - rect.left) * (width / rect.width);
     const i = Math.max(0, Math.min(n - 1, Math.round((px - pad.l) / (width - pad.l - pad.r) * (n - 1))));
     cross.setAttribute('x1', X(i)); cross.setAttribute('x2', X(i)); cross.setAttribute('opacity', 1);
-    const lines = [`<b>${cfg.dates[i]}</b>`].concat(cfg.series.map(s => {
+    tip.innerHTML = [`<b>${cfg.dates[i]}</b>`].concat(cfg.series.map(s => {
       const v = s.values[i];
       return `${s.name}：${v === null || !Number.isFinite(v) ? '—' : cfg.yFormat(v)}`;
-    }));
-    tip.innerHTML = lines.join('<br>');
+    })).join('<br>');
     tip.style.opacity = 1;
-    const left = Math.min(rect.width - tip.offsetWidth - 8, Math.max(4, (event.clientX - rect.left) + 12));
-    tip.style.left = left + 'px';
+    tip.style.left = Math.min(rect.width - tip.offsetWidth - 8, Math.max(4, event.clientX - rect.left + 12)) + 'px';
     tip.style.top = Math.max(4, event.clientY - rect.top - 10) + 'px';
   });
-  hover.addEventListener('mouseleave', () => {
+  svg.querySelector('.hover').addEventListener('mouseleave', () => {
     cross.setAttribute('opacity', 0); tip.style.opacity = 0;
   });
 }
@@ -378,23 +451,22 @@ function renderPrice(c) {
   const price = state.overview.price;
   const base = price.close.find(v => v !== null) || 1;
   const scale = (arr) => arr.map(v => v === null ? null : v * base);
-  const dates = price.dates;
-  const idx = new Map(dates.map((d, i) => [d, i]));
+  const idx = new Map(price.dates.map((d, i) => [d, i]));
   const markers = (c.trades || []).filter(t => idx.has(t.date))
     .map(t => ({ i: idx.get(t.date), side: t.side, value: t.tri * base }));
   $('priceTitle').textContent = `价格与买卖点 · ${c.type.toUpperCase()} ${c.fast}/${c.slow}`;
   $('priceLegend').innerHTML =
-    `<span><i style="background:#2f6fdb"></i>复权股价（起点 = 当日收盘价）</span>` +
-    `<span><i style="background:var(--fast)"></i>快线 ${c.fast}</span>` +
-    `<span><i style="background:var(--slow)"></i>慢线 ${c.slow}</span>` +
-    `<span style="color:var(--up)">▲ 买入</span><span style="color:var(--down)">▼ 卖出</span>` +
-    `<span style="color:#8b929c">· 含分红再投资，拆股已调整</span>`;
+    `<span><i style="background:#1f2328"></i>复权股价</span>` +
+    `<span><i style="background:#E69F00"></i>快线 ${c.fast}</span>` +
+    `<span><i style="background:#56B4E9"></i>慢线 ${c.slow}</span>` +
+    `<span><b style="color:#0072B2">▲</b> 买入</span><span><b style="color:#D55E00">▼</b> 卖出</span>` +
+    `<span>含分红再投资，拆股已调整</span>`;
   drawChart($('priceChart'), $('priceTip'), {
-    dates, height: 380, log: $('logScale').checked,
+    dates: price.dates, height: 380, log: $('logScale').checked,
     series: [
-      { name: '复权股价', values: scale(price.tri), color: '#2f6fdb', width: 1.9 },
-      { name: '快线', values: scale(c.fast_line), color: '#e08a1e', width: 1.3, opacity: 0.95 },
-      { name: '慢线', values: scale(c.slow_line), color: '#7a53c4', width: 1.3, opacity: 0.95 }
+      { name: '复权股价', values: scale(price.tri), color: '#1f2328', width: 1.9 },
+      { name: '快线', values: scale(c.fast_line), color: '#E69F00', width: 1.3 },
+      { name: '慢线', values: scale(c.slow_line), color: '#56B4E9', width: 1.3 }
     ],
     markers,
     yFormat: (v) => '$' + (Math.abs(v - Math.round(v)) < 1e-9 ? v.toFixed(0) : v.toFixed(2))
@@ -403,28 +475,34 @@ function renderPrice(c) {
 
 function renderEquity(c) {
   const growth = (arr) => arr.map(v => v === null ? null : v * 100);
+  const top = Math.max(...c.equity.filter(v => v !== null)) * 100;
+  // a curve that spans more than an order of magnitude reads better on a log axis
+  const spread = top > 800;
   $('equityLegend').innerHTML =
-    `<span><i style="background:#2f6fdb"></i>策略</span><span><i style="background:#9aa1ab"></i>一直持有</span>`;
+    `<span><i style="background:#0072B2"></i>策略</span><span><i style="background:#9aa1ab"></i>一直持有</span>` +
+    (spread ? '<span>（对数轴）</span>' : '');
   drawChart($('equityChart'), $('equityTip'), {
-    dates: c.dates, height: 240,
+    dates: c.dates, height: 230, log: spread,
     series: [
       { name: '一直持有', values: growth(c.hold), color: '#9aa1ab', width: 1.4, dash: '4 3' },
-      { name: '策略', values: growth(c.equity), color: '#2f6fdb', width: 1.9 }
+      { name: '策略', values: growth(c.equity), color: '#0072B2', width: 1.9 }
     ],
     yFormat: (v) => v.toFixed(0)
   });
 }
 
 function renderSegments(c) {
+  const daily = state.overview.meta.frequency === 'daily';
   const rows = c.segments.map((s, i) => {
-    const open = s.open_end ? '<span class="pill">持有中</span>' : '';
-    return `<tr><td>${i + 1}</td><td>${s.entry}</td><td>${s.exit} ${open}</td><td>${s.weeks}</td>` +
+    const open = s.open_end ? ' <span class="pill">持有中</span>' : '';
+    const length = daily ? `${s.bars} 交易日` : `${s.bars} 周`;
+    return `<tr><td>${i + 1}</td><td>${s.entry}</td><td>${s.exit}${open}</td><td>${length}</td>` +
            `<td class="${cls(s.ret)}">${sgn(s.ret)}</td>` +
            `<td>${(s.entry_tri * 100).toFixed(0)}</td><td>${(s.exit_tri * 100).toFixed(0)}</td></tr>`;
   }).join('');
   $('segments').innerHTML =
-    `<thead><tr><th>#</th><th>入场</th><th>出场</th><th>周数</th><th>该段收益</th>` +
-    `<th>入场（起点=100）</th><th>出场</th></tr></thead><tbody>${rows || '<tr><td colspan="7">没有持仓段</td></tr>'}</tbody>`;
+    `<thead><tr><th>#</th><th>入场</th><th>出场</th><th>长度</th><th>该段收益</th>` +
+    `<th>入场(100)</th><th>出场</th></tr></thead><tbody>${rows || '<tr><td colspan="7">没有持仓段</td></tr>'}</tbody>`;
 }
 
 function renderAnnual(c) {
@@ -432,7 +510,7 @@ function renderAnnual(c) {
   const rows = (c.annual || []).map(a => {
     const h = hold.get(a.year);
     const diff = h === undefined || h === null ? null : a.value - h;
-    return `<tr><td>${a.year}${a.partial ? '<span class="pill">不完整</span>' : ''}</td>` +
+    return `<tr><td>${a.year}${a.partial ? ' <span class="pill">不完整</span>' : ''}</td>` +
            `<td class="${cls(a.value)}">${sgn(a.value)}</td>` +
            `<td class="${cls(h)}">${sgn(h)}</td>` +
            `<td class="${cls(diff)}">${diff === null ? '—' : sgn(diff)}</td></tr>`;
@@ -441,8 +519,60 @@ function renderAnnual(c) {
     `<thead><tr><th>年份</th><th>策略</th><th>持有</th><th>差</th></tr></thead><tbody>${rows}</tbody>`;
 }
 
-$('logScale').onchange = () => { if (state.combo) renderPrice(state.combo); };
-window.addEventListener('resize', () => { if (state.combo) { renderPrice(state.combo); renderEquity(state.combo); } });
+async function loadBoard() {
+  busy(true);
+  try {
+    const data = await getJSON(`/api/leaderboard?freq=${$('freq').value}&cash=${$('cash').value}`);
+    state.board.data = data;
+    renderBoard();
+  } catch (error) {
+    $('boardTable').innerHTML = `<tbody><tr><td><div class="err">${error.message}</div></td></tr></tbody>`;
+    $('boardMeta').textContent = '';
+  } finally { busy(false); }
+}
+
+function renderBoard() {
+  const data = state.board.data;
+  if (!data) return;
+  const key = state.board.full ? 'best_full' : 'best';
+  const metric = state.board.metric;
+  const rows = data.stocks
+    .map(s => ({ stock: s, pick: (s[key] || s.best)[metric] }))
+    .filter(r => r.pick && r.pick[metric] !== null && r.pick[metric] !== undefined);
+  rows.sort((a, b) => b.pick[metric] - a.pick[metric]);
+  const shown = rows.slice(0, state.board.limit || rows.length);
+  const cols = [['total_return', '总收益'], ['cagr', '年化'], ['cagr_over_dd', '年化÷回撤'],
+                ['sharpe', '夏普'], ['max_drawdown', '最大回撤'], ['invested_share', '在场']];
+  let html = '<thead><tr><th>#</th><th style="text-align:left">股票</th><th style="text-align:left">最佳组合</th>' +
+    cols.map(([k, label]) => `<th class="${k === metric ? 'sort' : ''}">${label}</th>`).join('') +
+    '<th>持有年化</th><th>超额年化</th></tr></thead><tbody>';
+  shown.forEach((row, i) => {
+    const s = row.stock, p = row.pick;
+    const diff = p.cagr - s.hold.cagr;
+    html += `<tr data-ticker="${s.ticker}" data-type="${p.type}" data-fast="${p.fast}" data-slow="${p.slow}">` +
+      `<td>${i + 1}</td><td class="tick">${s.ticker}</td>` +
+      `<td class="combo" style="text-align:left">${p.type.toUpperCase()} ${p.fast}/${p.slow}` +
+      `${p.warmup_short ? ' <span class="pill">预热</span>' : ''}</td>` +
+      `<td class="${cls(p.total_return)}">${sgn(p.total_return, 0)}</td>` +
+      `<td class="${cls(p.cagr)}">${sgn(p.cagr)}</td>` +
+      `<td>${num(p.cagr_over_dd)}</td><td>${num(p.sharpe)}</td>` +
+      `<td class="bad">${pct(p.max_drawdown)}</td><td>${pct(p.invested_share, 0)}</td>` +
+      `<td>${pct(s.hold.cagr)}</td><td class="${cls(diff)}">${sgn(diff)}</td></tr>`;
+  });
+  $('boardTable').innerHTML = html + '</tbody>';
+  $('boardTable').querySelectorAll('tr[data-ticker]').forEach(tr => tr.onclick = () => {
+    $('stock').value = tr.dataset.ticker;
+    state.type = tr.dataset.type; state.fast = +tr.dataset.fast; state.slow = +tr.dataset.slow;
+    setView('single');
+    loadOverview();
+  });
+  $('boardMeta').textContent = `${data.frequency === 'daily' ? '每日' : '每周'}信号 · 现金 ` +
+    `${data.cash === 'zero' ? '0' : '国债'} · 每股 ${data.combos} 组 · ${data.stocks.length} 只 · 生成于 ${data.built}`;
+}
+
+window.addEventListener('resize', () => {
+  if (state.combo && state.view === 'single') { renderPrice(state.combo); renderEquity(state.combo); }
+});
 boot();
 </script>
 </body>

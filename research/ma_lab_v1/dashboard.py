@@ -297,7 +297,7 @@ class Store:
             return self.walks2[key]
 
     def stocks(self) -> list[dict]:
-        return ma_walk.stock_list(self.db)
+        return ma_walk.stock_list(self.db, as_of='2024-06-28')
 
 
 STORE: Store

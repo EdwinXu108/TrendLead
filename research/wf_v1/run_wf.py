@@ -107,7 +107,7 @@ def main():
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    stocks = ma_walk.stock_list(DB)
+    stocks = ma_walk.stock_list(DB, legacy_union=True)
     if args.limit:
         stocks = stocks[:args.limit]
     tickers = [s['ticker'] for s in stocks]

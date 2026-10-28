@@ -147,7 +147,7 @@ def summarise(stocks: list[dict]) -> dict:
 
 
 def run_dev(limit: int = 0) -> dict:
-    stocks = ma_walk2.stock_list(DEV_DB)
+    stocks = ma_walk2.stock_list(DEV_DB, legacy_union=True)
     if limit:
         stocks = stocks[:limit]
     tickers = [stock['ticker'] for stock in stocks]
@@ -219,7 +219,7 @@ def holdout_phase1_job(args):
 
 def freeze(out_dir: Path) -> dict:
     """Pick once at the anchor on development data and write the frozen table, before the holdout runs."""
-    stocks = ma_walk2.stock_list(DEV_DB)
+    stocks = ma_walk2.stock_list(DEV_DB, legacy_union=True)
     tickers = [stock['ticker'] for stock in stocks]
     started = time.time()
     with Pool(min(10, os.cpu_count() or 4)) as pool:

@@ -85,7 +85,7 @@ def main():
     parser.add_argument('--limit', type=int, default=0)
     args = parser.parse_args()
     # the same eligible, unambiguous ticker list the dashboard and the walk-forward batch use
-    tickers = [row['ticker'] for row in ma_walk.stock_list(DB)]
+    tickers = [row['ticker'] for row in ma_walk.stock_list(DB, as_of='2024-06-28')]
     if args.limit:
         tickers = tickers[:args.limit]
     combos = len(TYPES) * len([1 for f in FASTS for s in SLOWS if f < s])

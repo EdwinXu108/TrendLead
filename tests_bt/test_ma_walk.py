@@ -130,11 +130,12 @@ def test_the_stock_list_is_eligible_and_excludes_the_excluded_company():
     if not DB.exists():
         pytest.skip('released database is not present')
     stocks = ma_walk.stock_list(DB)
-    assert len(stocks) == 318
+    assert len(stocks) == 279
     ids = {row['security_id'] for row in stocks}
     assert 'CUSIP:H1467J104' not in ids
     assert 'CB' not in {row['ticker'] for row in stocks}
     assert len({row['ticker'] for row in stocks}) == len(stocks)
+    assert all(row['first_effective'] <= '2024-06-28' for row in stocks)
     conn = api.connect(DB)
     for row in stocks:
         eligible = conn.execute('select max(strategy_eligible) from strategy_securities where security_id=?',
@@ -142,6 +143,9 @@ def test_the_stock_list_is_eligible_and_excludes_the_excluded_company():
         assert eligible == 1, row
         # every listed ticker must also be resolvable, not just eligible
         assert ma_lab.resolve_security(row['ticker'], DB) == row['security_id'], row['ticker']
+    legacy = ma_walk.stock_list(DB, legacy_union=True)
+    assert len(legacy) == 318
+    assert {row['ticker'] for row in stocks} < {row['ticker'] for row in legacy}
 
 
 def test_the_two_walk_forward_endpoints_answer():

@@ -33,27 +33,50 @@ LAST_ALLOWED_END = ma_lab.LAST_ALLOWED_END
 
 # -- the stock list ------------------------------------------------------------------------------------------------
 
-def stock_list(db_path=None) -> list[dict]:
+def stock_list(db_path=None, as_of: str = LAST_ALLOWED_END, legacy_union: bool = False) -> list[dict]:
     """Unambiguous tickers whose security has at least one strategy-eligible row.
 
-    A ticker that maps to more than one security_id is skipped, as before. `CUSIP:H1467J104` (CB) is
-    permanently excluded by the investor, so it carries no eligible row and drops out here.
+    By default only securities that were already eligible in a quarterly version whose effective date
+    (the first session of its coverage window) is at or before `as_of` are kept, so a name that only
+    enters the top 200 later is not used before it could be known. `legacy_union=True` restores the old
+    behaviour of taking any version at all; that is the flawed convention the committed wf_v1 and wf_v2
+    results were produced under, kept only so those results can be reproduced.
+
+    A ticker that maps to more than one security_id is skipped, as before. Each row carries
+    `first_effective` (the effective date of the first version the security was eligible in) and
+    `first_report_period` (that version's report period).
     """
     conn = api.connect(db_path) if db_path else api.connect()
-    rows = conn.execute("""select ss.security_id as sid, ss.current_ticker as ticker,
-                                  coalesce(i.name, '') as name, max(ss.strategy_eligible) as eligible
+    effective = {row[0]: row[1] for row in conn.execute(
+        'select version_id, min(active_from) from price_quarter_coverage group by version_id')}
+    periods = {row[0]: row[1] for row in conn.execute('select version_id, report_period from pool_versions')}
+    rows = conn.execute("""select ss.security_id as sid, ss.current_ticker as ticker, ss.version_id as version,
+                                  ss.strategy_eligible as eligible, coalesce(i.name, '') as name
                            from strategy_securities ss left join issuers i on i.issuer_id = ss.issuer_id
-                           where ss.current_ticker <> ''
-                           group by ss.security_id""").fetchall()
-    # a ticker shared by two security_ids stays out, whether or not both of them are eligible
+                           where ss.current_ticker <> ''""").fetchall()
     ids_by_ticker: dict[str, set] = {}
+    first: dict[str, tuple] = {}
     for row in rows:
         ids_by_ticker.setdefault(row['ticker'], set()).add(row['sid'])
-    out = []
-    for row in sorted(rows, key=lambda item: item['ticker']):
-        if row['eligible'] and len(ids_by_ticker[row['ticker']]) == 1:
-            out.append(dict(ticker=row['ticker'], security_id=row['sid'], name=row['name']))
-    return out
+        if not row['eligible'] or row['version'] not in effective:
+            continue
+        key = (effective[row['version']], periods.get(row['version'], ''), row['version'])
+        if row['sid'] not in first or key < first[row['sid']]:
+            first[row['sid']] = key
+    out, seen = [], set()
+    for row in rows:
+        sid = row['sid']
+        if sid in seen or len(ids_by_ticker[row['ticker']]) != 1:
+            continue
+        seen.add(sid)
+        entry = first.get(sid)
+        if entry is None:
+            continue
+        if not legacy_union and entry[0] > as_of:
+            continue
+        out.append(dict(ticker=row['ticker'], security_id=sid, name=row['name'],
+                        first_effective=entry[0], first_report_period=entry[1]))
+    return sorted(out, key=lambda item: item['ticker'])
 
 
 # -- statistics ----------------------------------------------------------------------------------------------------

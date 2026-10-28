@@ -161,3 +161,23 @@ def test_pool_equal_weight_matches_an_independent_calculation():
     expected = [budget * (series['A'][i] + series['B'][i] + series['C'][i]) for i in range(20)]
     for row, want in zip(out['daily'], expected):
         assert row['equity'] == pytest.approx(want, rel=1e-9)
+
+
+def test_r1_rebalance_buys_the_held_names_back_to_equal_weight():
+    """7aabb2e: before the fix, an R1 rebalance only sold; held names were never topped up, so cash piled up."""
+    mkt = market(three_series())
+    cfg = base_cfg(protocol='research_v1', rebalance='R1', N=2, b=1, K=1, execution='next_open',
+                   capital=100000.0)
+    out = Backtest(cfg, market=mkt).run()
+    trades = {(t['date'], t['security_id'], t['side']) for t in out['trades']}
+    assert ('2024-01-16', 'B', 'sell') in trades            # the switch happens on this check day
+    assert ('2024-01-16', 'C', 'buy') in trades
+    assert ('2024-01-16', 'A', 'sell') in trades            # A is trimmed, not left overweight
+    rebalance_days = {t['date'] for t in out['trades'] if t.get('reason') == 'rebalance'}
+    for day in sorted(rebalance_days):
+        rows = [p for p in out['positions'] if p['date'] == day]
+        if len(rows) < 2:
+            continue
+        mean = sum(r['value'] for r in rows) / len(rows)
+        tolerance = max(r['close'] for r in rows) + cfg['fee_per_order']
+        assert all(abs(r['value'] - mean) <= tolerance for r in rows), day

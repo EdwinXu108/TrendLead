@@ -81,3 +81,12 @@ def test_cached_top_ten_market_does_not_skip_full_pool_gap(monkeypatch):
     whole=Backtest(base_cfg(protocol='research_v1',mode='pool'))
     with pytest.raises(DataGapError,match='B 2024-01-02'):
         whole.load()
+
+
+def test_cache_inputs_cover_every_module_on_the_run_path():
+    required = ('leadtrend_bt/engine.py', 'leadtrend_bt/metrics.py', 'leadtrend_bt/runner.py',
+                'leadtrend_bt/signals.py', 'leadtrend_db/api.py')
+    for name in required:
+        assert name in cache.INPUTS, name
+    for name in cache.INPUTS:
+        assert (cache.ROOT / name).is_file(), f'missing cache input: {name}'

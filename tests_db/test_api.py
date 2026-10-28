@@ -70,3 +70,13 @@ def test_rf_daily_is_a_daily_rate_of_the_bill_yield():
     assert rates
     assert all(0 < value < 0.001 for value in rates.values())
     assert abs(rates['2020-06-15'] - 0.16 / 100 / 360) < 0.0002     # June 2020 bill yield was about 0.16%
+
+
+# --- split-adjusted share volume on the released database ------------------------------------------------------
+
+def test_volume_series_restates_amzn_before_its_twenty_for_one_split():
+    sid = 'CUSIP:023135106'
+    raw = api.volume_series([sid], '2022-05-01', '2022-06-30')[sid]
+    adjusted = api.volume_series([sid], '2022-05-01', '2022-06-30', split_adjusted=True)[sid]
+    assert adjusted['2022-06-03'] == pytest.approx(raw['2022-06-03'] * 20.0)
+    assert adjusted['2022-06-06'] == pytest.approx(raw['2022-06-06'])

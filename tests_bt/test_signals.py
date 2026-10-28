@@ -44,3 +44,13 @@ def test_momentum_signal_on_the_released_database():
     assert scores[day]
     values = list(scores[day].values())
     assert all(-1.0 < v < 20.0 for v in values)
+
+
+def test_volume_surge_ignores_the_split_jump_on_the_released_database():
+    """AMZN split 20:1 on 2022-06-06; unadjusted volume made the 20-day mean jump 8x against the 252-day mean."""
+    from leadtrend_db import api
+    if not api.DB_PATH.exists():
+        pytest.skip('released database is not present')
+    scores = signals.scores('VOLUME_SURGE', api.DB_PATH)
+    fourth_week_after = '2022-07-01'
+    assert scores[fourth_week_after]['CUSIP:023135106'] < 2.0

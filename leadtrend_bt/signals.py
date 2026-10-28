@@ -73,6 +73,15 @@ def context(db_path=None) -> dict:
         j = col[sid]
         for d, v in rows.items():
             volume[index[d], j] = v
+    # Split-adjusted volume: only VOLUME_SURGE needs it. AMIHUD uses close x volume (dollar volume), which a split
+    # does not change, so it keeps the raw series.
+    vols_adj = (api.volume_series(sids, LOOKBACK_START, LAST, db_path, split_adjusted=True) if db_path
+                else api.volume_series(sids, LOOKBACK_START, LAST, split_adjusted=True))
+    volume_adj = np.full(shape, np.nan)
+    for sid, rows in vols_adj.items():
+        j = col[sid]
+        for d, v in rows.items():
+            volume_adj[index[d], j] = v
     ci = np.array([index[d] for d in signal_days])
     versions = api.version_amounts(db_path) if db_path else api.version_amounts()
     order = [v['version_id'] for v in versions]
@@ -82,7 +91,8 @@ def context(db_path=None) -> dict:
         ranked = sorted(v['amounts'].items(), key=lambda kv: (-kv[1], kv[0]))
         ranks[v['version_id']] = {issuer: i + 1 for i, (issuer, _) in enumerate(ranked)}
     return dict(days=days, signal_days=signal_days, sids=sids, col=col, pools=pools, version_of=version_of,
-                tri=tri, close=close, volume=volume, ci=ci, versions=order, amounts=amounts, ranks=ranks)
+                tri=tri, close=close, volume=volume, volume_adj=volume_adj, ci=ci, versions=order,
+                amounts=amounts, ranks=ranks)
 
 
 def _ratio(numer, denom):
@@ -154,8 +164,9 @@ def compute(name: str, ctx: dict) -> dict[str, dict[str, float]]:
         mom = _ratio(tri[ci], tri[ci - 126])
         values = np.where(close[ci] > ma, mom, np.nan)
     elif name == 'VOLUME_SURGE':
-        short = _rolling_mean(volume, ci, 20)
-        long = _rolling_mean(volume, ci, 252)
+        adjusted = ctx.get('volume_adj', volume)
+        short = _rolling_mean(adjusted, ci, 20)
+        long = _rolling_mean(adjusted, ci, 252)
         with np.errstate(invalid='ignore', divide='ignore'):
             values = np.where(long > 0, short / long, np.nan)
     elif name == 'AMIHUD_126':

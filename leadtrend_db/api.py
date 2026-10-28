@@ -322,17 +322,60 @@ def close_series(ids, start: str, end: str, db_path: Path | str = DB_PATH) -> di
     return out
 
 
-def volume_series(ids, start: str, end: str, db_path: Path | str = DB_PATH) -> dict[str, dict[str, float]]:
-    """{security_id: {session_date: share volume}} inside [start, end]."""
+def volume_series(ids, start: str, end: str, db_path: Path | str = DB_PATH,
+                  split_adjusted: bool = False) -> dict[str, dict[str, float]]:
+    """{security_id: {session_date: share volume}} inside [start, end].
+
+    `split_adjusted=True` restates every session to the latest share count (see `apply_split_factors`), so a
+    volume ratio is not distorted by a split inside the window. The default keeps the raw OpenD shares.
+    """
     if isinstance(ids, str):
         ids = [ids]
     conn = connect(db_path)
+    events = split_events(ids, db_path) if split_adjusted else {}
     out: dict[str, dict[str, float]] = {}
     for sid in ids:
         rows = conn.execute("""select session_date, volume from prices_daily
                                where security_id=? and source='opend_none' and session_date between ? and ?
                                order by session_date""", (sid, start, end))
-        out[sid] = {r[0]: float(r[1]) for r in rows if r[1] is not None}
+        series = {r[0]: float(r[1]) for r in rows if r[1] is not None}
+        out[sid] = apply_split_factors(series, events.get(sid, [])) if split_adjusted else series
+    return out
+
+
+def split_events(ids, db_path: Path | str = DB_PATH) -> dict[str, list[tuple[str, float]]]:
+    """{security_id: [(ex_date, ratio), ...]} for splits and reverse splits, oldest first.
+
+    `ratio` is new shares per old share, the same convention as `leadtrend_db/tri.py`: 20.0 for a 20:1 split,
+    0.5 for a 1:2 reverse split.
+    """
+    if isinstance(ids, str):
+        ids = [ids]
+    conn = connect(db_path)
+    out: dict[str, list[tuple[str, float]]] = {}
+    for sid in ids:
+        rows = conn.execute("""select action_date, ratio from corporate_actions
+                               where security_id=? and action_type in ('split','reverse_split')
+                               order by action_date""", (sid,))
+        out[sid] = [(r[0], float(r[1])) for r in rows if r[1]]
+    return out
+
+
+def apply_split_factors(series: dict[str, float], events: list[tuple[str, float]]) -> dict[str, float]:
+    """Restate a share-volume series to the latest share count.
+
+    A session before an ex-date is multiplied by the ratio of every split on or after it, so 5 million shares
+    traded before a 20:1 split becomes 100 million in post-split units and the series stays continuous.
+    """
+    if not events:
+        return dict(series)
+    out: dict[str, float] = {}
+    for day, value in series.items():
+        factor = 1.0
+        for ex_date, ratio in events:
+            if day < ex_date:
+                factor *= ratio
+        out[day] = value * factor
     return out
 
 

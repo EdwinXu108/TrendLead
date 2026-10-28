@@ -422,3 +422,34 @@ def test_overrides_need_reason_and_evidence(tmp_path):
     p.write_text('override_kind,key,value,field,reason,evidence\nname_cik,x,1,,,\n', encoding='utf-8')
     with pytest.raises(ValueError):
         load_overrides(p)
+
+
+# --- split-adjusted share volume: pure function, no database ---------------------------------------------------
+
+def test_split_adjustment_restates_volume_before_a_two_for_one_split():
+    from leadtrend_db.api import apply_split_factors
+    series = {'2020-01-02': 100.0, '2020-01-03': 100.0, '2020-01-06': 200.0, '2020-01-07': 200.0}
+    adjusted = apply_split_factors(series, [('2020-01-06', 2.0)])
+    assert adjusted == {'2020-01-02': 200.0, '2020-01-03': 200.0, '2020-01-06': 200.0, '2020-01-07': 200.0}
+
+
+def test_split_adjustment_handles_a_reverse_split():
+    from leadtrend_db.api import apply_split_factors
+    series = {'2020-01-02': 400.0, '2020-01-03': 400.0, '2020-01-06': 100.0}
+    adjusted = apply_split_factors(series, [('2020-01-06', 0.5)])
+    assert adjusted == {'2020-01-02': 200.0, '2020-01-03': 200.0, '2020-01-06': 100.0}
+
+
+def test_split_adjustment_compounds_two_splits():
+    from leadtrend_db.api import apply_split_factors
+    series = {'2020-01-02': 10.0, '2020-03-02': 10.0, '2020-05-02': 10.0}
+    adjusted = apply_split_factors(series, [('2020-02-01', 2.0), ('2020-04-01', 3.0)])
+    assert adjusted['2020-01-02'] == pytest.approx(60.0)      # both later splits
+    assert adjusted['2020-03-02'] == pytest.approx(30.0)      # only the second
+    assert adjusted['2020-05-02'] == pytest.approx(10.0)
+
+
+def test_split_adjustment_without_events_returns_the_same_series():
+    from leadtrend_db.api import apply_split_factors
+    series = {'2020-01-02': 5.0}
+    assert apply_split_factors(series, []) == series

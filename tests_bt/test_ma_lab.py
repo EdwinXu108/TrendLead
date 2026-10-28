@@ -279,3 +279,25 @@ def test_missing_friday_is_carried_forward():
     out = run_lab('BIIB', '2020-10-02', '2020-12-31', types=['sma'], fasts=[5], slows=[50],
                   db_path='data/db/leadtrend_db_v1.sqlite')
     assert out['rows'] and out['buy_hold']['cagr'] == out['buy_hold']['cagr']
+
+
+def test_daily_frequency_checks_every_session():
+    if not api.DB_PATH.exists():
+        pytest.skip('released database is not present')
+    out = ma_lab.run_lab('MSFT', start='2014-02-28', end='2024-06-28', types=['sma'], fasts=[20], slows=[100],
+                         cash_rate='zero', db_path=api.DB_PATH, frequency='daily')
+    weekly = ma_lab.run_lab('MSFT', start='2014-02-28', end='2024-06-28', types=['sma'], fasts=[20], slows=[100],
+                            cash_rate='zero', db_path=api.DB_PATH)
+    assert out['frequency'] == 'daily' and weekly['frequency'] == 'weekly'
+    assert out['signal_days'] > 2500 and weekly['signal_days'] == 540
+    assert out['rows'][0]['buys'] >= weekly['rows'][0]['buys']
+
+
+def test_daily_state_turns_on_the_session_it_is_decided():
+    days, values, _ = synthetic_market(4)
+    signal_days = list(days[:3])
+    _, curve = ma_lab.simulate(days, values, signal_days, [True, False, True], 'zero', {})
+    assert curve[0] == pytest.approx(1.0)
+    assert curve[1] == pytest.approx(values[1] / values[0])
+    assert curve[2] == pytest.approx(curve[1])          # flat on the day the signal turned off
+    assert curve[3] == pytest.approx(curve[2] * values[3] / values[2])   # long again from the next close

@@ -214,7 +214,7 @@ def statistics(days: list[str], equity: list[float], rf: dict[str, float]) -> di
 
 def simulate(days: list[str], values: np.ndarray, signal_days: list[str], state: list[bool],
              cash_rate: str, rf: dict[str, float]) -> tuple[list[str], list[float]]:
-    """Weekly state applied from each signal close; the window starts at the first signal day's close."""
+    """State decided at each signal close and applied from that close; the window starts at the first signal day."""
     index = {d: i for i, d in enumerate(days)}
     start = index[signal_days[0]]
     daily = np.zeros(len(days), dtype=bool)
@@ -222,19 +222,20 @@ def simulate(days: list[str], values: np.ndarray, signal_days: list[str], state:
         daily[index[day]:] = state[k]
     daily[:start] = False
     window = days[start:]
-    equity = [1.0]
-    for i in range(start + 1, len(days)):
-        if daily[i - 1]:
-            equity.append(equity[-1] * (values[i] / values[i - 1]))
-        else:
-            rate = rf.get(days[i], 0.0) if cash_rate == 'dtb3' else 0.0
-            equity.append(equity[-1] * (1.0 + rate))
-    return window, equity
+    returns = np.zeros(len(days))
+    returns[1:] = values[1:] / values[:-1] - 1
+    if cash_rate == 'dtb3':
+        rates = np.array([rf.get(d, 0.0) for d in days])
+    else:
+        rates = np.zeros(len(days))
+    growth = np.where(daily[:-1], 1.0 + returns[1:], 1.0 + rates[1:])
+    equity = np.concatenate([[1.0], np.cumprod(growth[start:])])
+    return window, [float(v) for v in equity]
 
 
 def run_lab(security: str, start: str = '2014-02-28', end: str = LAST_ALLOWED_END,
             types=('sma', 'ema'), fasts=(5, 10, 20), slows=(50, 100, 200), cash_rate: str = 'zero',
-            db_path=None, save_equity: bool = False) -> dict:
+            db_path=None, save_equity: bool = False, frequency: str = 'weekly') -> dict:
     if end > LAST_ALLOWED_END:
         raise ValueError(f'end {end} is after {LAST_ALLOWED_END}: the reserved segment must not be used')
     if start < FIRST_DAY:
@@ -243,14 +244,22 @@ def run_lab(security: str, start: str = '2014-02-28', end: str = LAST_ALLOWED_EN
         raise ValueError('start must be before end')
     if cash_rate not in ('zero', 'dtb3'):
         raise ValueError("cash_rate must be 'zero' or 'dtb3'")
+    if frequency not in ('weekly', 'daily'):
+        raise ValueError("frequency must be 'weekly' or 'daily'")
     for kind in types:
         if kind not in MOVING_AVERAGES:
             raise ValueError(f'unknown average type: {kind}')
     sid = resolve_security(security, db_path)
     days, values = _total_return(sid, end, db_path)
-    signal_days = [d for d in api.friday_signal_days(start, end, db_path) if d >= start]
+    available = set(days)
+    if frequency == 'daily':
+        signal_days = [d for d in days if start <= d <= end]
+    else:
+        # a security listed after the window starts has no price on the earlier Fridays
+        signal_days = [d for d in api.friday_signal_days(start, end, db_path) if d >= start and d in available]
     if not signal_days:
-        raise ValueError('no Friday signal day in the window')
+        raise ValueError('no signal day in the window')
+    periods_per_week = 1.0 if frequency == 'weekly' else 0.2
     rf = api.rf_daily(signal_days[0], end, db_path)
     index = {d: i for i, d in enumerate(days)}
     signal_index = [index[d] for d in signal_days]
@@ -258,7 +267,8 @@ def run_lab(security: str, start: str = '2014-02-28', end: str = LAST_ALLOWED_EN
     window, equity = simulate(days, values, signal_days, [True] * len(signal_days), cash_rate, rf)
     hold = statistics(window, equity, rf)
     hold.update(kind='buy_hold', type='buy_hold', fast='', slow='', invested_share=1.0, buys=1,
-                average_holding_weeks=float(len(signal_days)), first_valid_signal_day='', warmup_short=0)
+                average_holding_weeks=len(signal_days) * periods_per_week, first_valid_signal_day='',
+                warmup_short=0, frequency=frequency)
     rows = []
     curves = {'buy_hold': dict(zip(window, equity))}
     cache: dict[tuple[str, int], np.ndarray] = {}
@@ -284,16 +294,17 @@ def run_lab(security: str, start: str = '2014-02-28', end: str = LAST_ALLOWED_EN
                 buys = sum(1 for k, on in enumerate(state) if on and (k == 0 or not state[k - 1]))
                 row.update(kind=kind, type=kind, fast=int(fast), slow=int(slow),
                            invested_share=sum(state) / len(state), buys=buys,
-                           average_holding_weeks=(sum(state) / buys if buys else 0.0),
+                           average_holding_weeks=(sum(state) / buys * periods_per_week if buys else 0.0),
                            first_valid_signal_day=first_valid,
-                           warmup_short=int(bool(first_valid) and first_valid > signal_days[0]))
+                           warmup_short=int(bool(first_valid) and first_valid > signal_days[0]),
+                           frequency=frequency)
                 row['name'] = f'{kind}_{int(fast)}_{int(slow)}'
                 rows.append(row)
                 if save_equity:
                     curves[row['name']] = dict(zip(window_i, curve))
     for row in rows:
         row.setdefault('name', f"{row['kind']}_{row['fast']}_{row['slow']}")
-    out = dict(security=sid, start=start, end=end, cash_rate=cash_rate,
+    out = dict(security=sid, start=start, end=end, cash_rate=cash_rate, frequency=frequency,
                evaluation_start=window[0], evaluation_end=window[-1],
                signal_days=len(signal_days), buy_hold=hold, rows=rows)
     if save_equity:
@@ -303,7 +314,7 @@ def run_lab(security: str, start: str = '2014-02-28', end: str = LAST_ALLOWED_EN
 
 # -- output -------------------------------------------------------------------------------------------------------
 
-FIELDS = ['type', 'fast', 'slow', 'cagr', 'total_return', 'volatility', 'max_drawdown', 'peak_date', 'trough_date',
+FIELDS = ['type', 'fast', 'slow', 'frequency', 'cagr', 'total_return', 'volatility', 'max_drawdown', 'peak_date', 'trough_date',
           'recovery_date', 'cagr_over_dd', 'sharpe', 'invested_share', 'buys', 'average_holding_weeks',
           'first_valid_signal_day', 'warmup_short']
 
@@ -326,8 +337,10 @@ def write_report(path: Path, out: dict) -> None:
     hold = out['buy_hold']
     lines = [f"# ma_lab：{out['security']}", '',
              f"- 区间：{out['start']} 至 {out['end']}；评估区间 {out['evaluation_start']} 至 "
-             f"{out['evaluation_end']}，共 {out['signal_days']} 个信号周。",
-             f"- 现金口径：{out['cash_rate']}；组合数：{len(out['rows'])}。",
+             f"{out['evaluation_end']}，共 {out['signal_days']} 个"
+             f"{'信号日' if out['frequency'] == 'daily' else '信号周'}。",
+             f"- 现金口径：{out['cash_rate']}；信号频率：{'每日' if out['frequency'] == 'daily' else '每周'}；"
+             f"组合数：{len(out['rows'])}。",
              '- 单元格：年化 / 最大回撤 / 年化÷|回撤| / 夏普。', '',
              '## 一直持有', '',
              '| 年化 | 总收益 | 年化波动 | 最大回撤 | 峰值 | 谷底 | 恢复 | 夏普 |',
@@ -386,13 +399,14 @@ def main(argv=None):
     parser.add_argument('--fast', default='5,10,20')
     parser.add_argument('--slow', default='50,100,200')
     parser.add_argument('--cash', default='zero', choices=('zero', 'dtb3'))
+    parser.add_argument('--freq', default='weekly', choices=('weekly', 'daily'))
     parser.add_argument('--out', required=True)
     parser.add_argument('--save-equity', action='store_true')
     parser.add_argument('--db', default='data/db/leadtrend_db_v1.sqlite')
     args = parser.parse_args(argv)
     out = run_lab(args.security, start=args.start, end=args.end, types=args.types.split(','),
                   fasts=[int(x) for x in args.fast.split(',')], slows=[int(x) for x in args.slow.split(',')],
-                  cash_rate=args.cash, db_path=args.db, save_equity=args.save_equity)
+                  cash_rate=args.cash, db_path=args.db, save_equity=args.save_equity, frequency=args.freq)
     directory = Path(args.out)
     directory.mkdir(parents=True, exist_ok=True)
     write_results(directory / 'results.csv', out)

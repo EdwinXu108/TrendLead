@@ -18,6 +18,12 @@
 
 **2026-10-27 补齐 SPGI 的 2016 年改名缺口：** OpenD 在 2016-04-28 至 2016-05-23 没有数据，2016-05-24 还是“前收盘减分红”的占位行。用 Yahoo Finance 的 17 个交易日补齐（原始返回归档在 `data/db/raw/yahoo/`，价格乘以 1.057 抵消 Yahoo 错误记录的 1057:1000 拆股），2016-04-28 用前收盘占位（`tri_daily.flags = placeholder_carry`），2016-05-24 换成真实价 111.66。新增 18 行价格、重建该证券的 TRI、刷新两张覆盖表；`meta.price_fill_release = spgi_fill_v1`。
 
+**2026-10-29 全期数据发布 `tri_seam_v1`：** 保留段（2024-07-01 起）有 **17 只证券**的 `tri` 水平在 2024-07-01 与自己的 `daily_return` 不连续（DD −25.2%、PGR +4.4%、CRH −2.3% 等，另 9 只残差 0.1%–0.8%）。用登记迁移 `leadtrend_db/tri_seam_release.py`（配置 `config/tri_seam_v1.json`）从 2024-06-28 的 `tri` 出发、按 `daily_return` 重算到 2026-10-26，生成 **`data/db/leadtrend_db_full_v1.sqlite`**；开发段（≤2024-06-28）所有表逐行相同，只有 `tri_daily` 的这 17 只证券在锚点之后改变，全库不一致处 0。文件 SHA256 `3692293b60567e79c37a3127eb213d6c9af00c7f02efbfdf3be5edbe7b5e88aa`，内容 SHA256 `230300715db85bd7b81e7e386593074f398f77212a6fc3e523fe174a5a0eadcc`，`meta.tri_seam_release = tri_seam_v1`。清单 `data/db/leadtrend_db_full_v1_manifest.json`（副本 `research/wf_v2/release_manifest.json`）。**正式库未改动**（文件 SHA256 仍为 `4e46f93f…`）。重建约 3 分钟：
+
+```text
+python -X utf8 -B -m leadtrend_db.tri_seam_release --base data/db/leadtrend_db_v1.sqlite --out data/db/leadtrend_db_full_v1.sqlite --manifest data/db/leadtrend_db_full_v1_manifest.json
+```
+
 **正式库坏了或丢了**，从封存基库按三步重新迁移，结果逐字节相同：
 
 ```text

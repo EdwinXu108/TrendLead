@@ -1,0 +1,24 @@
+{
+  "release": "tri_seam_v1",
+  "anchor": "2024-06-28",
+  "method": "tri_t = tri_{t-1} * (1 + daily_return_t), from the anchor close to the last stored session",
+  "securities": [
+    {"security_id": "CUSIP:26614N201", "ticker": "DD", "seam_jump": -0.252070, "daily_return": -0.015157},
+    {"security_id": "CUSIP:743315103", "ticker": "PGR", "seam_jump": 0.044223, "daily_return": 0.008425},
+    {"security_id": "CUSIP:025537101", "ticker": "AEP", "seam_jump": 0.018524, "daily_return": -0.005243},
+    {"security_id": "CUSIP:438516205", "ticker": "HON", "seam_jump": 0.009659, "daily_return": -0.012129},
+    {"security_id": "CUSIP:12572Q105", "ticker": "CME", "seam_jump": 0.008294, "daily_return": -0.005595},
+    {"security_id": "CUSIP:369604301", "ticker": "GE", "seam_jump": -0.013667, "daily_return": 0.000000},
+    {"security_id": "CUSIP:G5494J103", "ticker": "LIN", "seam_jump": -0.011572, "daily_return": -0.022493},
+    {"security_id": "CUSIP:G54950103", "ticker": "LIN", "seam_jump": -0.011572, "daily_return": -0.022493},
+    {"security_id": "CUSIP:30161N101", "ticker": "EXC", "seam_jump": 0.006336, "daily_return": -0.001734},
+    {"security_id": "CUSIP:09260D107", "ticker": "BX", "seam_jump": -0.004728, "daily_return": -0.012682},
+    {"security_id": "CUSIP:20825C104", "ticker": "COP", "seam_jump": 0.004884, "daily_return": -0.000175},
+    {"security_id": "CUSIP:G25508105", "ticker": "CRH", "seam_jump": -0.022503, "daily_return": -0.026941},
+    {"security_id": "CUSIP:G96629103", "ticker": "WTW", "seam_jump": -0.006168, "daily_return": -0.010376},
+    {"security_id": "CUSIP:776696106", "ticker": "ROP", "seam_jump": 0.001244, "daily_return": -0.001827},
+    {"security_id": "CUSIP:35671D857", "ticker": "FCX", "seam_jump": -0.002140, "daily_return": -0.003909},
+    {"security_id": "CIKCLS:0001288776:CL_A", "ticker": "GOOGL", "seam_jump": 0.005205, "daily_return": 0.004612},
+    {"security_id": "CUSIP:02079K305", "ticker": "GOOGL", "seam_jump": 0.005205, "daily_return": 0.004612}
+  ]
+}

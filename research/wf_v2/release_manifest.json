@@ -1,0 +1,207 @@
+{
+  "release": "tri_seam_v1",
+  "anchor": "2024-06-28",
+  "last_session": "2026-10-26",
+  "base_file_sha256": "4e46f93f6c7e836dbd5e30dfe3ecfd8ebbb076180ac2d0397c4f8789381862bc",
+  "base_content_sha256": "4c6e53e9240e11f743577160f4c7dc818eba555677e11d450da5bd67641c173b",
+  "candidate_file_sha256": "3692293b60567e79c37a3127eb213d6c9af00c7f02efbfdf3be5edbe7b5e88aa",
+  "candidate_content_sha256": "230300715db85bd7b81e7e386593074f398f77212a6fc3e523fe174a5a0eadcc",
+  "config_sha256": "ce04178aa7b5419b3edde8be8af27908002b4f23924e1deee8b69975b44e545d",
+  "securities": [
+    "CUSIP:26614N201",
+    "CUSIP:743315103",
+    "CUSIP:025537101",
+    "CUSIP:438516205",
+    "CUSIP:12572Q105",
+    "CUSIP:369604301",
+    "CUSIP:G5494J103",
+    "CUSIP:G54950103",
+    "CUSIP:30161N101",
+    "CUSIP:09260D107",
+    "CUSIP:20825C104",
+    "CUSIP:G25508105",
+    "CUSIP:G96629103",
+    "CUSIP:776696106",
+    "CUSIP:35671D857",
+    "CIKCLS:0001288776:CL_A",
+    "CUSIP:02079K305"
+  ],
+  "updated_rows": {
+    "CUSIP:26614N201": 583,
+    "CUSIP:743315103": 583,
+    "CUSIP:025537101": 583,
+    "CUSIP:438516205": 583,
+    "CUSIP:12572Q105": 583,
+    "CUSIP:369604301": 583,
+    "CUSIP:G5494J103": 583,
+    "CUSIP:G54950103": 583,
+    "CUSIP:30161N101": 583,
+    "CUSIP:09260D107": 583,
+    "CUSIP:20825C104": 583,
+    "CUSIP:G25508105": 583,
+    "CUSIP:G96629103": 583,
+    "CUSIP:776696106": 583,
+    "CUSIP:35671D857": 583,
+    "CIKCLS:0001288776:CL_A": 583,
+    "CUSIP:02079K305": 583
+  },
+  "total_updated": 9911,
+  "tables_compared": 36,
+  "changed_tables": [
+    "tri_daily"
+  ],
+  "dev_tri_rows": 935901,
+  "dev_tri_sha256": "524cb4ff60b5877bbe3dc1b054b424355b3074c63264545f032f750a93eccafc",
+  "post_tri_other_rows": 188829,
+  "post_tri_other_sha256": "3bd8b6f3c73792d80d6fd9e9d40f22ee8bc95f625992a794a726126bc1fa77cf",
+  "broken_chain_before": 17,
+  "broken_chain_after": 0,
+  "integrity": "ok",
+  "foreign_key_violations": 0,
+  "table_hashes": {
+    "benchmark_bars_development": {
+      "rows": 2911,
+      "sha256": "b3d664cde297539d0a1af3cec7f32722816290adc6205cee56b90f0c87925e53"
+    },
+    "company_ranks": {
+      "rows": 24582,
+      "sha256": "7493ea0e47f053229bce9c5448dd4b38568da9874a6410cad1ca4f8f166078c0"
+    },
+    "corporate_actions": {
+      "rows": 13937,
+      "sha256": "ef479571b86f3c3d0c92245638b0126b13dbfb2e050a69406f88eebafe7c67c2"
+    },
+    "corr_groups": {
+      "rows": 9719,
+      "sha256": "4f35c981dffe6d645c6e92574a85f103d144f2fb7da0e49e7ffe39ccaba1db6e"
+    },
+    "corr_methods": {
+      "rows": 1,
+      "sha256": "863ed5697173771b769e096f990ca740ce7448331d80d28438656487a3178257"
+    },
+    "holdings": {
+      "rows": 26328,
+      "sha256": "b45faaf9b2dda145576bc7f1347a204f0d3544765b5eb748bff337a9e2896928"
+    },
+    "index_changes": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "issuer_links": {
+      "rows": 11,
+      "sha256": "77cd649088db8f63557afd6a6374451e765e074672b60ba884069286f87cbec5"
+    },
+    "issuer_names": {
+      "rows": 2957,
+      "sha256": "c80923c18090b05ca7366d51a8653c3429816c48c2dcb0cedabb539a72ec19f9"
+    },
+    "issuer_resolution": {
+      "rows": 781,
+      "sha256": "3e443d3e2335d72efebd22fe376ff730a9b3c26e011f11457ed3c72bbaf59e82"
+    },
+    "issuers": {
+      "rows": 781,
+      "sha256": "c6fcaf4e8aaac8b8d7a1b7a54dfe86553206d3c4c73d8a1c58ad0a66469e9350"
+    },
+    "listing_status": {
+      "rows": 781,
+      "sha256": "13fe0110fe52adf835a245a72e3b9fe37f82d2785bdbe21700994133def7a16b"
+    },
+    "membership_spans": {
+      "rows": 1522,
+      "sha256": "713118759d677ca581489c8809aeadbf5b870962e67996503f9ac8b0af20d050"
+    },
+    "pool_exclusions": {
+      "rows": 15,
+      "sha256": "37433724359208a1d1df0bf5124e638df371b0dc2ebd91e0088e91653e50e0c6"
+    },
+    "pool_versions": {
+      "rows": 52,
+      "sha256": "fab0750a76f8cffaeb6b67961d524def0daa8df5b063229b9b574d375b8fbc4e"
+    },
+    "price_anomalies": {
+      "rows": 31,
+      "sha256": "8ee9999e83c0f0417256149f509732a3b480b70c8079670397cc711e685023b4"
+    },
+    "price_calendar": {
+      "rows": 3495,
+      "sha256": "b04d5bfd01f374844f3a59d91d672411a26d1865e6452c84ec07d8224c1fbba9"
+    },
+    "price_comparison": {
+      "rows": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "price_continuity": {
+      "rows": 25,
+      "sha256": "3019ae908e80dcc1454481968937e87b47005f6502910e2a9edeb3a201d99381"
+    },
+    "price_coverage": {
+      "rows": 341,
+      "sha256": "ca92a5ef1883fa97fee73d95dff00fe8b8ca44438b108b2116a20fb0f36a6612"
+    },
+    "price_lineage": {
+      "rows": 371,
+      "sha256": "39979942f348724a3521c859a167396d5a7f97960178173bf7831796aca1ce19"
+    },
+    "price_quarter_coverage": {
+      "rows": 9815,
+      "sha256": "9f71ece138a854add5dff6cc267df6590bbea92dc133c24f4e029c4308ef93ba"
+    },
+    "prices_daily": {
+      "rows": 1131147,
+      "sha256": "1c5d1cd423ba2a7acffeacfff5ce66ad3f695180be1b5f604ec59b8eefeb46d5"
+    },
+    "quarter_checks": {
+      "rows": 312,
+      "sha256": "36c4e188d583cd185ada44cd14585fc78147b4aa9017e78adfe97f5a42b0d0cc"
+    },
+    "review_items": {
+      "rows": 495,
+      "sha256": "e409579ffe787d727b05ede622d8ddbe94054bc5c8b15f6f140b7fcd9cc35792"
+    },
+    "securities": {
+      "rows": 811,
+      "sha256": "b88b62641df518315ce5fadae99299a5d7647b934248107b6d56327073d5fbd1"
+    },
+    "security_identifiers": {
+      "rows": 2609,
+      "sha256": "405bc62b8088e36821bc943e428c72cfa0884d67ef2ace759d0c5c64fbd4dd92"
+    },
+    "security_issuer_spans": {
+      "rows": 813,
+      "sha256": "f382a2a733bd84b3a963a5e70791c44ab5902923f675350e5008b553dc90cee1"
+    },
+    "snapshots": {
+      "rows": 52,
+      "sha256": "bead980b7886e2d4373f7eeb0521ac59052e48436b782c6b4a5fea8524fecab4"
+    },
+    "sources": {
+      "rows": 5306,
+      "sha256": "798c0eddaa85e291df0822f1aed4b6a9f28b500dee6eff3af6279306d38385cd"
+    },
+    "strategy_companies": {
+      "rows": 10400,
+      "sha256": "5c6cf1b504416d43fa04139a354e29534f4bcaf510a3ed03bbde1a0ced223a07"
+    },
+    "strategy_securities": {
+      "rows": 10505,
+      "sha256": "475b1aae5c11ef980af33be3ed2e2cd84722a942e1179de0d6f7f87881ad713d"
+    },
+    "ticker_checks": {
+      "rows": 328,
+      "sha256": "7cc3c17740d9abbf6e02b24b74c4f2a49eb6a2c371cc4030de7a665858fcb2ac"
+    },
+    "top200_companies": {
+      "rows": 10400,
+      "sha256": "2f99fef87949d3050447c1c6ccaf2cf1c14372703c6979c022ec2f89a731e04e"
+    },
+    "top200_securities": {
+      "rows": 10505,
+      "sha256": "d3b93fa00ff50274b4eff69a970e75d848b541a7fd8bb798f8a27d8a704db71c"
+    },
+    "tri_daily": {
+      "rows": 1134641,
+      "sha256": "b47dcdfd80bb955a4e00ae61b52ac15f1bc318115d2517ea687eb3d8d7157d75"
+    }
+  }
+}

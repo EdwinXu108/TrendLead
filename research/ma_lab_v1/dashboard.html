@@ -92,8 +92,9 @@
 <header>
   <h1>LeadTrend</h1>
   <div class="tabs" id="tabs">
-    <button data-view="single" class="on">单股</button>
-    <button data-view="board">排行榜</button>
+    <button data-view="single" class="on">单股图表</button>
+    <button data-view="rank">本股排行</button>
+    <button data-view="board">全市场排行</button>
   </div>
   <div class="ctrl"><label>股票</label>
     <input id="stock" list="stockList" placeholder="代码" autocomplete="off">
@@ -156,6 +157,32 @@
   </div>
 </main>
 
+<main id="view-rank" hidden>
+  <div class="board-bar">
+    <div class="tabs" id="rankTabs">
+      <button data-metric="total_return">总收益榜</button>
+      <button data-metric="cagr">年化榜</button>
+      <button data-metric="cagr_over_dd" class="on">收益÷回撤榜</button>
+      <button data-metric="sharpe">夏普榜</button>
+    </div>
+    <label class="sub"><input type="checkbox" id="rankFull"> 只看从起点就有效的组合</label>
+    <div class="ctrl"><label>显示</label>
+      <select id="rankLimit"><option>30</option><option selected>50</option><option>100</option>
+        <option value="0">全部</option></select>
+    </div>
+    <span class="sub" id="rankMeta"></span>
+  </div>
+  <div class="card">
+    <div class="panel scroll" style="max-height:calc(100vh - 180px)">
+      <table class="board" id="rankTable"></table>
+    </div>
+    <div class="note">
+      这只是<b>同一只股票</b>内部的 7 种均线 × 66 组快慢线排行；换股票用顶部的输入框。
+      同样指标下点击一行可以跳到「单股图表」看这条曲线。样本内最优，不代表未来。
+    </div>
+  </div>
+</main>
+
 <main id="view-board" hidden>
   <div class="board-bar">
     <div class="tabs" id="boardTabs">
@@ -187,6 +214,7 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const state = { info: null, overview: null, combo: null, type: 'sma', fast: 20, slow: 100, view: 'single',
+                rank: { metric: 'cagr_over_dd', full: false, limit: 50 },
                 board: { metric: 'cagr_over_dd', full: true, limit: 50, data: null } };
 const pct = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? '—' : (v * 100).toFixed(d) + '%';
 const sgn = (v, d = 1) => (v === null || v === undefined) ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(d) + '%';
@@ -223,7 +251,7 @@ async function boot() {
     if (link.get('type') && info.types.includes(link.get('type'))) state.type = link.get('type');
     if (link.get('fast')) state.fast = +link.get('fast');
     if (link.get('slow')) state.slow = +link.get('slow');
-    if (link.get('view') === 'board') state.view = 'board';
+    if (['board', 'rank'].includes(link.get('view'))) state.view = link.get('view');
 
     $('reload').onclick = () => loadOverview();
     $('stock').onchange = () => loadOverview();
@@ -237,6 +265,13 @@ async function boot() {
       $('boardTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
       renderBoard();
     });
+    $('rankTabs').querySelectorAll('button').forEach(b => b.onclick = () => {
+      state.rank.metric = b.dataset.metric;
+      $('rankTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      renderRank();
+    });
+    $('rankFull').onchange = () => { state.rank.full = $('rankFull').checked; renderRank(); };
+    $('rankLimit').onchange = () => { state.rank.limit = +$('rankLimit').value; renderRank(); };
     $('boardFull').onchange = () => { state.board.full = $('boardFull').checked; renderBoard(); };
     $('boardLimit').onchange = () => { state.board.limit = +$('boardLimit').value; renderBoard(); };
     $('logScale').onchange = () => { if (state.combo) renderPrice(state.combo); };
@@ -250,12 +285,14 @@ async function boot() {
 function setView(view) {
   state.view = view;
   $('view-single').hidden = view !== 'single';
+  $('view-rank').hidden = view !== 'rank';
   $('view-board').hidden = view !== 'board';
   $('tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.view === view));
   const url = new URL(location.href);
   url.searchParams.set('view', view);
   history.replaceState(null, '', url);
   if (view === 'board') loadBoard();
+  if (view === 'rank') renderRank();
 }
 
 async function loadOverview() {
@@ -283,6 +320,7 @@ async function loadOverview() {
                                           fast: state.fast, slow: state.slow })) url.searchParams.set(k, v);
     history.replaceState(null, '', url);
     await selectCombo();
+    if (state.view === 'rank') renderRank();
   } finally { busy(false); }
 }
 
@@ -517,6 +555,51 @@ function renderAnnual(c) {
   }).join('');
   $('annual').innerHTML =
     `<thead><tr><th>年份</th><th>策略</th><th>持有</th><th>差</th></tr></thead><tbody>${rows}</tbody>`;
+}
+
+const METRIC_LABEL = { total_return: '总收益', cagr: '年化', cagr_over_dd: '年化÷回撤', sharpe: '夏普' };
+
+function renderRank() {
+  const data = state.overview;
+  if (!data) return;
+  const metric = state.rank.metric;
+  let rows = data.combos.filter(r => r[metric] !== null && r[metric] !== undefined);
+  if (state.rank.full) rows = rows.filter(r => !r.warmup_short);
+  rows.sort((a, b) => b[metric] - a[metric]);
+  const shown = rows.slice(0, state.rank.limit || rows.length);
+  let html = '<thead><tr><th>#</th><th style="text-align:left">组合</th>' +
+    `<th class="${metric === 'cagr' ? 'sort' : ''}">年化</th>` +
+    `<th class="${metric === 'total_return' ? 'sort' : ''}">总收益</th>` +
+    '<th>最大回撤</th>' +
+    `<th class="${metric === 'cagr_over_dd' ? 'sort' : ''}">年化÷回撤</th>` +
+    `<th class="${metric === 'sharpe' ? 'sort' : ''}">夏普</th>` +
+    '<th>在场</th><th>买入</th><th>平均持有</th><th>首个有效信号</th></tr></thead><tbody>';
+  shown.forEach((r, i) => {
+    const on = r.type === state.type && r.fast === state.fast && r.slow === state.slow;
+    html += `<tr data-type="${r.type}" data-fast="${r.fast}" data-slow="${r.slow}"` +
+      `${on ? ' style="background:#e7f1f9"' : ''}>` +
+      `<td>${i + 1}</td>` +
+      `<td style="text-align:left;font-weight:600">${r.type.toUpperCase()} ${r.fast}/${r.slow}` +
+      `${r.warmup_short ? ' <span class="pill">预热</span>' : ''}</td>` +
+      `<td class="${cls(r.cagr)}">${sgn(r.cagr)}</td>` +
+      `<td class="${cls(r.total_return)}">${sgn(r.total_return, 0)}</td>` +
+      `<td class="bad">${pct(r.max_drawdown)}</td>` +
+      `<td>${num(r.cagr_over_dd)}</td><td>${num(r.sharpe)}</td>` +
+      `<td>${pct(r.invested_share, 0)}</td><td>${r.buys}</td>` +
+      `<td>${num(r.average_holding_weeks, 1)} 周</td>` +
+      `<td>${r.first_valid_signal_day || '—'}</td></tr>`;
+  });
+  $('rankTable').innerHTML = html + '</tbody>';
+  $('rankTable').querySelectorAll('tr[data-type]').forEach(tr => tr.onclick = () => {
+    state.type = tr.dataset.type; state.fast = +tr.dataset.fast; state.slow = +tr.dataset.slow;
+    setView('single');
+    selectCombo();
+    document.querySelectorAll('#types button').forEach(b => b.classList.toggle('on', b.dataset.type === state.type));
+    $('fast').value = state.fast; $('slow').value = state.slow;
+  });
+  $('rankMeta').textContent = `${data.meta.ticker} · ${data.combos.length} 组 · 按${METRIC_LABEL[metric]}排序 · ` +
+    `${data.meta.frequency === 'daily' ? '每日' : '每周'}信号 · 现金 ${data.meta.cash === 'zero' ? '0' : '国债'}` +
+    `${state.rank.full ? ' · 只看起点有效' : ''}`;
 }
 
 async function loadBoard() {

@@ -54,7 +54,7 @@ def job(args):
         rows = lab.rows_with_winrate()
     except ValueError as error:          # an ambiguous or unusable ticker must not stop the build
         return dict(ticker=ticker, error=str(error))
-    hold = lab.result['buy_hold']
+    hold = lab.hold
     best, best_full = {}, {}
     for metric in METRICS:
         pool = rows

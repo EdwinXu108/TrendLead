@@ -92,8 +92,7 @@
 <header>
   <h1>LeadTrend</h1>
   <div class="tabs" id="tabs">
-    <button data-view="single" class="on">单股图表</button>
-    <button data-view="rank">本股排行</button>
+    <button data-view="single" class="on">单股</button>
     <button data-view="board">全市场排行</button>
   </div>
   <div class="ctrl"><label>股票</label>
@@ -128,11 +127,27 @@
             <b class="bad">橙=较差</b>。</div>
         </div>
       </div>
+      <div class="card" style="margin-top:12px">
+        <h2>本股排行 <span class="sub" id="rankMeta"></span></h2>
+        <div class="row" style="gap:6px;align-items:center">
+          <div><select id="rankMetric">
+            <option value="cagr">年化榜</option>
+            <option value="total_return">总收益榜</option>
+            <option value="cagr_over_dd" selected>收益÷回撤榜</option>
+            <option value="sharpe">夏普榜</option>
+            <option value="win_rate">胜率榜</option>
+          </select></div>
+          <label class="sub" style="white-space:nowrap"><input type="checkbox" id="rankFull"> 只看起点有效</label>
+        </div>
+        <div class="scroll panel" style="max-height:360px"><table class="board" id="rankTable"></table></div>
+        <div class="note">同一只股票内部 462 组自己排；点一行切到那条曲线。</div>
+      </div>
     </section>
     <section>
       <div class="kpis" id="kpis"></div>
       <div class="card">
         <h2><span id="priceTitle">价格与买卖点</span>
+          <span id="zoomChip" class="sub" style="margin-left:10px"></span>
           <label style="float:right;font-weight:400;cursor:pointer;color:var(--muted)">
             <input type="checkbox" id="logScale" checked style="vertical-align:-1px"> 对数轴</label></h2>
         <div class="legend" id="priceLegend"></div>
@@ -154,33 +169,6 @@
         </div>
       </div>
     </section>
-  </div>
-</main>
-
-<main id="view-rank" hidden>
-  <div class="board-bar">
-    <div class="tabs" id="rankTabs">
-      <button data-metric="total_return">总收益榜</button>
-      <button data-metric="cagr">年化榜</button>
-      <button data-metric="cagr_over_dd" class="on">收益÷回撤榜</button>
-      <button data-metric="sharpe">夏普榜</button>
-      <button data-metric="win_rate">胜率榜</button>
-    </div>
-    <label class="sub"><input type="checkbox" id="rankFull"> 只看从起点就有效的组合</label>
-    <div class="ctrl"><label>显示</label>
-      <select id="rankLimit"><option>30</option><option selected>50</option><option>100</option>
-        <option value="0">全部</option></select>
-    </div>
-    <span class="sub" id="rankMeta"></span>
-  </div>
-  <div class="card">
-    <div class="panel scroll" style="max-height:calc(100vh - 180px)">
-      <table class="board" id="rankTable"></table>
-    </div>
-    <div class="note">
-      这只是<b>同一只股票</b>内部的 7 种均线 × 66 组快慢线排行；换股票用顶部的输入框。
-      同样指标下点击一行可以跳到「单股图表」看这条曲线。样本内最优，不代表未来。
-    </div>
   </div>
 </main>
 
@@ -216,7 +204,8 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const state = { info: null, overview: null, combo: null, type: 'sma', fast: 20, slow: 100, view: 'single',
-                rank: { metric: 'cagr_over_dd', full: false, limit: 50 },
+                zoom: null,
+                rank: { metric: 'cagr_over_dd', full: false },
                 board: { metric: 'cagr_over_dd', full: true, limit: 50, data: null } };
 const pct = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? '—' : (v * 100).toFixed(d) + '%';
 const sgn = (v, d = 1) => (v === null || v === undefined) ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(d) + '%';
@@ -254,10 +243,14 @@ async function boot() {
     if (link.get('fast')) state.fast = +link.get('fast');
     if (link.get('slow')) state.slow = +link.get('slow');
     if (['board', 'rank'].includes(link.get('view'))) state.view = link.get('view');
+    if (link.get('zoom') && link.get('zoom').includes(',')) {
+      state.pendingZoom = link.get('zoom').split(',').map(s => s.trim());
+    }
     if (link.get('metric') && METRIC_LABEL[link.get('metric')]) {
       state.rank.metric = link.get('metric');
       state.board.metric = link.get('metric');
-      document.querySelectorAll('#rankTabs button, #boardTabs button').forEach(b =>
+      $('rankMetric').value = link.get('metric');
+      document.querySelectorAll('#boardTabs button').forEach(b =>
         b.classList.toggle('on', b.dataset.metric === link.get('metric')));
     }
 
@@ -275,15 +268,13 @@ async function boot() {
       history.replaceState(null, '', url);
       renderBoard();
     });
-    $('rankTabs').querySelectorAll('button').forEach(b => b.onclick = () => {
-      state.rank.metric = b.dataset.metric;
-      $('rankTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
-      const url = new URL(location.href); url.searchParams.set('metric', b.dataset.metric);
+    $('rankMetric').onchange = () => {
+      state.rank.metric = $('rankMetric').value;
+      const url = new URL(location.href); url.searchParams.set('metric', state.rank.metric);
       history.replaceState(null, '', url);
       renderRank();
-    });
+    };
     $('rankFull').onchange = () => { state.rank.full = $('rankFull').checked; renderRank(); };
-    $('rankLimit').onchange = () => { state.rank.limit = +$('rankLimit').value; renderRank(); };
     $('boardFull').onchange = () => { state.board.full = $('boardFull').checked; renderBoard(); };
     $('boardLimit').onchange = () => { state.board.limit = +$('boardLimit').value; renderBoard(); };
     $('logScale').onchange = () => { if (state.combo) renderPrice(state.combo); };
@@ -297,18 +288,17 @@ async function boot() {
 function setView(view) {
   state.view = view;
   $('view-single').hidden = view !== 'single';
-  $('view-rank').hidden = view !== 'rank';
   $('view-board').hidden = view !== 'board';
   $('tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.view === view));
   const url = new URL(location.href);
   url.searchParams.set('view', view);
   history.replaceState(null, '', url);
   if (view === 'board') loadBoard();
-  if (view === 'rank') renderRank();
 }
 
 async function loadOverview() {
   busy(true);
+  state.zoom = null;
   try {
     const data = await getJSON('/api/overview?' + params());
     state.overview = data;
@@ -332,7 +322,17 @@ async function loadOverview() {
                                           fast: state.fast, slow: state.slow })) url.searchParams.set(k, v);
     history.replaceState(null, '', url);
     await selectCombo();
-    if (state.view === 'rank') renderRank();
+    if (state.pendingZoom) {
+      const dates = data.price.dates;
+      const near = (target) => {
+        let best = 0;
+        for (let i = 0; i < dates.length; i++) if (dates[i] <= target) best = i;
+        return best;
+      };
+      const a = near(state.pendingZoom[0]), b = near(state.pendingZoom[1]);
+      if (b > a) { state.zoom = [a, b]; redraw(); }
+      state.pendingZoom = null;
+    }
   } finally { busy(false); }
 }
 
@@ -382,6 +382,8 @@ async function selectCombo() {
     renderEquity(data);
     renderSegments(data);
     renderAnnual(data);
+    renderRank();
+    updateZoomChip();
   } finally { busy(false); }
 }
 
@@ -426,9 +428,15 @@ function drawChart(container, tip, cfg) {
   const width = Math.max(520, box.width - 16);
   const height = cfg.height;
   const pad = { l: 56, r: 12, t: 10, b: 22 };
-  const n = cfg.dates.length;
-  const raw = cfg.series.flatMap(s => s.values).filter(v => v !== null && Number.isFinite(v) && v > 0);
-  const useLog = !!cfg.log && raw.length > 0;
+  const all = cfg.dates.length;
+  const [z0, z1] = cfg.zoom ? [Math.max(0, cfg.zoom[0]), Math.min(all - 1, cfg.zoom[1])] : [0, all - 1];
+  const dates = cfg.dates.slice(z0, z1 + 1);
+  const series = cfg.series.map(s => ({ ...s, values: s.values.slice(z0, z1 + 1) }));
+  const markers = (cfg.markers || []).filter(m => m.i >= z0 && m.i <= z1).map(m => ({ ...m, i: m.i - z0 }));
+  const n = dates.length;
+  const raw = series.flatMap(s => s.values).filter(v => v !== null && Number.isFinite(v) && v > 0);
+  const spread = raw.length ? Math.max(...raw) / Math.max(Math.min(...raw), 1e-9) : 1;
+  const useLog = !!cfg.log && raw.length > 0 && spread > 3;
   const T = (v) => useLog ? Math.log10(Math.max(v, 1e-9)) : v;
   let lo = Math.min(...raw.map(T)), hi = Math.max(...raw.map(T));
   const padY = (hi - lo) * 0.06 || 1;
@@ -442,16 +450,17 @@ function drawChart(container, tip, cfg) {
     parts.push(`<text x="${pad.l - 8}" y="${y + 3.5}" text-anchor="end" font-size="10.5" fill="#8b929c">` +
                cfg.yFormat(tick) + `</text>`);
   }
-  let lastYear = '';
+  const byMonth = n < 500;
+  let lastMark = '';
   for (let i = 0; i < n; i++) {
-    const year = cfg.dates[i].slice(0, 4);
-    if (year !== lastYear) {
-      lastYear = year;
+    const mark = byMonth ? dates[i].slice(0, 7) : dates[i].slice(0, 4);
+    if (mark !== lastMark) {
+      lastMark = mark;
       parts.push(`<line x1="${X(i)}" x2="${X(i)}" y1="${pad.t}" y2="${height - pad.b}" stroke="#f4f5f7"/>`);
-      parts.push(`<text x="${X(i)}" y="${height - 6}" font-size="10.5" fill="#8b929c">${year}</text>`);
+      parts.push(`<text x="${X(i)}" y="${height - 6}" font-size="10.5" fill="#8b929c">${mark}</text>`);
     }
   }
-  for (const s of cfg.series) {
+  for (const s of series) {
     let path = '', started = false;
     for (let i = 0; i < n; i++) {
       const v = s.values[i];
@@ -462,7 +471,7 @@ function drawChart(container, tip, cfg) {
     parts.push(`<path d="${path}" fill="none" stroke="${s.color}" stroke-width="${s.width || 1.6}"` +
                `${s.dash ? ` stroke-dasharray="${s.dash}"` : ''} opacity="${s.opacity || 1}"/>`);
   }
-  for (const marker of (cfg.markers || [])) {
+  for (const marker of markers) {
     const x = X(marker.i), y = Y(marker.value);
     if (marker.side === 'buy') {
       parts.push(`<path d="M${x} ${y + 11} l-6 10 l12 0 z" fill="#0072B2" stroke="#fff" stroke-width="1"/>`);
@@ -472,8 +481,10 @@ function drawChart(container, tip, cfg) {
   }
   parts.push(`<line id="cross" x1="0" x2="0" y1="${pad.t}" y2="${height - pad.b}" stroke="#b9c0ca" ` +
              `stroke-dasharray="3 3" opacity="0"/>`);
+  parts.push(`<rect id="brush" x="${pad.l}" y="${pad.t}" width="0" height="${height - pad.t - pad.b}" ` +
+             `fill="#0072B2" opacity="0" pointer-events="none"/>`);
   parts.push(`<rect x="${pad.l}" y="${pad.t}" width="${width - pad.l - pad.r}" height="${height - pad.t - pad.b}" ` +
-             `fill="transparent" class="hover"/></svg>`);
+             `fill="transparent" class="hover" style="cursor:crosshair"/></svg>`);
   container.querySelectorAll('svg').forEach(s => s.remove());
   container.insertAdjacentHTML('beforeend', parts.join(''));
 
@@ -484,7 +495,7 @@ function drawChart(container, tip, cfg) {
     const px = (event.clientX - rect.left) * (width / rect.width);
     const i = Math.max(0, Math.min(n - 1, Math.round((px - pad.l) / (width - pad.l - pad.r) * (n - 1))));
     cross.setAttribute('x1', X(i)); cross.setAttribute('x2', X(i)); cross.setAttribute('opacity', 1);
-    tip.innerHTML = [`<b>${cfg.dates[i]}</b>`].concat(cfg.series.map(s => {
+    tip.innerHTML = [`<b>${dates[i]}</b>`].concat(series.map(s => {
       const v = s.values[i];
       return `${s.name}：${v === null || !Number.isFinite(v) ? '—' : cfg.yFormat(v)}`;
     })).join('<br>');
@@ -495,6 +506,56 @@ function drawChart(container, tip, cfg) {
   svg.querySelector('.hover').addEventListener('mouseleave', () => {
     cross.setAttribute('opacity', 0); tip.style.opacity = 0;
   });
+
+  // drag across the plot to zoom both charts into that stretch of time
+  const brush = svg.querySelector('#brush');
+  const toIndex = (clientX) => {
+    const rect = svg.getBoundingClientRect();
+    const px = (clientX - rect.left) * (width / rect.width);
+    return Math.max(0, Math.min(n - 1, Math.round((px - pad.l) / (width - pad.l - pad.r) * (n - 1))));
+  };
+  let anchor = null;
+  svg.addEventListener('mousedown', (event) => {
+    if (event.button !== 0) return;
+    anchor = toIndex(event.clientX);
+    brush.setAttribute('x', X(anchor)); brush.setAttribute('width', 0); brush.setAttribute('opacity', 0.18);
+    event.preventDefault();
+  });
+  svg.addEventListener('mousemove', (event) => {
+    if (anchor === null) return;
+    const i = toIndex(event.clientX);
+    brush.setAttribute('x', X(Math.min(anchor, i)));
+    brush.setAttribute('width', Math.max(0, X(Math.max(anchor, i)) - X(Math.min(anchor, i))));
+  });
+  svg.addEventListener('mouseup', (event) => {
+    if (anchor === null) return;
+    const i = toIndex(event.clientX);
+    brush.setAttribute('opacity', 0);
+    const a = Math.min(anchor, i), b = Math.max(anchor, i);
+    anchor = null;
+    if (b - a < 3) return;                       // a click, not a drag
+    state.zoom = [z0 + a, z0 + b];
+    redraw();
+  });
+  svg.addEventListener('mouseleave', () => { anchor = null; brush.setAttribute('opacity', 0); });
+  svg.addEventListener('dblclick', () => { if (state.zoom) { state.zoom = null; redraw(); } });
+}
+
+function redraw() {
+  if (!state.combo) return;
+  renderPrice(state.combo);
+  renderEquity(state.combo);
+  updateZoomChip();
+}
+
+function updateZoomChip() {
+  const chip = $('zoomChip');
+  if (!state.zoom || !state.overview) { chip.textContent = ''; return; }
+  const dates = state.overview.price.dates;
+  const [a, b] = state.zoom;
+  chip.innerHTML = `放大 ${dates[a]} ~ ${dates[b]} <a href="#" id="zoomReset" style="color:#0072B2">重置</a>`;
+  const link = $('zoomReset');
+  if (link) link.onclick = (event) => { event.preventDefault(); state.zoom = null; redraw(); };
 }
 
 function renderPrice(c) {
@@ -512,7 +573,7 @@ function renderPrice(c) {
     `<span><b style="color:#0072B2">▲</b> 买入</span><span><b style="color:#D55E00">▼</b> 卖出</span>` +
     `<span>含分红再投资，拆股已调整</span>`;
   drawChart($('priceChart'), $('priceTip'), {
-    dates: price.dates, height: 380, log: $('logScale').checked,
+    dates: price.dates, height: 380, log: $('logScale').checked, zoom: state.zoom,
     series: [
       { name: '复权股价', values: scale(price.tri), color: '#1f2328', width: 1.9 },
       { name: '快线', values: scale(c.fast_line), color: '#E69F00', width: 1.3 },
@@ -532,7 +593,7 @@ function renderEquity(c) {
     `<span><i style="background:#0072B2"></i>策略</span><span><i style="background:#9aa1ab"></i>一直持有</span>` +
     (spread ? '<span>（对数轴）</span>' : '');
   drawChart($('equityChart'), $('equityTip'), {
-    dates: c.dates, height: 230, log: spread,
+    dates: c.dates, height: 230, log: spread, zoom: state.zoom,
     series: [
       { name: '一直持有', values: growth(c.hold), color: '#9aa1ab', width: 1.4, dash: '4 3' },
       { name: '策略', values: growth(c.equity), color: '#0072B2', width: 1.9 }
@@ -581,42 +642,35 @@ function renderRank() {
   if (state.rank.full) rows = rows.filter(r => !r.warmup_short);
   if (metric === 'win_rate') rows = rows.filter(r => (r.segments || 0) >= WIN_MIN_SEGMENTS);
   rows.sort((a, b) => b[metric] - a[metric]);
-  const shown = rows.slice(0, state.rank.limit || rows.length);
+  const value = (r) => {
+    if (r[metric] === null || r[metric] === undefined) return '—';
+    if (metric === 'cagr_over_dd' || metric === 'sharpe') return num(r[metric]);
+    return sgn(r[metric], metric === 'win_rate' ? 0 : 1);
+  };
   let html = '<thead><tr><th>#</th><th style="text-align:left">组合</th>' +
-    `<th class="${metric === 'cagr' ? 'sort' : ''}">年化</th>` +
-    `<th class="${metric === 'total_return' ? 'sort' : ''}">总收益</th>` +
-    '<th>最大回撤</th>' +
-    `<th class="${metric === 'cagr_over_dd' ? 'sort' : ''}">年化÷回撤</th>` +
-    `<th class="${metric === 'sharpe' ? 'sort' : ''}">夏普</th>` +
-    `<th class="${metric === 'win_rate' ? 'sort' : ''}">胜率</th>` +
-    '<th>段数</th><th>在场</th><th>买入</th><th>平均持有</th><th>首个有效信号</th></tr></thead><tbody>';
-  shown.forEach((r, i) => {
+    `<th class="sort">${METRIC_LABEL[metric]}</th><th>回撤</th><th>胜率(段)</th></tr></thead><tbody>`;
+  rows.forEach((r, i) => {
     const on = r.type === state.type && r.fast === state.fast && r.slow === state.slow;
+    const win = r.win_rate === null || r.win_rate === undefined ? '—' : pct(r.win_rate, 0);
     html += `<tr data-type="${r.type}" data-fast="${r.fast}" data-slow="${r.slow}"` +
-      `${on ? ' style="background:#e7f1f9"' : ''}>` +
+      `${on ? ' style="background:#e7f1f9"' : ''} ` +
+      `title="年化 ${pct(r.cagr)} · 总收益 ${pct(r.total_return, 0)} · 收益÷回撤 ${num(r.cagr_over_dd)} · ` +
+      `夏普 ${num(r.sharpe)} · 在场 ${pct(r.invested_share, 0)} · 买入 ${r.buys} 次">` +
       `<td>${i + 1}</td>` +
       `<td style="text-align:left;font-weight:600">${r.type.toUpperCase()} ${r.fast}/${r.slow}` +
       `${r.warmup_short ? ' <span class="pill">预热</span>' : ''}</td>` +
-      `<td class="${cls(r.cagr)}">${sgn(r.cagr)}</td>` +
-      `<td class="${cls(r.total_return)}">${sgn(r.total_return, 0)}</td>` +
+      `<td class="${metric === 'win_rate' ? '' : cls(r[metric])}">${value(r)}</td>` +
       `<td class="bad">${pct(r.max_drawdown)}</td>` +
-      `<td>${num(r.cagr_over_dd)}</td><td>${num(r.sharpe)}</td>` +
-      `<td>${r.win_rate === null || r.win_rate === undefined ? '—' : pct(r.win_rate, 0)}</td>` +
-      `<td>${r.segments === null || r.segments === undefined ? '—' : r.segments}</td>` +
-      `<td>${pct(r.invested_share, 0)}</td><td>${r.buys}</td>` +
-      `<td>${num(r.average_holding_weeks, 1)} 周</td>` +
-      `<td>${r.first_valid_signal_day || '—'}</td></tr>`;
+      `<td>${win}<span class="sub">(${r.segments ?? '—'})</span></td></tr>`;
   });
   $('rankTable').innerHTML = html + '</tbody>';
   $('rankTable').querySelectorAll('tr[data-type]').forEach(tr => tr.onclick = () => {
     state.type = tr.dataset.type; state.fast = +tr.dataset.fast; state.slow = +tr.dataset.slow;
-    setView('single');
-    selectCombo();
     document.querySelectorAll('#types button').forEach(b => b.classList.toggle('on', b.dataset.type === state.type));
     $('fast').value = state.fast; $('slow').value = state.slow;
+    selectCombo();
   });
-  $('rankMeta').textContent = `${data.meta.ticker} · ${data.combos.length} 组 · 按${METRIC_LABEL[metric]}排序 · ` +
-    `${data.meta.frequency === 'daily' ? '每日' : '每周'}信号 · 现金 ${data.meta.cash === 'zero' ? '0' : '国债'}` +
+  $('rankMeta').textContent = `${data.meta.ticker} · ${rows.length} 组 · ${METRIC_LABEL[metric]}` +
     `${state.rank.full ? ' · 只看起点有效' : ''}`;
 }
 

@@ -28,6 +28,7 @@ sys.path.insert(0, str(HERE))
 from leadtrend_bt import ma_lab          # noqa: E402
 from leadtrend_db import api             # noqa: E402
 import winrate                           # noqa: E402
+import fast_rows                         # noqa: E402
 
 DEFAULT_DB = str(ROOT / 'data' / 'db' / 'leadtrend_db_v1.sqlite')
 TYPES = ('sma', 'ema', 'wma', 'dema', 'tema', 'hma', 'kama')
@@ -92,6 +93,14 @@ class Lab:
     """One security and window, with every combination's metrics and a cache of average lines."""
 
     def __init__(self, security: str, start: str, end: str, cash: str, db_path: str, frequency: str = 'daily'):
+        if end > ma_lab.LAST_ALLOWED_END:
+            raise ValueError(f'end {end} is after {ma_lab.LAST_ALLOWED_END}: the reserved segment must not be used')
+        if start < ma_lab.FIRST_DAY:
+            raise ValueError(f'start {start} is before {ma_lab.FIRST_DAY}')
+        if start >= end:
+            raise ValueError('start must be before end')
+        if cash not in ('zero', 'dtb3'):
+            raise ValueError("cash_rate must be 'zero' or 'dtb3'")
         self.db = db_path
         self.cash = cash
         self.frequency = frequency
@@ -112,17 +121,18 @@ class Lab:
         self.rf = api.rf_daily(self.signal_days[0], end, db_path)
         self.lines: dict[tuple[str, int], np.ndarray] = {}
         self._rows: list[dict] | None = None
-        self.result = ma_lab.run_lab(security, start=start, end=end, types=TYPES, fasts=FASTS, slows=SLOWS,
-                                     cash_rate=cash, db_path=db_path, frequency=frequency)
-        window_start = self.index[self.result['evaluation_start']]
-        self.window_days = self.days[window_start:]
+        # the shared arrays and the 462 rows come from the fast path; run_lab stays the reference
+        self.fast = fast_rows.Fast(self)
+        self.window_days = self.fast.window_days
+        window_start = self.fast.start
         self.window_values = self.values[window_start:]
         closes = api.close_series([self.sid], self.window_days[0], end, db_path)[self.sid]
         self.closes = [closes.get(d) for d in self.window_days]
+        self.hold = self.fast.hold_row()
         self.meta = dict(ticker=self._ticker(), security_id=self.sid, name=self._name(),
                          start=start, end=end, cash=cash, frequency=frequency,
-                         evaluation_start=self.result['evaluation_start'],
-                         evaluation_end=self.result['evaluation_end'],
+                         evaluation_start=self.window_days[0],
+                         evaluation_end=self.window_days[-1],
                          signal_days=len(self.signal_days))
 
     def _ticker(self) -> str:
@@ -143,16 +153,9 @@ class Lab:
         return self.lines[key]
 
     def rows_with_winrate(self) -> list[dict]:
-        """run_lab's per-combination rows plus the trade statistics of each combination."""
-        if self._rows is not None:
-            return self._rows
-        for row in self.result['rows']:
-            line_fast = self.average(row['type'], row['fast'])
-            line_slow = self.average(row['type'], row['slow'])
-            valid = np.isfinite(line_fast) & np.isfinite(line_slow)
-            state = [bool(valid[i] and line_fast[i] > line_slow[i]) for i in self.signal_index]
-            row.update(winrate.combo_stats(self.days, self.values, self.signal_days, state))
-        self._rows = self.result['rows']
+        """Every combination's metrics plus its trade statistics, computed once per stock and window."""
+        if self._rows is None:
+            self._rows = self.fast.combo_rows(self, TYPES, FASTS, SLOWS)
         return self._rows
 
     def combo(self, kind: str, fast: int, slow: int) -> dict:
@@ -284,7 +287,7 @@ class Handler(BaseHTTPRequestHandler):
                 lab = STORE.lab(query.get('security', 'MSFT'), query.get('start', DEFAULT_START),
                                 query.get('end', DEFAULT_END), query.get('cash', 'zero'),
                                 query.get('freq', 'daily'))
-                self._json(dict(meta=lab.meta, buy_hold=lab.result['buy_hold'], combos=lab.rows_with_winrate(),
+                self._json(dict(meta=lab.meta, buy_hold=lab.hold, combos=lab.rows_with_winrate(),
                                 price=dict(dates=lab.window_days, tri=_round(lab.window_values / lab.window_values[0]),
                                            close=_round(lab.closes))))
             elif parsed.path == '/api/combo':

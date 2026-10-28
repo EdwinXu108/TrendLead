@@ -72,3 +72,29 @@ def test_an_open_run_is_marked_to_the_last_session():
 def test_win_rate_is_none_without_trades():
     stats = dashboard.winrate.stats([])
     assert stats['segments'] == 0 and stats['win_rate'] is None and stats['profit_factor'] is None
+
+
+def test_fast_rows_match_run_lab_for_every_combination():
+    """The dashboard's fast path must reproduce ma_lab.run_lab field by field."""
+    import math
+    from leadtrend_bt import ma_lab
+    from leadtrend_db import api
+    if not api.DB_PATH.exists():
+        pytest.skip('released database is not present')
+    lab = dashboard.Lab('MSFT', '2014-02-28', '2024-06-28', 'zero', str(api.DB_PATH), 'daily')
+    fast = lab.rows_with_winrate()
+    slow = ma_lab.run_lab('MSFT', start='2014-02-28', end='2024-06-28', types=dashboard.TYPES,
+                          fasts=dashboard.FASTS, slows=dashboard.SLOWS, cash_rate='zero',
+                          db_path=api.DB_PATH, frequency='daily')['rows']
+    assert len(fast) == len(slow) == 462
+    numeric = ['cagr', 'total_return', 'volatility', 'max_drawdown', 'cagr_over_dd', 'sharpe',
+               'invested_share', 'buys', 'average_holding_weeks']
+    for a, b in zip(slow, fast):
+        for key in numeric:
+            left, right = a[key], b[key]
+            if isinstance(left, float) and math.isnan(left):
+                assert isinstance(right, float) and math.isnan(right), (a['type'], key)
+            else:
+                assert abs(left - right) <= 1e-9, (a['type'], a['fast'], a['slow'], key, left, right)
+        for key in ('peak_date', 'trough_date', 'recovery_date', 'first_valid_signal_day', 'warmup_short'):
+            assert a[key] == b[key], (a['type'], a['fast'], a['slow'], key, a[key], b[key])

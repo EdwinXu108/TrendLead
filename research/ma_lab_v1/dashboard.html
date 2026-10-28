@@ -99,6 +99,8 @@
     <button data-view="single" class="on">单股</button>
     <button data-view="wf">滚动验证</button>
     <button data-view="wfboard">滚动验证汇总</button>
+    <button data-view="wf2">v2 单股</button>
+    <button data-view="wf2board">v2 汇总</button>
     <button data-view="board">全市场排行</button>
   </div>
   <div class="ctrl"><label>股票</label>
@@ -222,6 +224,56 @@
   </div>
 </main>
 
+<main id="view-wf2" hidden>
+  <div class="board-bar">
+    <div class="tabs" id="wf2SegTabs">
+      <button data-segment="dev" class="on">开发段</button>
+      <button data-segment="holdout">保留段</button>
+    </div>
+    <span class="sub" id="wf2Meta"></span>
+  </div>
+  <div class="kpis" id="wf2Kpis"></div>
+  <div class="card">
+    <h2><span>六条线（起点 = 100）</span>
+      <span id="wf2ZoomChip" class="sub" style="margin-left:10px"></span>
+      <label style="float:right;font-weight:400;cursor:pointer;color:var(--muted)">
+        <input type="checkbox" id="wf2Log" checked style="vertical-align:-1px"> 对数轴</label></h2>
+    <div class="legend" id="wf2Legend"></div>
+    <div class="chart" id="wf2Chart"><div class="tip" id="wf2Tip"></div></div>
+    <div class="note" id="wf2Note"></div>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <h2>挑选 / 冻结的组合 <span class="sub" id="wf2PickMeta"></span></h2>
+    <div class="scroll panel" style="max-height:380px"><table class="board" id="wf2Table"></table></div>
+    <div class="note" id="wf2PickNote"></div>
+  </div>
+</main>
+
+<main id="view-wf2board" hidden>
+  <div class="card">
+    <div class="panel" style="padding:18px 18px 14px">
+      <div id="wf2Headline" style="font-size:22px;font-weight:700;line-height:1.4"></div>
+      <div class="sub" id="wf2Subline" style="margin-top:7px;font-size:12.5px"></div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <div class="board-bar" style="padding:8px 12px 0;margin-bottom:0">
+      <div class="tabs" id="wf2BoardSegTabs">
+        <button data-segment="dev" class="on">开发段</button>
+        <button data-segment="holdout">保留段</button>
+      </div>
+      <span class="sub" id="wf2BoardMeta"></span>
+    </div>
+    <div class="panel" id="wf2Summary"></div>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <div class="panel scroll" style="max-height:calc(100vh - 360px)">
+      <table class="board" id="wf2Stocks"></table>
+    </div>
+    <div class="note">点一行进入该股的 v2 单股页；点列头排序。F 是按 A 的在场比例做的同仓位对照，属事后归因，不是可执行方案。</div>
+  </div>
+</main>
+
 <main id="view-board" hidden>
   <div class="board-bar">
     <div class="tabs" id="boardTabs">
@@ -258,7 +310,10 @@ const state = { info: null, overview: null, combo: null, type: 'sma', fast: 20, 
                 rank: { metric: 'cagr_over_dd', full: false },
                 board: { metric: 'cagr_over_dd', full: true, limit: 50, data: null },
                 wf: { data: null, zoom: null },
-                wfboard: { data: null, group: 'complete', sort: 'wf_ratio', dir: -1 } };
+                wfboard: { data: null, group: 'complete', sort: 'wf_ratio', dir: -1 },
+                wf2: { data: null, segment: 'dev', zoom: null,
+                       show: { a: true, b: true, c: true, d: true, e: true, f: true } },
+                wf2board: { data: null, segment: 'dev', sort: 'a_ratio', dir: -1 } };
 const pct = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? '—' : (v * 100).toFixed(d) + '%';
 const sgn = (v, d = 1) => (v === null || v === undefined) ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(d) + '%';
 const cls = (v) => (v === null || v === undefined) ? '' : (v >= 0 ? 'good' : 'bad');
@@ -294,7 +349,8 @@ async function boot() {
     if (link.get('type') && info.types.includes(link.get('type'))) state.type = link.get('type');
     if (link.get('fast')) state.fast = +link.get('fast');
     if (link.get('slow')) state.slow = +link.get('slow');
-    if (['board', 'rank', 'wf', 'wfboard'].includes(link.get('view'))) state.view = link.get('view');
+    if (['board', 'rank', 'wf', 'wfboard', 'wf2', 'wf2board'].includes(link.get('view'))) state.view = link.get('view');
+    if (link.get('segment') === 'holdout') { state.wf2.segment = 'holdout'; state.wf2board.segment = 'holdout'; }
     if (link.get('zoom') && link.get('zoom').includes(',')) {
       state.pendingZoom = link.get('zoom').split(',').map(s => s.trim());
     }
@@ -307,14 +363,18 @@ async function boot() {
     }
 
     $('reload').onclick = () => { loadOverview(); if (state.view === 'wf') loadWf(); };
-    $('stock').onchange = () => { loadOverview(); if (state.view === 'wf') loadWf(); };
+    $('stock').onchange = () => {
+      loadOverview(); if (state.view === 'wf') loadWf(); if (state.view === 'wf2') loadWf2();
+    };
     $('cash').onchange = () => {
       loadOverview(); if (state.view === 'board') loadBoard();
       if (state.view === 'wf') loadWf(); if (state.view === 'wfboard') loadWfBoard();
+      if (state.view === 'wf2') loadWf2(); if (state.view === 'wf2board') loadWf2Board();
     };
     $('freq').onchange = () => {
       loadOverview(); if (state.view === 'board') loadBoard();
       if (state.view === 'wf') loadWf(); if (state.view === 'wfboard') loadWfBoard();
+      if (state.view === 'wf2') loadWf2(); if (state.view === 'wf2board') loadWf2Board();
     };
     $('start').onchange = () => loadOverview();
     $('end').onchange = () => loadOverview();
@@ -342,6 +402,17 @@ async function boot() {
       $('wfGroupTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
       renderWfBoard();
     });
+    $('wf2Log').onchange = () => { if (state.wf2.data) renderWf2Chart(); };
+    $('wf2SegTabs').querySelectorAll('button').forEach(b => b.onclick = () => {
+      state.wf2.segment = b.dataset.segment;
+      $('wf2SegTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      loadWf2();
+    });
+    $('wf2BoardSegTabs').querySelectorAll('button').forEach(b => b.onclick = () => {
+      state.wf2board.segment = b.dataset.segment;
+      $('wf2BoardSegTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      loadWf2Board();
+    });
     setView(state.view);
     await loadOverview();
   } catch (error) {
@@ -351,7 +422,7 @@ async function boot() {
 
 function setView(view) {
   state.view = view;
-  for (const name of ['single', 'wf', 'wfboard', 'board']) {
+  for (const name of ['single', 'wf', 'wfboard', 'wf2', 'wf2board', 'board']) {
     $('view-' + name).hidden = view !== name;
   }
   $('tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.view === view));
@@ -361,6 +432,8 @@ function setView(view) {
   if (view === 'board') loadBoard();
   if (view === 'wf') loadWf();
   if (view === 'wfboard') loadWfBoard();
+  if (view === 'wf2') loadWf2();
+  if (view === 'wf2board') loadWf2Board();
 }
 
 async function loadOverview() {
@@ -1016,9 +1089,250 @@ function renderWfBoard() {
     `${data.skipped.length} 只没有足够历史`;
 }
 
+
+// -- walk-forward v2 --------------------------------------------------------------------------------------------
+
+const WF2_LINES = [['a', 'A 本股挑选'], ['b', 'B 共同参数'], ['c', 'C 借参数'], ['d', 'D 固定 50/200'],
+                   ['e', 'E 一直持有'], ['f', 'F 同仓位']];
+const WF2_COLORS = { a: '#0072B2', b: '#56B4E9', c: '#CC79A7', d: '#E69F00', e: '#666666', f: '#009E73' };
+const WF2_CONTROLS = [['b', 'B 共同参数'], ['c', 'C 借参数'], ['d', 'D 固定 50/200'], ['e', 'E 一直持有'],
+                      ['f', 'F 同仓位']];
+const WF2_FIELDS = [['cagr', '年化差'], ['max_drawdown', '回撤差'], ['cagr_over_dd', '收益÷回撤差']];
+
+async function loadWf2() {
+  busy(true);
+  try {
+    const data = await getJSON(`/api/wf2?security=${encodeURIComponent($('stock').value)}&segment=${state.wf2.segment}`);
+    state.wf2.data = data;
+    state.wf2.zoom = null;
+    renderWf2();
+  } catch (error) {
+    $('wf2Kpis').innerHTML = `<div class="err">${error.message}</div>`;
+    $('wf2Chart').querySelectorAll('svg').forEach(s => s.remove());
+    $('wf2Legend').innerHTML = '';
+    $('wf2Table').innerHTML = '';
+    $('wf2Meta').textContent = '';
+    $('wf2Note').textContent = '';
+  } finally { busy(false); }
+}
+
+function comboName(index) {
+  const data = state.wf2.data;
+  return (index === null || index === undefined || !data.combo_names) ? '—' : data.combo_names[index];
+}
+
+function renderWf2() {
+  const data = state.wf2.data;
+  if (!data) return;
+  if (!data.computable) {
+    $('wf2Kpis').innerHTML = '';
+    $('wf2Chart').querySelectorAll('svg').forEach(s => s.remove());
+    $('wf2Legend').innerHTML = '';
+    $('wf2Table').innerHTML = '';
+    $('wf2Meta').textContent = data.ticker || '';
+    $('wf2Note').textContent = data.reason || '这只股票没有足够的开发段历史。';
+    return;
+  }
+  const segment = data.segment === 'holdout' ? '保留段' : '开发段';
+  $('wf2Meta').textContent = `${data.ticker} · ${data.evaluation_start} 至 ${data.evaluation_end} · ${segment}` +
+    (data.from2016 === false ? ' · 非完整期' : '');
+  $('wf2Kpis').innerHTML = WF2_LINES.map(([key, label]) => {
+    const r = data.lines[key];
+    if (!r) return '';
+    return `<div class="kpi"><div class="k" style="color:${WF2_COLORS[key]}">${label}</div>` +
+      `<div class="v">${pct(r.cagr)}</div>` +
+      `<div class="b">回撤 ${pct(r.max_drawdown)} · 收益÷回撤 ${num(r.cagr_over_dd)}</div>` +
+      `<div class="b">夏普 ${num(r.sharpe)} · 在场 ${pct(r.invested_share, 0)}</div></div>`;
+  }).join('');
+  const empties = WF2_LINES.filter(([key]) => data.empty[key]).map(([key, label]) =>
+    `${label} 尚无信号 ${data.empty[key].no_signal}、有效为空 ${data.empty[key].flat_signal}`).join('；');
+  $('wf2Note').innerHTML = `${segment}：评估 ${data.evaluation_start} 至 ${data.evaluation_end}，共 ` +
+    `${data.evaluation_sessions} 个交易日。${empties}。` +
+    (data.segment === 'holdout' ? `F 的仓位比例 ${pct(data.mix_share, 1)}。` : '');
+  $('wf2Legend').innerHTML = WF2_LINES.map(([key, label]) =>
+    `<label style="cursor:pointer"><input type="checkbox" data-line="${key}" ` +
+    `${state.wf2.show[key] ? 'checked' : ''} style="vertical-align:-1px"> ${label}</label>`).join('') +
+    '<span>拖动可放大，双击复位</span>';
+  $('wf2Legend').querySelectorAll('input[data-line]').forEach(cb => cb.onchange = () => {
+    state.wf2.show[cb.dataset.line] = cb.checked;
+    renderWf2Chart();
+  });
+  renderWf2Chart();
+  renderWf2Table();
+  updateWf2Chip();
+}
+
+function renderWf2Chart() {
+  const data = state.wf2.data;
+  if (!data || !data.computable) return;
+  const series = WF2_LINES.filter(([key]) => state.wf2.show[key] && data.curves[key])
+    .map(([key, label]) => ({
+      name: label,
+      values: data.curves[key].map(v => v === null ? null : v * 100),
+      color: WF2_COLORS[key], width: key === 'a' ? 2.1 : 1.4,
+      dash: key === 'e' ? '4 3' : undefined
+    }));
+  drawChart($('wf2Chart'), $('wf2Tip'), {
+    dates: data.dates, height: 400, log: $('wf2Log').checked, zoom: state.wf2.zoom,
+    setZoom: (range) => { state.wf2.zoom = range; renderWf2Chart(); updateWf2Chip(); },
+    series, yFormat: (v) => v.toFixed(0)
+  });
+}
+
+function updateWf2Chip() {
+  const chip = $('wf2ZoomChip');
+  const data = state.wf2.data;
+  if (!data || !state.wf2.zoom || !data.dates) { chip.textContent = ''; return; }
+  const [a, b] = state.wf2.zoom;
+  chip.innerHTML = `放大 ${data.dates[a]} ~ ${data.dates[b]} ` +
+    `<a href="#" id="wf2ZoomReset" style="color:#0072B2">重置</a>`;
+  const link = $('wf2ZoomReset');
+  if (link) link.onclick = (event) => {
+    event.preventDefault(); state.wf2.zoom = null; renderWf2Chart(); updateWf2Chip();
+  };
+}
+
+function renderWf2Table() {
+  const data = state.wf2.data;
+  if (data.segment === 'dev') {
+    const rows = data.picks.map(pick => {
+      const b = data.b[pick.year];
+      const c = data.c['0'] ? data.c['0'][pick.year] : null;
+      return `<tr><td>${pick.year}</td><td>${data.eligible_by_year[pick.year]}</td>` +
+        `<td style="text-align:left;font-weight:600">${pick.type.toUpperCase()} ${pick.fast}/${pick.slow}</td>` +
+        `<td style="text-align:left">${comboName(b)}</td><td style="text-align:left">${comboName(c)}</td></tr>`;
+    }).join('');
+    $('wf2Table').innerHTML =
+      '<thead><tr><th>年份</th><th>可参选</th><th style="text-align:left">A 本股挑选</th>' +
+      '<th style="text-align:left">B 共同参数</th><th style="text-align:left">C 借参数（种子 0）</th></tr></thead><tbody>' +
+      rows + '</tbody>';
+    $('wf2PickMeta').textContent = `${data.picks.length} 次挑选`;
+    $('wf2PickNote').textContent = 'A 每年按本股回看区间的 年化÷回撤 挑一组；B 是当年全市场共用的参数；' +
+      'C 是种子 0 分到的别的股票的组合。挑选日只用之前的数据。';
+  } else {
+    const a = data.assignments || {};
+    const rows = WF2_LINES.map(([key, label]) => {
+      const r = data.lines[key];
+      if (!r) return '';
+      const combo = key === 'a' ? comboName(a.a) : key === 'b' ? comboName(a.b)
+        : key === 'c' ? comboName(a.c ? a.c['0'] : null) : key === 'd' ? 'SMA 50/200'
+        : key === 'e' ? '一直持有' : `股票 ${pct(a.f, 1)} + 现金`;
+      return `<tr><td style="text-align:left;font-weight:600">${label}</td>` +
+        `<td style="text-align:left">${combo}</td>` +
+        `<td class="${cls(r.cagr)}">${sgn(r.cagr)}</td><td class="bad">${pct(r.max_drawdown)}</td>` +
+        `<td>${num(r.cagr_over_dd)}</td><td>${num(r.sharpe)}</td>` +
+        `<td>${pct(r.invested_share, 0)}</td><td>${r.buys}</td></tr>`;
+    }).join('');
+    $('wf2Table').innerHTML =
+      '<thead><tr><th style="text-align:left">线</th><th style="text-align:left">冻结的组合</th><th>年化</th>' +
+      '<th>最大回撤</th><th>收益÷回撤</th><th>夏普</th><th>在场</th><th>买入</th></tr></thead><tbody>' +
+      rows + '</tbody>';
+    $('wf2PickMeta').textContent = '2024-06-28 冻结，整段不变';
+    $('wf2PickNote').textContent = 'A、B、C 的参数在 2024-06-28 收盘挑定，保留段内不再重挑；D、E 不变；' +
+      'F 用开发段 A 的在场比例。';
+  }
+}
+
+async function loadWf2Board() {
+  busy(true);
+  try {
+    const data = await getJSON(`/api/wf2board?segment=${state.wf2board.segment}`);
+    state.wf2board.data = data;
+    renderWf2Board();
+  } catch (error) {
+    $('wf2Headline').innerHTML = `<div class="err">${error.message}</div>`;
+    $('wf2Subline').textContent = '';
+    $('wf2Summary').innerHTML = '';
+    $('wf2Stocks').innerHTML = '';
+    $('wf2BoardMeta').textContent = '';
+  } finally { busy(false); }
+}
+
+function wf2Value(stock, key) {
+  const [line, metric] = key.split('_');
+  const name = metric === 'dd' ? 'max_drawdown' : metric === 'ratio' ? 'cagr_over_dd' : 'cagr';
+  const row = stock.lines[line];
+  return row && row[name] !== undefined ? row[name] : null;
+}
+
+function renderWf2Board() {
+  const data = state.wf2board.data;
+  if (!data) return;
+  const summary = data.segment === 'dev' ? data.summary.from2016 : data.summary;
+  const label = data.segment === 'dev' ? '开发段（评估从 2016 年开始）' : '保留段';
+  $('wf2Headline').innerHTML = `${label} ${summary.stocks} 只里，A 的收益÷回撤胜过 ` +
+    `<span style="color:${WF2_COLORS.b}">B 共同参数 ${summary.pairs.b.cagr_over_dd.win} 只</span>、` +
+    `<span style="color:${WF2_COLORS.d}">D 固定 50/200 ${summary.pairs.d.cagr_over_dd.win} 只</span>、` +
+    `<span style="color:${WF2_COLORS.e}">E 一直持有 ${summary.pairs.e.cagr_over_dd.win} 只</span>。`;
+  $('wf2Subline').textContent = data.segment === 'dev'
+    ? `每日信号 · 现金不计息 · 2016 年底至 2024-06-28 · 每年按 年化÷回撤 重挑一次 · 生成于 ${data.built}`
+    : `每日信号 · 现金不计息 · 2024-06-28 至 2026-06-30 · 参数冻结于 2024-06-28 · 生成于 ${data.built}`;
+  const both = data.segment === 'dev' ? [['from2016', '从 2016 年'], ['all', '全部']] : [['holdout', '保留段']];
+  const row = (title, fn) => `<tr><td style="text-align:left">${title}</td>` +
+    both.map(([key]) => `<td>${fn(key === 'holdout' ? data.summary : data.summary[key])}</td>`).join('') + '</tr>';
+  const pairRow = (control, title, field, name) => `<tr><td style="text-align:left">A − ${title}：${name}</td>` +
+    both.map(([key]) => {
+      const s = key === 'holdout' ? data.summary : data.summary[key];
+      const item = s.pairs[control][field];
+      const unit = field === 'cagr_over_dd' ? (v) => num(v, 2, true) : (v) => pct(v, 1, true);
+      return `<td>${unit(item.median)} · 胜 ${item.win} / 负 ${item.loss} / 平 ${item.tie}</td>`;
+    }).join('') + '</tr>';
+  let html = '<table class="board" style="width:940px;table-layout:fixed">' +
+    '<colgroup><col style="width:56%">' + '<col>'.repeat(both.length) + '</colgroup>' +
+    '<thead><tr><th style="text-align:left">指标</th>' +
+    both.map(([, title]) => `<th>${title}</th>`).join('') + '</tr></thead><tbody>' +
+    row('股票数', s => s.stocks) +
+    row('中位数 年化：A / B / C / D / E / F', s => WF2_LINES.map(([key]) => pct(s.lines[key].cagr)).join(' / ')) +
+    row('中位数 回撤：A / B / C / D / E / F',
+        s => WF2_LINES.map(([key]) => pct(s.lines[key].max_drawdown)).join(' / ')) +
+    row('中位数 收益÷回撤：A / B / C / D / E / F',
+        s => WF2_LINES.map(([key]) => num(s.lines[key].cagr_over_dd)).join(' / '));
+  for (const [control, title] of WF2_CONTROLS) {
+    for (const [field, name] of WF2_FIELDS) html += pairRow(control, title, field, name);
+  }
+  html += '</tbody></table>';
+  $('wf2Summary').innerHTML = html;
+
+  const key = state.wf2board.sort;
+  const stocks = data.stocks.slice().sort((a, b) => {
+    const x = wf2Value(a, key), y = wf2Value(b, key);
+    if (x === null) return 1;
+    if (y === null) return -1;
+    return state.wf2board.dir * (x - y);
+  });
+  const cols = [['a_cagr', 'A 年化'], ['a_dd', 'A 回撤'], ['a_ratio', 'A 收益÷回撤']];
+  for (const [line, title] of WF2_LINES.slice(1)) {
+    cols.push([`${line}_ratio`, `${title.split(' ')[0]} 收益÷回撤`]);
+  }
+  let head = '<thead><tr><th data-key="ticker" style="text-align:left">股票</th>' +
+    cols.map(([k, title]) => `<th data-key="${k}"${k === key ? ' class="sort"' : ''}>${title}</th>`).join('') +
+    '</tr></thead>';
+  const body = stocks.map(s => `<tr data-ticker="${s.ticker}"><td class="tick">${s.ticker}</td>` +
+    cols.map(([k]) => {
+      const value = wf2Value(s, k);
+      if (k.endsWith('_dd')) return `<td class="bad">${pct(value)}</td>`;
+      if (k.endsWith('_cagr')) return `<td class="${cls(value)}">${sgn(value)}</td>`;
+      return `<td>${num(value)}</td>`;
+    }).join('') + '</tr>').join('');
+  $('wf2Stocks').innerHTML = head + '<tbody>' + body + '</tbody>';
+  $('wf2Stocks').querySelectorAll('th[data-key]').forEach(th => th.onclick = () => {
+    const k = th.dataset.key;
+    if (state.wf2board.sort === k) state.wf2board.dir = -state.wf2board.dir;
+    else { state.wf2board.sort = k; state.wf2board.dir = k === 'ticker' ? 1 : -1; }
+    renderWf2Board();
+  });
+  $('wf2Stocks').querySelectorAll('tr[data-ticker]').forEach(tr => tr.onclick = () => {
+    $('stock').value = tr.dataset.ticker;
+    setView('wf2');
+    loadWf2();
+  });
+  $('wf2BoardMeta').textContent = `${data.stocks.length} 只 · ${data.combos} 组 · ${data.skipped.length} 只没有足够历史`;
+}
+
 window.addEventListener('resize', () => {
   if (state.combo && state.view === 'single') { renderPrice(state.combo); renderEquity(state.combo); }
   if (state.view === 'wf' && state.wf.data) renderWfChart();
+  if (state.view === 'wf2' && state.wf2.data) renderWf2Chart();
 });
 boot();
 </script>

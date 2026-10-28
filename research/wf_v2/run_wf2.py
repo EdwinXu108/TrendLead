@@ -276,54 +276,10 @@ def freeze(out_dir: Path) -> dict:
 
 def build_holdout(walk, combo_a: int, combo_b: int, c_combos: dict[int, int | None],
                   mix_share: float) -> dict:
-    state_a, sig = walk.holdout_state(combo_a)
-    lines, empty = {}, {}
-    lines['a'], curve_a, days = walk.line_metrics(state_a, sig)
-    empty['a'] = walk.empty_for(combo_a, sig)
-
-    state_b, _ = walk.holdout_state(combo_b)
-    lines['b'], curve_b, _ = walk.line_metrics(state_b, sig)
-    empty['b'] = walk.empty_for(combo_b, sig)
-
-    seed_rows, seed_ratios, seed_curves = [], [], []
-    for seed in sorted(c_combos):
-        combo = c_combos[seed]
-        if combo is None:
-            continue
-        state, _ = walk.holdout_state(combo)
-        row, curve, _ = walk.line_metrics(state, sig)
-        seed_rows.append(row)
-        seed_ratios.append(row['cagr_over_dd'])
-        seed_curves.append(curve)
-    if seed_rows:
-        finite = [(abs(value), i) for i, value in enumerate(seed_ratios)
-                  if value is not None and math.isfinite(value)]
-        representative = min(finite)[1] if finite else 0
-        lines['c'] = ma_walk2.median_row(seed_rows)
-        for field in ('annual', 'peak_date', 'trough_date', 'recovery_date'):
-            lines['c'][field] = seed_rows[representative][field]
-        curve_c = seed_curves[representative]
-        dispersion = dict(seeds=len(seed_rows), min_ratio=min(seed_ratios), max_ratio=max(seed_ratios),
-                          representative_seed=sorted(c_combos)[representative])
-    else:
-        lines['c'] = None
-        dispersion = dict(seeds=0, min_ratio=None, max_ratio=None, representative_seed=None)
-
-    state_d, _ = walk.holdout_state(ma_walk2.FIXED_INDEX)
-    lines['d'], curve_d, _ = walk.line_metrics(state_d, sig)
-    empty['d'] = walk.empty_for(ma_walk2.FIXED_INDEX, sig)
-
-    state_e = np.ones(len(walk.signal_days) - sig, dtype=bool)
-    lines['e'], curve_e, _ = walk.line_metrics(state_e, sig)
-
-    lines['f'], curve_f = walk.mix_metrics(mix_share, sig)
-    diffs = {key: ma_walk2.pair_diff(lines['a'], lines.get(key)) for key in CONTROLS}
-    return dict(computable=True, evaluation_start=days[0], evaluation_end=days[-1],
-                evaluation_sessions=len(days) - 1, lines=lines, empty=empty, diffs=diffs,
-                c_dispersion=dispersion, mix_share=float(mix_share),
-                splits={key: ma_walk2.split_returns(days, curve)
-                        for key, curve in (('a', curve_a), ('b', curve_b), ('c', curve_c),
-                                           ('d', curve_d), ('e', curve_e), ('f', curve_f))})
+    out = ma_walk2.holdout_lines(walk, combo_a, combo_b, c_combos, mix_share)
+    out.pop('curves', None)
+    out.pop('dates', None)
+    return out
 
 
 def holdout_phase2_job(args):

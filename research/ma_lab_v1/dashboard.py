@@ -26,12 +26,14 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(HERE))
 
-from leadtrend_bt import ma_lab, ma_walk  # noqa: E402
+from leadtrend_bt import ma_lab, ma_walk, ma_walk2  # noqa: E402
 from leadtrend_db import api             # noqa: E402
 import winrate                           # noqa: E402
 import fast_rows                         # noqa: E402
 
 DEFAULT_DB = str(ROOT / 'data' / 'db' / 'leadtrend_db_v1.sqlite')
+FULL_DB = str(ROOT / 'data' / 'db' / 'leadtrend_db_full_v1.sqlite')
+WF2 = ROOT / 'research' / 'wf_v2'
 TYPES = ('sma', 'ema', 'wma', 'dema', 'tema', 'hma', 'kama')
 FASTS = (3, 5, 8, 10, 13, 20, 30, 50)
 SLOWS = (20, 30, 50, 80, 100, 150, 200, 250, 300)
@@ -224,6 +226,7 @@ class Store:
         self.db = db_path
         self.cache: dict[tuple, Lab] = {}
         self.walks: dict[tuple, dict] = {}
+        self.walks2: dict[tuple, dict] = {}
         self.lock = threading.Lock()
 
     def lab(self, security: str, start: str, end: str, cash: str, frequency: str = 'daily') -> Lab:
@@ -250,6 +253,48 @@ class Store:
                 out['name'] = next((s['name'] for s in self.stocks() if s['ticker'] == out['ticker']), '')
                 self.walks[key] = out
             return self.walks[key]
+
+    def wf2(self, security: str, segment: str = 'dev') -> dict:
+        """Six walk-forward lines for one stock; the assignments come from the cached batch results."""
+        key = ('wf2', security.upper(), segment)
+        with self.lock:
+            if key not in self.walks2:
+                if len(self.walks2) > 6:
+                    self.walks2.clear()
+                if segment == 'dev':
+                    data = json.loads((WF2 / 'wf2_dev.json').read_text(encoding='utf8'))
+                    stock = next((row for row in data['stocks'] if row['ticker'].upper() == security.upper()), None)
+                    if stock is None:
+                        raise ValueError(f'{security} is not in the wf_v2 development results')
+                    out = ma_walk2.walk2(security, db_path=self.db,
+                                         b_assignment={int(year): int(combo)
+                                                       for year, combo in stock['b'].items()},
+                                         c_assignments={int(seed): {int(year): (None if combo is None
+                                                                                else int(combo))
+                                                                    for year, combo in years.items()}
+                                                        for seed, years in stock['c'].items()},
+                                         with_curves=True)
+                else:
+                    frozen = json.loads((WF2 / 'frozen_2024-06-28.json').read_text(encoding='utf8'))
+                    dev = json.loads((WF2 / 'wf2_dev.json').read_text(encoding='utf8'))
+                    stock = next((row for row in frozen['stocks'] if row['ticker'].upper() == security.upper()), None)
+                    dev_stock = next((row for row in dev['stocks']
+                                      if row['ticker'].upper() == security.upper()), None)
+                    if stock is None or dev_stock is None:
+                        raise ValueError(f'{security} has no frozen pick or no development result')
+                    walk = ma_walk2.load_walk(security, FULL_DB, '2014-02-28', ma_lab.HOLDOUT_END, True)
+                    out = ma_walk2.holdout_lines(walk, int(stock['combo']), int(frozen['common']['combo']),
+                                                 {int(seed): (None if combo is None else int(combo))
+                                                  for seed, combo in frozen['borrow'][stock['ticker']].items()},
+                                                 float(dev_stock['mix_share']))
+                    out.update(ticker=walk.ticker, security_id=walk.sid)
+                out['segment'] = segment
+                out['combo_names'] = [f'{kind.upper()} {fast}/{slow}' for kind, fast, slow in ma_walk2.COMBOS]
+                dates = out.pop('dates', [])
+                out['dates'] = dates
+                out['curves'] = {name: _round(values, 6) for name, values in out.pop('curves', {}).items()}
+                self.walks2[key] = out
+            return self.walks2[key]
 
     def stocks(self) -> list[dict]:
         return ma_walk.stock_list(self.db)
@@ -287,6 +332,16 @@ class Handler(BaseHTTPRequestHandler):
                                   query.get('end', DEFAULT_END), query.get('cash', 'zero'),
                                   query.get('freq', 'daily'))
                 self._json(walk)
+            elif parsed.path == '/api/wf2':
+                self._json(STORE.wf2(query.get('security', 'MSFT'), query.get('segment', 'dev')))
+            elif parsed.path == '/api/wf2board':
+                name = f"wf2_{query.get('segment', 'dev')}.json"
+                path = WF2 / name
+                if not path.exists():
+                    self._json(dict(error=f'wf_v2 缓存还没生成（{name}）',
+                                    hint='python -X utf8 research/wf_v2/run_wf2.py'), 404)
+                else:
+                    self._send(path.read_bytes(), 'application/json; charset=utf-8')
             elif parsed.path == '/api/wfboard':
                 name = f"wf_{query.get('freq', 'daily')}_{query.get('cash', 'zero')}.json"
                 path = ROOT / 'research' / 'wf_v1' / name

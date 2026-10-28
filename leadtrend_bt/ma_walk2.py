@@ -304,6 +304,61 @@ def build_stock(walk: Walk2, b_assignment: dict[int, int], c_assignments: dict[i
     )
 
 
+def holdout_lines(walk: Walk2, combo_a: int, combo_b: int, c_combos: dict[int, int | None],
+                  mix_share: float) -> dict:
+    """The six lines over the holdout window, with every parameter fixed before the window starts."""
+    state_a, sig = walk.holdout_state(combo_a)
+    lines, curves, empty = {}, {}, {}
+    lines['a'], curves['a'], days = walk.line_metrics(state_a, sig)
+    empty['a'] = walk.empty_for(combo_a, sig)
+
+    state_b, _ = walk.holdout_state(combo_b)
+    lines['b'], curves['b'], _ = walk.line_metrics(state_b, sig)
+    empty['b'] = walk.empty_for(combo_b, sig)
+
+    seed_rows, seed_ratios, seed_curves = [], [], []
+    for seed in sorted(c_combos):
+        combo = c_combos[seed]
+        if combo is None:
+            continue
+        state, _ = walk.holdout_state(combo)
+        row, curve, _ = walk.line_metrics(state, sig)
+        seed_rows.append(row)
+        seed_ratios.append(row['cagr_over_dd'])
+        seed_curves.append(curve)
+    if seed_rows:
+        finite = [(abs(value), i) for i, value in enumerate(seed_ratios)
+                  if value is not None and math.isfinite(value)]
+        representative = min(finite)[1] if finite else 0
+        lines['c'] = median_row(seed_rows)
+        for field in ('annual', 'peak_date', 'trough_date', 'recovery_date'):
+            lines['c'][field] = seed_rows[representative][field]
+        curves['c'] = seed_curves[representative]
+        dispersion = dict(seeds=len(seed_rows), min_ratio=min(seed_ratios), max_ratio=max(seed_ratios),
+                          representative_seed=sorted(c_combos)[representative])
+    else:
+        lines['c'], curves['c'] = None, None
+        dispersion = dict(seeds=0, min_ratio=None, max_ratio=None, representative_seed=None)
+
+    state_d, _ = walk.holdout_state(FIXED_INDEX)
+    lines['d'], curves['d'], _ = walk.line_metrics(state_d, sig)
+    empty['d'] = walk.empty_for(FIXED_INDEX, sig)
+
+    state_e = np.ones(len(walk.signal_days) - sig, dtype=bool)
+    lines['e'], curves['e'], _ = walk.line_metrics(state_e, sig)
+
+    lines['f'], curves['f'] = walk.mix_metrics(mix_share, sig)
+    diffs = {key: pair_diff(lines['a'], lines.get(key)) for key in CONTROLS}
+    return dict(computable=True, evaluation_start=days[0], evaluation_end=days[-1],
+                evaluation_sessions=len(days) - 1, lines=lines, curves=curves, dates=days,
+                empty=empty, diffs=diffs, c_dispersion=dispersion, mix_share=float(mix_share),
+                assignments=dict(a=int(combo_a), b=int(combo_b),
+                                 c={int(seed): (None if combo is None else int(combo))
+                                    for seed, combo in c_combos.items()},
+                                 d=FIXED_INDEX, f=float(mix_share)),
+                splits={key: split_returns(days, curve) for key, curve in curves.items()})
+
+
 # -- global selection ---------------------------------------------------------------------------------------------
 
 def common_combos(phase1: list[dict]) -> dict[int, dict]:

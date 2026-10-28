@@ -164,6 +164,7 @@
       <button data-metric="cagr">年化榜</button>
       <button data-metric="cagr_over_dd" class="on">收益÷回撤榜</button>
       <button data-metric="sharpe">夏普榜</button>
+      <button data-metric="win_rate">胜率榜</button>
     </div>
     <label class="sub"><input type="checkbox" id="rankFull"> 只看从起点就有效的组合</label>
     <div class="ctrl"><label>显示</label>
@@ -190,6 +191,7 @@
       <button data-metric="cagr">年化榜</button>
       <button data-metric="cagr_over_dd" class="on">收益÷回撤榜</button>
       <button data-metric="sharpe">夏普榜</button>
+      <button data-metric="win_rate">胜率榜</button>
     </div>
     <label class="sub"><input type="checkbox" id="boardFull" checked> 只看从起点就有效的组合</label>
     <div class="ctrl"><label>显示</label>
@@ -252,6 +254,12 @@ async function boot() {
     if (link.get('fast')) state.fast = +link.get('fast');
     if (link.get('slow')) state.slow = +link.get('slow');
     if (['board', 'rank'].includes(link.get('view'))) state.view = link.get('view');
+    if (link.get('metric') && METRIC_LABEL[link.get('metric')]) {
+      state.rank.metric = link.get('metric');
+      state.board.metric = link.get('metric');
+      document.querySelectorAll('#rankTabs button, #boardTabs button').forEach(b =>
+        b.classList.toggle('on', b.dataset.metric === link.get('metric')));
+    }
 
     $('reload').onclick = () => loadOverview();
     $('stock').onchange = () => loadOverview();
@@ -263,11 +271,15 @@ async function boot() {
     $('boardTabs').querySelectorAll('button').forEach(b => b.onclick = () => {
       state.board.metric = b.dataset.metric;
       $('boardTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      const url = new URL(location.href); url.searchParams.set('metric', b.dataset.metric);
+      history.replaceState(null, '', url);
       renderBoard();
     });
     $('rankTabs').querySelectorAll('button').forEach(b => b.onclick = () => {
       state.rank.metric = b.dataset.metric;
       $('rankTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      const url = new URL(location.href); url.searchParams.set('metric', b.dataset.metric);
+      history.replaceState(null, '', url);
       renderRank();
     });
     $('rankFull').onchange = () => { state.rank.full = $('rankFull').checked; renderRank(); };
@@ -557,7 +569,9 @@ function renderAnnual(c) {
     `<thead><tr><th>年份</th><th>策略</th><th>持有</th><th>差</th></tr></thead><tbody>${rows}</tbody>`;
 }
 
-const METRIC_LABEL = { total_return: '总收益', cagr: '年化', cagr_over_dd: '年化÷回撤', sharpe: '夏普' };
+const METRIC_LABEL = { total_return: '总收益', cagr: '年化', cagr_over_dd: '年化÷回撤', sharpe: '夏普',
+                       win_rate: '胜率' };
+const WIN_MIN_SEGMENTS = 10;      // a win rate from a couple of trades says nothing
 
 function renderRank() {
   const data = state.overview;
@@ -565,6 +579,7 @@ function renderRank() {
   const metric = state.rank.metric;
   let rows = data.combos.filter(r => r[metric] !== null && r[metric] !== undefined);
   if (state.rank.full) rows = rows.filter(r => !r.warmup_short);
+  if (metric === 'win_rate') rows = rows.filter(r => (r.segments || 0) >= WIN_MIN_SEGMENTS);
   rows.sort((a, b) => b[metric] - a[metric]);
   const shown = rows.slice(0, state.rank.limit || rows.length);
   let html = '<thead><tr><th>#</th><th style="text-align:left">组合</th>' +
@@ -573,7 +588,8 @@ function renderRank() {
     '<th>最大回撤</th>' +
     `<th class="${metric === 'cagr_over_dd' ? 'sort' : ''}">年化÷回撤</th>` +
     `<th class="${metric === 'sharpe' ? 'sort' : ''}">夏普</th>` +
-    '<th>在场</th><th>买入</th><th>平均持有</th><th>首个有效信号</th></tr></thead><tbody>';
+    `<th class="${metric === 'win_rate' ? 'sort' : ''}">胜率</th>` +
+    '<th>段数</th><th>在场</th><th>买入</th><th>平均持有</th><th>首个有效信号</th></tr></thead><tbody>';
   shown.forEach((r, i) => {
     const on = r.type === state.type && r.fast === state.fast && r.slow === state.slow;
     html += `<tr data-type="${r.type}" data-fast="${r.fast}" data-slow="${r.slow}"` +
@@ -585,6 +601,8 @@ function renderRank() {
       `<td class="${cls(r.total_return)}">${sgn(r.total_return, 0)}</td>` +
       `<td class="bad">${pct(r.max_drawdown)}</td>` +
       `<td>${num(r.cagr_over_dd)}</td><td>${num(r.sharpe)}</td>` +
+      `<td>${r.win_rate === null || r.win_rate === undefined ? '—' : pct(r.win_rate, 0)}</td>` +
+      `<td>${r.segments === null || r.segments === undefined ? '—' : r.segments}</td>` +
       `<td>${pct(r.invested_share, 0)}</td><td>${r.buys}</td>` +
       `<td>${num(r.average_holding_weeks, 1)} 周</td>` +
       `<td>${r.first_valid_signal_day || '—'}</td></tr>`;
@@ -623,12 +641,20 @@ function renderBoard() {
     .map(s => ({ stock: s, pick: (s[key] || s.best)[metric] }))
     .filter(r => r.pick && r.pick[metric] !== null && r.pick[metric] !== undefined);
   rows.sort((a, b) => b.pick[metric] - a.pick[metric]);
+  if (!rows.length) {
+    $('boardTable').innerHTML = '<tbody><tr><td><div class="err">这个榜还没有数据：' +
+      '缓存里没有该指标（胜率榜需要重建一次缓存：<code>python -X utf8 research/ma_lab_v1/build_leaderboard.py</code>）' +
+      '</div></td></tr></tbody>';
+    $('boardMeta').textContent = '';
+    return;
+  }
   const shown = rows.slice(0, state.board.limit || rows.length);
   const cols = [['total_return', '总收益'], ['cagr', '年化'], ['cagr_over_dd', '年化÷回撤'],
-                ['sharpe', '夏普'], ['max_drawdown', '最大回撤'], ['invested_share', '在场']];
+                ['sharpe', '夏普'], ['win_rate', '胜率'], ['max_drawdown', '最大回撤'],
+                ['invested_share', '在场']];
   let html = '<thead><tr><th>#</th><th style="text-align:left">股票</th><th style="text-align:left">最佳组合</th>' +
     cols.map(([k, label]) => `<th class="${k === metric ? 'sort' : ''}">${label}</th>`).join('') +
-    '<th>持有年化</th><th>超额年化</th></tr></thead><tbody>';
+    '<th>段数</th><th>持有年化</th><th>超额年化</th></tr></thead><tbody>';
   shown.forEach((row, i) => {
     const s = row.stock, p = row.pick;
     const diff = p.cagr - s.hold.cagr;
@@ -639,7 +665,9 @@ function renderBoard() {
       `<td class="${cls(p.total_return)}">${sgn(p.total_return, 0)}</td>` +
       `<td class="${cls(p.cagr)}">${sgn(p.cagr)}</td>` +
       `<td>${num(p.cagr_over_dd)}</td><td>${num(p.sharpe)}</td>` +
+      `<td>${p.win_rate === null || p.win_rate === undefined ? '—' : pct(p.win_rate, 0)}</td>` +
       `<td class="bad">${pct(p.max_drawdown)}</td><td>${pct(p.invested_share, 0)}</td>` +
+      `<td>${p.segments === null || p.segments === undefined ? '—' : p.segments}</td>` +
       `<td>${pct(s.hold.cagr)}</td><td class="${cls(diff)}">${sgn(diff)}</td></tr>`;
   });
   $('boardTable').innerHTML = html + '</tbody>';

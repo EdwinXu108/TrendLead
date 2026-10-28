@@ -23,9 +23,11 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(HERE))
 
 from leadtrend_bt import ma_lab          # noqa: E402
 from leadtrend_db import api             # noqa: E402
+import winrate                           # noqa: E402
 
 DEFAULT_DB = str(ROOT / 'data' / 'db' / 'leadtrend_db_v1.sqlite')
 TYPES = ('sma', 'ema', 'wma', 'dema', 'tema', 'hma', 'kama')
@@ -109,6 +111,7 @@ class Lab:
         self.signal_index = [self.index[d] for d in self.signal_days]
         self.rf = api.rf_daily(self.signal_days[0], end, db_path)
         self.lines: dict[tuple[str, int], np.ndarray] = {}
+        self._rows: list[dict] | None = None
         self.result = ma_lab.run_lab(security, start=start, end=end, types=TYPES, fasts=FASTS, slows=SLOWS,
                                      cash_rate=cash, db_path=db_path, frequency=frequency)
         window_start = self.index[self.result['evaluation_start']]
@@ -139,6 +142,19 @@ class Lab:
             self.lines[key] = ma_lab.MOVING_AVERAGES[kind](self.values, int(n))
         return self.lines[key]
 
+    def rows_with_winrate(self) -> list[dict]:
+        """run_lab's per-combination rows plus the trade statistics of each combination."""
+        if self._rows is not None:
+            return self._rows
+        for row in self.result['rows']:
+            line_fast = self.average(row['type'], row['fast'])
+            line_slow = self.average(row['type'], row['slow'])
+            valid = np.isfinite(line_fast) & np.isfinite(line_slow)
+            state = [bool(valid[i] and line_fast[i] > line_slow[i]) for i in self.signal_index]
+            row.update(winrate.combo_stats(self.days, self.values, self.signal_days, state))
+        self._rows = self.result['rows']
+        return self._rows
+
     def combo(self, kind: str, fast: int, slow: int) -> dict:
         # the state is decided at every signal close (daily or weekly) and applied from that close
         if kind not in ma_lab.MOVING_AVERAGES:
@@ -155,6 +171,8 @@ class Lab:
         buys = sum(1 for k, on in enumerate(state) if on and (k == 0 or not state[k - 1]))
         metrics.update(invested_share=sum(state) / len(state), buys=buys,
                        average_holding_weeks=(sum(state) / buys if buys else 0.0))
+        raw = winrate.segment_returns(self.days, self.values, self.signal_days, state)
+        metrics.update(winrate.stats(raw))
         segments, trades = self._segments(state)
         offset = self.index[days[0]]
         return dict(key=f'{kind}_{fast}_{slow}', type=kind, fast=int(fast), slow=int(slow),
@@ -266,7 +284,7 @@ class Handler(BaseHTTPRequestHandler):
                 lab = STORE.lab(query.get('security', 'MSFT'), query.get('start', DEFAULT_START),
                                 query.get('end', DEFAULT_END), query.get('cash', 'zero'),
                                 query.get('freq', 'daily'))
-                self._json(dict(meta=lab.meta, buy_hold=lab.result['buy_hold'], combos=lab.result['rows'],
+                self._json(dict(meta=lab.meta, buy_hold=lab.result['buy_hold'], combos=lab.rows_with_winrate(),
                                 price=dict(dates=lab.window_days, tri=_round(lab.window_values / lab.window_values[0]),
                                            close=_round(lab.closes))))
             elif parsed.path == '/api/combo':
@@ -291,7 +309,11 @@ def main():
     args = parser.parse_args()
     STORE = Store(args.db)
     # One thread on purpose: the sqlite connection behind api.connect belongs to the thread that opened it.
-    server = HTTPServer(('127.0.0.1', args.port), Handler)
+    # No address reuse: on Windows two servers can otherwise share the port and answer with stale code.
+    class Server(HTTPServer):
+        allow_reuse_address = False
+
+    server = Server(('127.0.0.1', args.port), Handler)
     url = f'http://127.0.0.1:{args.port}/'
     print(f'ma_lab dashboard on {url}  (Ctrl+C to stop)', flush=True)
     if args.open:

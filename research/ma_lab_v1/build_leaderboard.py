@@ -18,18 +18,23 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(HERE))
 
 from leadtrend_bt import ma_lab      # noqa: E402
 from leadtrend_db import api         # noqa: E402
+import dashboard                     # noqa: E402
 
 DB = str(ROOT / 'data' / 'db' / 'leadtrend_db_v1.sqlite')
 START, END = '2014-02-28', '2024-06-28'
 TYPES = ('sma', 'ema', 'wma', 'dema', 'tema', 'hma', 'kama')
 FASTS = (3, 5, 8, 10, 13, 20, 30, 50)
 SLOWS = (20, 30, 50, 80, 100, 150, 200, 250, 300)
-METRICS = ('total_return', 'cagr', 'cagr_over_dd', 'sharpe')
+METRICS = ('total_return', 'cagr', 'cagr_over_dd', 'sharpe', 'win_rate')
+# a win rate from one or two trades says nothing; the win-rate board only looks at combinations with this many
+WIN_MIN_SEGMENTS = 10
 FIELDS = ('cagr', 'total_return', 'max_drawdown', 'cagr_over_dd', 'sharpe', 'invested_share', 'buys',
-          'average_holding_weeks', 'volatility')
+          'average_holding_weeks', 'volatility', 'segments', 'wins', 'win_rate', 'avg_win', 'avg_loss',
+          'profit_factor')
 
 
 def clean(value):
@@ -45,15 +50,18 @@ def clean(value):
 def job(args):
     ticker, cash, frequency = args
     try:
-        out = ma_lab.run_lab(ticker, start=START, end=END, types=TYPES, fasts=FASTS, slows=SLOWS,
-                             cash_rate=cash, db_path=DB, frequency=frequency)
+        lab = dashboard.Lab(ticker, START, END, cash, DB, frequency)
+        rows = lab.rows_with_winrate()
     except ValueError as error:          # an ambiguous or unusable ticker must not stop the build
         return dict(ticker=ticker, error=str(error))
-    hold = out['buy_hold']
+    hold = lab.result['buy_hold']
     best, best_full = {}, {}
     for metric in METRICS:
-        rows = [r for r in out['rows'] if r.get(metric) is not None]
-        if not rows:
+        pool = rows
+        if metric == 'win_rate':         # a win rate from a couple of trades says nothing
+            pool = [r for r in rows if (r.get('segments') or 0) >= WIN_MIN_SEGMENTS]
+        pool = [r for r in pool if r.get(metric) is not None]
+        if not pool:
             continue
         def item(row):
             entry = dict(type=row['type'], fast=row['fast'], slow=row['slow'],
@@ -61,14 +69,14 @@ def job(args):
                          warmup_short=row.get('warmup_short'))
             entry.update({key: row.get(key) for key in FIELDS})
             return entry
-        best[metric] = item(max(rows, key=lambda r: r[metric]))
+        best[metric] = item(max(pool, key=lambda r: r[metric]))
         # combinations whose averages only become valid after the window starts sit in cash for the warm-up
-        ready = [r for r in rows if not r.get('warmup_short')]
+        ready = [r for r in pool if not r.get('warmup_short')]
         if ready:
             best_full[metric] = item(max(ready, key=lambda r: r[metric]))
-    return clean(dict(ticker=ticker, security_id=out['security'],
+    return clean(dict(ticker=ticker, security_id=lab.sid,
                       hold={key: hold.get(key) for key in FIELDS},
-                      best=best, best_full=best_full, combos=len(out['rows'])))
+                      best=best, best_full=best_full, combos=len(rows)))
 
 
 def main():
@@ -101,7 +109,7 @@ def main():
                     print(f'  {cash} {i}/{len(jobs)} {time.time() - started:.0f}s', flush=True)
         out.sort(key=lambda r: r['ticker'])
         payload = dict(built=time.strftime('%Y-%m-%d %H:%M'), frequency=args.freq, cash=cash,
-                       start=START, end=END, combos=combos,
+                       start=START, end=END, combos=combos, win_rate_min_segments=WIN_MIN_SEGMENTS,
                        grid=dict(types=list(TYPES), fasts=list(FASTS), slows=list(SLOWS)),
                        stocks=out)
         path = HERE / f'leaderboard_{args.freq}_{cash}.json'

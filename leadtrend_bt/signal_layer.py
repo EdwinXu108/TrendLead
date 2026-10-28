@@ -32,13 +32,13 @@ SIGNAL_LAYER = dict(
 FIXED = tuple(SIGNAL_LAYER)
 # `rebalance` is the one protocol field a caller may vary: the archived M2 grid registered both R1 and R1W to
 # measure what restoring equal weight every week does. Everything else in SIGNAL_LAYER is the protocol itself.
-OVERRIDABLE = ('ranking', 'signal', 'L', 'N', 'rebalance', 'top_m', 'w', 'buy_weighting')
+OVERRIDABLE = ('ranking', 'signal', 'L', 'N', 'rebalance', 'top_m', 'w')
 
 
 def signal_layer_config(run_id: str, **overrides) -> dict:
     """A complete run configuration in the signal-layer protocol.
 
-    `run_id` names the run; `overrides` may set ranking, signal, L, N, rebalance, top_m, w and buy_weighting.
+    `run_id` names the run; `overrides` may set ranking, signal, L, N, rebalance, top_m and w.
     The rest of `SIGNAL_LAYER` is fixed: passing it raises, because changing it means leaving the signal layer.
     """
     bad = sorted(set(overrides) & (set(FIXED) - set(OVERRIDABLE)))
@@ -47,6 +47,8 @@ def signal_layer_config(run_id: str, **overrides) -> dict:
     cfg = dict(SIGNAL_LAYER)
     cfg.update(overrides)
     cfg['run_id'] = run_id
+    if 'buy_weighting' in overrides:
+        raise ValueError('the signal layer is absolute equal weight: buy_weighting is fixed')
     if cfg['protocol'] != 'research_v1':
         raise ValueError('signal layer runs under research_v1')
     if cfg['end'] > LAST_ALLOWED_END:

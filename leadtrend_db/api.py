@@ -332,7 +332,7 @@ def volume_series(ids, start: str, end: str, db_path: Path | str = DB_PATH,
     if isinstance(ids, str):
         ids = [ids]
     conn = connect(db_path)
-    events = split_events(ids, db_path) if split_adjusted else {}
+    events = split_events(ids, db_path, end=end) if split_adjusted else {}
     out: dict[str, dict[str, float]] = {}
     for sid in ids:
         rows = conn.execute("""select session_date, volume from prices_daily
@@ -343,11 +343,12 @@ def volume_series(ids, start: str, end: str, db_path: Path | str = DB_PATH,
     return out
 
 
-def split_events(ids, db_path: Path | str = DB_PATH) -> dict[str, list[tuple[str, float]]]:
+def split_events(ids, db_path: Path | str = DB_PATH, end: str | None = None) -> dict[str, list[tuple[str, float]]]:
     """{security_id: [(ex_date, ratio), ...]} for splits and reverse splits, oldest first.
 
     `ratio` is new shares per old share, the same convention as `leadtrend_db/tri.py`: 20.0 for a 20:1 split,
-    0.5 for a 1:2 reverse split.
+    0.5 for a 1:2 reverse split. `end` drops events after that date (pass the series end, so no reserved-segment
+    row is read).
     """
     if isinstance(ids, str):
         ids = [ids]
@@ -356,7 +357,7 @@ def split_events(ids, db_path: Path | str = DB_PATH) -> dict[str, list[tuple[str
     for sid in ids:
         rows = conn.execute("""select action_date, ratio from corporate_actions
                                where security_id=? and action_type in ('split','reverse_split')
-                               order by action_date""", (sid,))
+                               and action_date <= ? order by action_date""", (sid, end or '9999-12-31'))
         out[sid] = [(r[0], float(r[1])) for r in rows if r[1]]
     return out
 

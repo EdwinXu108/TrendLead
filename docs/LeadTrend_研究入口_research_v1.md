@@ -112,7 +112,7 @@ print(out['status'], out['summary']['excess_cagr'])
 | 区间 | 2014-02-28 至 2024-06-28，一整段，不分时段 |
 | 本金 | 100,000 美元 |
 
-`signal_layer_config(run_id, **overrides)` 生成完整配置，固定字段不可覆盖（只有 `ranking`、`signal`、`L`、`N`、`rebalance`、`top_m`、`w`、`buy_weighting` 可以给）。`research_v1` 的默认值不变（仍是 `next_open` 且带成本），因为回测层还没定。
+`signal_layer_config(run_id, **overrides)` 生成完整配置，固定字段不可覆盖（只有 `ranking`、`signal`、`L`、`N`、`rebalance`、`top_m`、`w` 可以给；绝对等权，不能改 `buy_weighting`）。`research_v1` 的默认值不变（仍是 `next_open` 且带成本），因为回测层还没定。
 
 跑一个零成本组合的最短代码（信号层模拟一般直接调 `runner.run`，`files=False` 只写 `config.json` 与 `summary.json`，不必走缓存）：
 

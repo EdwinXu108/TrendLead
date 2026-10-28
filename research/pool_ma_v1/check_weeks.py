@@ -7,6 +7,7 @@ last block runs the engine's signal-layer pool with N=200 as the closest availab
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -41,7 +42,7 @@ def main():
     signal_days = api.friday_signal_days(ma_pool.START, ma_pool.LAST_ALLOWED_END, DB)
     result = ma_pool.run(market, signal_days, seeds=1)
     print('week            portfolio  hand        module      diff')
-    worst = 0.0
+    worst, rows = 0.0, []
     for day, nxt in WEEKS:
         i, j = market.index[day], market.index[nxt]
         for kind, name in (('P0', 'all_equal'), ('P2', 'long_full')):
@@ -53,6 +54,8 @@ def main():
             worst = max(worst, diff)
             print(f'{day}  {kind}         {manual["value"]:+.8f}  {module:+.8f}  {diff:.2e}  '
                   f'(K={manual["K"]}, M={manual["M"]})')
+            rows.append(dict(week=day, next_week=nxt, portfolio=kind, hand=manual['value'],
+                             module=module, difference=diff, K=manual['K'], M=manual['M']))
     print(f'largest difference {worst:.2e}')
 
     config = signal_layer.signal_layer_config('V_P0_proxy', ranking='size', signal='momentum', L=1,
@@ -65,6 +68,15 @@ def main():
     print(f'  proxy cagr {summary["strategy"]["cagr"]:+.4%} dd {summary["strategy"]["max_drawdown"]:+.4%} '
           f'excess {summary["excess_cagr"]:+.4%}')
     print(f'  P0    cagr {p0["cagr"]:+.4%} dd {p0["max_drawdown"]:+.4%} excess {p0_excess:+.4%}')
+    out = ROOT / 'work' / 'pool_ma_v1' / 'checks.json'
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(dict(weeks=rows, worst_difference=worst,
+                                   proxy=dict(cagr=summary['strategy']['cagr'],
+                                              max_drawdown=summary['strategy']['max_drawdown'],
+                                              excess=summary['excess_cagr']),
+                                   all_equal=dict(cagr=p0['cagr'], max_drawdown=p0['max_drawdown'],
+                                                  excess=p0_excess)),
+                              ensure_ascii=False, indent=1), encoding='utf8', newline='\n')
 
 
 if __name__ == '__main__':

@@ -80,6 +80,11 @@ def main():
     for row in portfolios.values():
         row['excess_vs_voo'] = row['cagr'] - voo_cagr
 
+    for row in random_rows:
+        row['worst_year_return'] = row['worst_year']['return_']
+    years = sorted({year for row in random_rows for year in row['annual_returns']})
+    random_annual = {year: dict(median=float(np.median([row['annual_returns'][year] for row in random_rows
+                                                        if year in row['annual_returns']]))) for year in years}
     beats = {}
     for key in KEYS:
         values = [row[key] for row in random_rows if row.get(key) is not None]
@@ -104,7 +109,9 @@ def main():
         ),
         portfolios={name: row for name, row in portfolios.items()},
         random=dict(seeds=len(random_rows),
-                    metrics={key: ma_pool.quantiles(random_rows, key) for key in KEYS},
+                    metrics={key: ma_pool.quantiles(random_rows, key)
+                             for key in KEYS + ('worst_year_return',)},
+                    annual=random_annual,
                     beats=beats),
         elapsed_seconds=round(time.time() - started, 1),
     )
@@ -119,8 +126,8 @@ def main():
     curves = dict(dates=days,
                   equity={name: [round(float(v), 6) for v in values] for name, values in curves_equity.items()})
     stack = np.vstack(result['random_equity'])
-    curves['random'] = {f'p{q}': [round(float(v), 6) for v in np.percentile(stack, q, axis=0)]
-                        for q in (5, 50, 95)}
+    curves['random'] = {name: [round(float(v), 6) for v in np.percentile(stack, q, axis=0)]
+                        for name, q in (('p05', 5), ('p50', 50), ('p95', 95))}
     curves['weekly'] = [dict(date=day, K=int(k), M=int(m)) for day, k, m in zip(signal_days, counts_k, counts_m)]
     (work / 'curves.json').write_text(json.dumps(curves, ensure_ascii=False), encoding='utf8', newline='\n')
 

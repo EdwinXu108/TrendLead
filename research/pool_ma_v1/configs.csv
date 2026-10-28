@@ -1,0 +1,6 @@
+run_id,portfolio,rule,start,end,capital,seeds
+POOL_P0,all_equal,sma50_200,2014-02-28,2024-06-28,100000,0
+POOL_P1,long_plus_cash,sma50_200,2014-02-28,2024-06-28,100000,0
+POOL_P2,long_full,sma50_200,2014-02-28,2024-06-28,100000,0
+POOL_P3,random_same_count,sma50_200,2014-02-28,2024-06-28,100000,100
+POOL_VOO,voo,sma50_200,2014-02-28,2024-06-28,100000,0

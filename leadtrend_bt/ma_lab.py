@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import math
 import sys
 from pathlib import Path
@@ -22,6 +23,34 @@ from leadtrend_db import api
 FIRST_DAY = '2012-12-03'
 LAST_ALLOWED_END = '2024-06-28'
 TRADING_DAYS = 252
+
+# The holdout is a one-off check of parameters frozen on the development segment. Opening it needs the
+# investor's authorization file and a database that carries the registered seam release.
+HOLDOUT_END = '2026-06-30'
+HOLDOUT_WINDOW = ['2024-07-01', '2026-06-30']
+HOLDOUT_RELEASE = 'tri_seam_v1'
+AUTHORIZATION = Path(__file__).resolve().parents[1] / 'research' / 'holdout' / 'authorization.json'
+
+
+def check_holdout(end: str, db_path=None, authorization_path=None) -> dict:
+    """Raise unless the window, the investor's authorization and the database release all allow the holdout."""
+    if end > HOLDOUT_END:
+        raise ValueError(f'end {end} is after {HOLDOUT_END}')
+    path = Path(authorization_path) if authorization_path else AUTHORIZATION
+    if not path.exists():
+        raise ValueError(f'holdout authorization is missing: {path}')
+    payload = json.loads(path.read_text(encoding='utf8'))
+    if payload.get('scope') != 'wf_v2':
+        raise ValueError(f"holdout authorization scope must be 'wf_v2', got {payload.get('scope')!r}")
+    if payload.get('window') != HOLDOUT_WINDOW:
+        raise ValueError(f'holdout authorization window must be {HOLDOUT_WINDOW}, '
+                         f"got {payload.get('window')!r}")
+    conn = api.connect(db_path) if db_path else api.connect()
+    row = conn.execute("select value from meta where key='tri_seam_release'").fetchone()
+    if row is None or row[0] != HOLDOUT_RELEASE:
+        raise ValueError(f'database has no {HOLDOUT_RELEASE} release; '
+                         'use data/db/leadtrend_db_full_v1.sqlite for the holdout')
+    return payload
 
 
 # -- averages -----------------------------------------------------------------------------------------------------
@@ -235,8 +264,11 @@ def simulate(days: list[str], values: np.ndarray, signal_days: list[str], state:
 
 def run_lab(security: str, start: str = '2014-02-28', end: str = LAST_ALLOWED_END,
             types=('sma', 'ema'), fasts=(5, 10, 20), slows=(50, 100, 200), cash_rate: str = 'zero',
-            db_path=None, save_equity: bool = False, frequency: str = 'weekly') -> dict:
-    if end > LAST_ALLOWED_END:
+            db_path=None, save_equity: bool = False, frequency: str = 'weekly',
+            allow_holdout: bool = False, authorization_path=None) -> dict:
+    if allow_holdout:
+        check_holdout(end, db_path, authorization_path)
+    elif end > LAST_ALLOWED_END:
         raise ValueError(f'end {end} is after {LAST_ALLOWED_END}: the reserved segment must not be used')
     if start < FIRST_DAY:
         raise ValueError(f'start {start} is before {FIRST_DAY}')

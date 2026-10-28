@@ -20,9 +20,8 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(HERE))
 
-from leadtrend_bt import ma_lab      # noqa: E402
-from leadtrend_db import api         # noqa: E402
-import dashboard                     # noqa: E402
+from leadtrend_bt import ma_walk           # noqa: E402
+import dashboard                          # noqa: E402
 
 DB = str(ROOT / 'data' / 'db' / 'leadtrend_db_v1.sqlite')
 START, END = '2014-02-28', '2024-06-28'
@@ -85,14 +84,8 @@ def main():
     parser.add_argument('--cash', default='zero,dtb3')
     parser.add_argument('--limit', type=int, default=0)
     args = parser.parse_args()
-    # the unambiguous ticker list comes from the same query the dashboard uses
-    conn = api.connect(DB)
-    rows = conn.execute("""select ss.current_ticker as ticker, ss.security_id as sid
-                           from strategy_securities ss where ss.current_ticker <> ''""").fetchall()
-    seen: dict[str, set] = {}
-    for row in rows:
-        seen.setdefault(row['ticker'], set()).add(row['sid'])
-    tickers = sorted(t for t, ids in seen.items() if len(ids) == 1)
+    # the same eligible, unambiguous ticker list the dashboard and the walk-forward batch use
+    tickers = [row['ticker'] for row in ma_walk.stock_list(DB)]
     if args.limit:
         tickers = tickers[:args.limit]
     combos = len(TYPES) * len([1 for f in FASTS for s in SLOWS if f < s])

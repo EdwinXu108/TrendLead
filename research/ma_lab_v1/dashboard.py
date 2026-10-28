@@ -25,7 +25,7 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(HERE))
 
-from leadtrend_bt import ma_lab          # noqa: E402
+from leadtrend_bt import ma_lab, ma_walk  # noqa: E402
 from leadtrend_db import api             # noqa: E402
 import winrate                           # noqa: E402
 import fast_rows                         # noqa: E402
@@ -222,6 +222,7 @@ class Store:
     def __init__(self, db_path: str):
         self.db = db_path
         self.cache: dict[tuple, Lab] = {}
+        self.walks: dict[tuple, dict] = {}
         self.lock = threading.Lock()
 
     def lab(self, security: str, start: str, end: str, cash: str, frequency: str = 'daily') -> Lab:
@@ -233,19 +234,24 @@ class Store:
                 self.cache[key] = Lab(security, start, end, cash, self.db, frequency)
             return self.cache[key]
 
+    def walk(self, security: str, start: str, end: str, cash: str, frequency: str = 'daily') -> dict:
+        key = (security, start, end, cash, frequency)
+        with self.lock:
+            if key not in self.walks:
+                if len(self.walks) > 6:
+                    self.walks.clear()
+                out = ma_walk.walk(security, start=start, end=end, cash_rate=cash,
+                                   frequency=frequency, db_path=self.db, with_curves=True)
+                curves = out.pop('curves', None) or {}
+                out['dates'] = curves.get('dates', [])
+                out['curves'] = {name: _round(values, 6) for name, values in curves.items() if name != 'dates'}
+                out['ticker'] = out.get('ticker', security)
+                out['name'] = next((s['name'] for s in self.stocks() if s['ticker'] == out['ticker']), '')
+                self.walks[key] = out
+            return self.walks[key]
+
     def stocks(self) -> list[dict]:
-        conn = api.connect(self.db)
-        rows = conn.execute("""select ss.current_ticker as ticker, ss.security_id as sid,
-                                      coalesce(i.name, '') as name
-                               from strategy_securities ss left join issuers i on i.issuer_id = ss.issuer_id
-                               where ss.current_ticker <> ''
-                               order by ss.current_ticker""").fetchall()
-        seen: dict[str, list] = {}
-        for row in rows:
-            seen.setdefault(row['ticker'], []).append(row)
-        out = [dict(ticker=t, security_id=items[0]['sid'], name=items[0]['name'])
-               for t, items in sorted(seen.items()) if len({i['sid'] for i in items}) == 1]
-        return out
+        return ma_walk.stock_list(self.db)
 
 
 STORE: Store
@@ -275,6 +281,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._send((HERE / 'dashboard.html').read_bytes(), 'text/html; charset=utf-8')
             elif parsed.path == '/api/stocks':
                 self._json(dict(stocks=STORE.stocks(), types=TYPES, fasts=FASTS, slows=SLOWS))
+            elif parsed.path == '/api/wf':
+                walk = STORE.walk(query.get('security', 'MSFT'), query.get('start', DEFAULT_START),
+                                  query.get('end', DEFAULT_END), query.get('cash', 'zero'),
+                                  query.get('freq', 'daily'))
+                self._json(walk)
+            elif parsed.path == '/api/wfboard':
+                name = f"wf_{query.get('freq', 'daily')}_{query.get('cash', 'zero')}.json"
+                path = ROOT / 'research' / 'wf_v1' / name
+                if not path.exists():
+                    self._json(dict(error=f'滚动验证缓存还没生成（{name}）',
+                                    hint='python -X utf8 research/wf_v1/run_wf.py'), 404)
+                else:
+                    self._send(path.read_bytes(), 'application/json; charset=utf-8')
             elif parsed.path == '/api/leaderboard':
                 name = f"leaderboard_{query.get('freq', 'daily')}_{query.get('cash', 'zero')}.json"
                 path = HERE / name

@@ -83,6 +83,10 @@
   .board td.tick { text-align: left; font-weight: 600; }
   .board tr:hover td { background: #f4f8fc; cursor: pointer; }
   .board .combo { color: var(--muted); font-size: 11px; }
+  #wfSummary table { width: 780px; table-layout: fixed; }
+  #wfSummary td:first-child, #wfSummary th:first-child { width: 58%; padding-right: 18px; }
+  #wfBoardTable { font-size: 11.5px; }
+  #wfBoardTable th, #wfBoardTable td { padding: 2px 4px; white-space: nowrap; }
   #loading { position: fixed; inset: 0; background: rgba(246,247,249,.5); display: none; align-items: center;
              justify-content: center; z-index: 50; font-size: 13px; color: var(--muted); }
   #loading.on { display: flex; }
@@ -93,6 +97,8 @@
   <h1>LeadTrend</h1>
   <div class="tabs" id="tabs">
     <button data-view="single" class="on">单股</button>
+    <button data-view="wf">滚动验证</button>
+    <button data-view="wfboard">滚动验证汇总</button>
     <button data-view="board">全市场排行</button>
   </div>
   <div class="ctrl"><label>股票</label>
@@ -172,6 +178,50 @@
   </div>
 </main>
 
+<main id="view-wf" hidden>
+  <div class="kpis" id="wfKpis"></div>
+  <div class="card">
+    <h2><span>滚动验证：三条线（起点 = 100）</span>
+      <span id="wfZoomChip" class="sub" style="margin-left:10px"></span>
+      <label style="float:right;font-weight:400;cursor:pointer;color:var(--muted)">
+        <input type="checkbox" id="wfLog" checked style="vertical-align:-1px"> 对数轴</label></h2>
+    <div class="legend" id="wfLegend"></div>
+    <div class="chart" id="wfChart"><div class="tip" id="wfTip"></div></div>
+    <div class="note" id="wfNote"></div>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <h2>每年挑中的组合 <span class="sub" id="wfMeta"></span></h2>
+    <div class="scroll panel" style="max-height:400px"><table class="board" id="wfTable"></table></div>
+    <div class="note">挑选日只用之前的数据，按 年化÷|回撤| 从 462 组里取最好的一组，下一年用它；
+      「下一年」指到下一个挑选日为止，最后一行到 2024-06-28。样本内最优只作参照，不是可以拿到的成绩。</div>
+  </div>
+</main>
+
+<main id="view-wfboard" hidden>
+  <div class="card">
+    <div class="panel" style="padding:18px 18px 14px">
+      <div id="wfHeadline" style="font-size:23px;font-weight:700;line-height:1.35"></div>
+      <div class="sub" id="wfSubline" style="margin-top:7px;font-size:12.5px"></div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <div class="board-bar" style="padding:8px 12px 0;margin-bottom:0">
+      <div class="tabs" id="wfGroupTabs">
+        <button data-group="complete" class="on">完整期股票</button>
+        <button data-group="all">全部股票</button>
+      </div>
+      <span class="sub" id="wfBoardMeta"></span>
+    </div>
+    <div class="panel" id="wfSummary"></div>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <div class="panel scroll" style="max-height:calc(100vh - 330px)">
+      <table class="board" id="wfBoardTable"></table>
+    </div>
+    <div class="note">点一行进入该股的滚动验证页；点列头排序。事后最优只作参照，不是可以拿到的成绩。</div>
+  </div>
+</main>
+
 <main id="view-board" hidden>
   <div class="board-bar">
     <div class="tabs" id="boardTabs">
@@ -206,7 +256,9 @@ const $ = (id) => document.getElementById(id);
 const state = { info: null, overview: null, combo: null, type: 'sma', fast: 20, slow: 100, view: 'single',
                 zoom: null,
                 rank: { metric: 'cagr_over_dd', full: false },
-                board: { metric: 'cagr_over_dd', full: true, limit: 50, data: null } };
+                board: { metric: 'cagr_over_dd', full: true, limit: 50, data: null },
+                wf: { data: null, zoom: null },
+                wfboard: { data: null, group: 'complete', sort: 'wf_ratio', dir: -1 } };
 const pct = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? '—' : (v * 100).toFixed(d) + '%';
 const sgn = (v, d = 1) => (v === null || v === undefined) ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(d) + '%';
 const cls = (v) => (v === null || v === undefined) ? '' : (v >= 0 ? 'good' : 'bad');
@@ -242,7 +294,7 @@ async function boot() {
     if (link.get('type') && info.types.includes(link.get('type'))) state.type = link.get('type');
     if (link.get('fast')) state.fast = +link.get('fast');
     if (link.get('slow')) state.slow = +link.get('slow');
-    if (['board', 'rank'].includes(link.get('view'))) state.view = link.get('view');
+    if (['board', 'rank', 'wf', 'wfboard'].includes(link.get('view'))) state.view = link.get('view');
     if (link.get('zoom') && link.get('zoom').includes(',')) {
       state.pendingZoom = link.get('zoom').split(',').map(s => s.trim());
     }
@@ -254,10 +306,16 @@ async function boot() {
         b.classList.toggle('on', b.dataset.metric === link.get('metric')));
     }
 
-    $('reload').onclick = () => loadOverview();
-    $('stock').onchange = () => loadOverview();
-    $('cash').onchange = () => { loadOverview(); if (state.view === 'board') loadBoard(); };
-    $('freq').onchange = () => { loadOverview(); if (state.view === 'board') loadBoard(); };
+    $('reload').onclick = () => { loadOverview(); if (state.view === 'wf') loadWf(); };
+    $('stock').onchange = () => { loadOverview(); if (state.view === 'wf') loadWf(); };
+    $('cash').onchange = () => {
+      loadOverview(); if (state.view === 'board') loadBoard();
+      if (state.view === 'wf') loadWf(); if (state.view === 'wfboard') loadWfBoard();
+    };
+    $('freq').onchange = () => {
+      loadOverview(); if (state.view === 'board') loadBoard();
+      if (state.view === 'wf') loadWf(); if (state.view === 'wfboard') loadWfBoard();
+    };
     $('start').onchange = () => loadOverview();
     $('end').onchange = () => loadOverview();
     $('tabs').querySelectorAll('button').forEach(b => b.onclick = () => setView(b.dataset.view));
@@ -278,6 +336,12 @@ async function boot() {
     $('boardFull').onchange = () => { state.board.full = $('boardFull').checked; renderBoard(); };
     $('boardLimit').onchange = () => { state.board.limit = +$('boardLimit').value; renderBoard(); };
     $('logScale').onchange = () => { if (state.combo) renderPrice(state.combo); };
+    $('wfLog').onchange = () => { if (state.wf.data) renderWfChart(); };
+    $('wfGroupTabs').querySelectorAll('button').forEach(b => b.onclick = () => {
+      state.wfboard.group = b.dataset.group;
+      $('wfGroupTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      renderWfBoard();
+    });
     setView(state.view);
     await loadOverview();
   } catch (error) {
@@ -287,13 +351,16 @@ async function boot() {
 
 function setView(view) {
   state.view = view;
-  $('view-single').hidden = view !== 'single';
-  $('view-board').hidden = view !== 'board';
+  for (const name of ['single', 'wf', 'wfboard', 'board']) {
+    $('view-' + name).hidden = view !== name;
+  }
   $('tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.view === view));
   const url = new URL(location.href);
   url.searchParams.set('view', view);
   history.replaceState(null, '', url);
   if (view === 'board') loadBoard();
+  if (view === 'wf') loadWf();
+  if (view === 'wfboard') loadWfBoard();
 }
 
 async function loadOverview() {
@@ -428,6 +495,7 @@ function drawChart(container, tip, cfg) {
   const width = Math.max(520, box.width - 16);
   const height = cfg.height;
   const pad = { l: 56, r: 12, t: 10, b: 22 };
+  const setZoom = cfg.setZoom || ((range) => { state.zoom = range; redraw(); });
   const all = cfg.dates.length;
   const [z0, z1] = cfg.zoom ? [Math.max(0, cfg.zoom[0]), Math.min(all - 1, cfg.zoom[1])] : [0, all - 1];
   const dates = cfg.dates.slice(z0, z1 + 1);
@@ -534,11 +602,10 @@ function drawChart(container, tip, cfg) {
     const a = Math.min(anchor, i), b = Math.max(anchor, i);
     anchor = null;
     if (b - a < 3) return;                       // a click, not a drag
-    state.zoom = [z0 + a, z0 + b];
-    redraw();
+    setZoom([z0 + a, z0 + b]);
   });
   svg.addEventListener('mouseleave', () => { anchor = null; brush.setAttribute('opacity', 0); });
-  svg.addEventListener('dblclick', () => { if (state.zoom) { state.zoom = null; redraw(); } });
+  svg.addEventListener('dblclick', () => setZoom(null));
 }
 
 function redraw() {
@@ -735,8 +802,223 @@ function renderBoard() {
     `${data.cash === 'zero' ? '0' : '国债'} · 每股 ${data.combos} 组 · ${data.stocks.length} 只 · 生成于 ${data.built}`;
 }
 
+
+// -- walk-forward views -----------------------------------------------------------------------------------------
+
+const WF_COLORS = { wf: '#0072B2', hold: '#666666', fixed: '#E69F00' };
+
+async function loadWf() {
+  busy(true);
+  try {
+    const data = await getJSON('/api/wf?' + params());
+    state.wf.data = data;
+    state.wf.zoom = null;
+    renderWf();
+  } catch (error) {
+    $('wfKpis').innerHTML = `<div class="err">${error.message}</div>`;
+    $('wfChart').querySelectorAll('svg').forEach(s => s.remove());
+    $('wfTable').innerHTML = '';
+    $('wfMeta').textContent = '';
+    $('wfNote').textContent = '';
+    $('wfLegend').innerHTML = '';
+  } finally { busy(false); }
+}
+
+function renderWf() {
+  const data = state.wf.data;
+  if (!data) return;
+  if (!data.computable) {
+    $('wfKpis').innerHTML = '';
+    $('wfChart').querySelectorAll('svg').forEach(s => s.remove());
+    $('wfTable').innerHTML = '';
+    $('wfLegend').innerHTML = '';
+    $('wfMeta').textContent = data.ticker || '';
+    const reason = data.reason || '';
+    $('wfNote').textContent = reason.includes('no selection day')
+      ? '这只股票在 2016–2023 年间没有攒够 252 个交易日的回看历史，无法做滚动验证。'
+      : reason.includes('no total-return history')
+        ? '这只股票在 2024-06-28 之前没有总回报数据，无法做滚动验证。'
+        : (reason || '这只股票没有足够的开发段历史。');
+    return;
+  }
+  const L = data.lines;
+  const card = (label, r, color) => `<div class="kpi"><div class="k" style="color:${color}">${label}</div>` +
+    `<div class="v">${pct(r.cagr)}</div>` +
+    `<div class="b">回撤 ${pct(r.max_drawdown)} · 收益÷回撤 ${num(r.cagr_over_dd)}</div>` +
+    `<div class="b">夏普 ${num(r.sharpe)} · 总收益 ${pct(r.total_return, 0)}</div>` +
+    `<div class="b">在场 ${pct(r.invested_share, 0)} · 买入 ${r.buys} 次</div></div>`;
+  $('wfKpis').innerHTML = card('滚动验证 WF', L.wf, WF_COLORS.wf) +
+    card('一直持有', L.hold, WF_COLORS.hold) + card('固定 SMA 50/200', L.fixed, WF_COLORS.fixed);
+  const ex = L.ex_post || {};
+  const exLine = (ex.cagr === undefined || ex.cagr === null) ? '' :
+    `事后最优（只作参照）：${(ex.type || '').toUpperCase()} ${ex.fast}/${ex.slow}，年化 ${pct(ex.cagr)}、` +
+    `回撤 ${pct(ex.max_drawdown)}、收益÷回撤 ${num(ex.cagr_over_dd)}。`;
+  $('wfNote').innerHTML = `${data.complete ? '完整期' : '非完整期'}：评估从 ${data.evaluation_start} 至 ` +
+    `${data.evaluation_end}，共 ${data.evaluation_sessions} 个交易日；${data.selections.length} 次挑选里换了 ` +
+    `${data.stability.changes} 次组合。${exLine}`;
+  $('wfLegend').innerHTML =
+    `<span><i style="background:${WF_COLORS.wf}"></i>滚动验证</span>` +
+    `<span><i style="background:${WF_COLORS.hold}"></i>一直持有</span>` +
+    `<span><i style="background:${WF_COLORS.fixed}"></i>固定 SMA 50/200</span>` +
+    `<span>拖动可放大，双击复位</span>`;
+  renderWfChart();
+  renderWfTable();
+  updateWfChip();
+}
+
+function renderWfChart() {
+  const data = state.wf.data;
+  if (!data || !data.computable) return;
+  const grow = (arr) => arr.map(v => v === null ? null : v * 100);
+  drawChart($('wfChart'), $('wfTip'), {
+    dates: data.dates, height: 380, log: $('wfLog').checked, zoom: state.wf.zoom,
+    setZoom: (range) => { state.wf.zoom = range; renderWfChart(); updateWfChip(); },
+    series: [
+      { name: '一直持有', values: grow(data.curves.hold), color: WF_COLORS.hold, width: 1.4, dash: '4 3' },
+      { name: '固定 50/200', values: grow(data.curves.fixed), color: WF_COLORS.fixed, width: 1.5 },
+      { name: '滚动验证', values: grow(data.curves.wf), color: WF_COLORS.wf, width: 2.1 }
+    ],
+    yFormat: (v) => v.toFixed(0)
+  });
+}
+
+function updateWfChip() {
+  const chip = $('wfZoomChip');
+  const data = state.wf.data;
+  if (!data || !state.wf.zoom || !data.dates) { chip.textContent = ''; return; }
+  const [a, b] = state.wf.zoom;
+  chip.innerHTML = `放大 ${data.dates[a]} ~ ${data.dates[b]} ` +
+    `<a href="#" id="wfZoomReset" style="color:#0072B2">重置</a>`;
+  const link = $('wfZoomReset');
+  if (link) link.onclick = (event) => {
+    event.preventDefault(); state.wf.zoom = null; renderWfChart(); updateWfChip();
+  };
+}
+
+function renderWfTable() {
+  const data = state.wf.data;
+  const rows = data.selections.map(r => {
+    const p = r.period;
+    const cell = (x) => `<td class="${cls(x.ret)}">${sgn(x.ret)}` +
+      `<span class="sub"> / ${pct(x.max_drawdown)}</span></td>`;
+    return `<tr><td>${r.date}</td>` +
+      `<td style="text-align:left;font-weight:600">${r.type.toUpperCase()} ${r.fast}/${r.slow}</td>` +
+      `<td>${num(r.lookback_cagr_over_dd)}</td>` + cell(p.wf) + cell(p.hold) + cell(p.fixed) + '</tr>';
+  }).join('');
+  $('wfTable').innerHTML =
+    '<thead><tr><th>挑选日</th><th style="text-align:left">挑中的组合</th><th>回看 收益÷回撤</th>' +
+    '<th>下一年 WF</th><th>下一年 持有</th><th>下一年 50/200</th></tr></thead><tbody>' +
+    (rows || '<tr><td colspan="6">没有有效挑选日</td></tr>') + '</tbody>';
+  $('wfMeta').textContent = `${data.ticker} · ${data.selections.length} 次挑选 · 换 ${data.stability.changes} 次 · ` +
+    Object.entries(data.stability.types).map(([k, v]) => k.toUpperCase() + '×' + v).join('、');
+}
+
+async function loadWfBoard() {
+  busy(true);
+  try {
+    const data = await getJSON(`/api/wfboard?freq=${$('freq').value}&cash=${$('cash').value}`);
+    state.wfboard.data = data;
+    renderWfBoard();
+  } catch (error) {
+    $('wfHeadline').innerHTML = `<div class="err">${error.message}</div>`;
+    $('wfSubline').textContent = '';
+    $('wfSummary').innerHTML = '';
+    $('wfBoardTable').innerHTML = '';
+    $('wfBoardMeta').textContent = '';
+  } finally { busy(false); }
+}
+
+const WF_COLS = [
+  ['wf_cagr', 'WF 年化'], ['wf_dd', 'WF 回撤'], ['wf_ratio', 'WF 收益÷回撤'],
+  ['hold_cagr', '持有 年化'], ['hold_dd', '持有 回撤'], ['hold_ratio', '持有 收益÷回撤'],
+  ['fixed_cagr', '50/200 年化'], ['fixed_dd', '50/200 回撤'], ['fixed_ratio', '50/200 收益÷回撤'],
+  ['changes', '换组合']
+];
+
+function wfValue(stock, key) {
+  if (key === 'changes') return stock.stability.changes;
+  const [line, metric] = key.split('_');
+  const name = metric === 'dd' ? 'max_drawdown' : metric === 'ratio' ? 'cagr_over_dd' : 'cagr';
+  const row = stock.lines[line];
+  return row && row[name] !== undefined ? row[name] : null;
+}
+
+function renderWfBoard() {
+  const data = state.wfboard.data;
+  if (!data) return;
+  const group = state.wfboard.group;
+  const summary = data.summary[group];
+  const label = group === 'complete' ? '完整期' : '全部';
+  $('wfHeadline').innerHTML = `${label} ${summary.stocks} 只股票里，滚动验证的年化÷回撤胜过固定 SMA 50/200 的有 ` +
+    `<span style="color:${WF_COLORS.wf}">${summary.beats_fixed} 只</span>` +
+    `（${pct(summary.beats_fixed / summary.stocks, 0)}）。`;
+  $('wfSubline').textContent = `${data.frequency === 'daily' ? '每日' : '每周'}信号 · 现金 ` +
+    `${data.cash === 'zero' ? '0 收益' : '国债'} · 评估 2016 年底至 2024-06-28 · 每年按 收益÷回撤 重挑一次 · ` +
+    `生成于 ${data.built}`;
+  const both = [['complete', '完整期'], ['all', '全部']];
+  const row = (title, fn) => `<tr><td style="text-align:left">${title}</td>` +
+    both.map(([k]) => `<td>${fn(data.summary[k])}</td>`).join('') + '</tr>';
+  $('wfSummary').innerHTML = '<table class="board" style="width:780px;table-layout:fixed">' +
+    '<colgroup><col style="width:58%"><col><col></colgroup>' +
+    '<thead><tr><th style="text-align:left">指标</th><th>完整期</th><th>全部</th></tr></thead><tbody>' +
+    row('股票数', s => s.stocks) +
+    row('WF 胜过固定 50/200（收益÷回撤）', s => `${s.beats_fixed}（${pct(s.beats_fixed / s.stocks, 0)}）`) +
+    row('WF 胜过一直持有（收益÷回撤）', s => `${s.beats_hold_ratio}（${pct(s.beats_hold_ratio / s.stocks, 0)}）`) +
+    row('WF 胜过一直持有（年化）', s => `${s.beats_hold_cagr}（${pct(s.beats_hold_cagr / s.stocks, 0)}）`) +
+    row('中位数 年化：WF / 持有 / 50-200',
+        s => `${pct(s.medians.wf.cagr)} / ${pct(s.medians.hold.cagr)} / ${pct(s.medians.fixed.cagr)}`) +
+    row('中位数 最大回撤：WF / 持有 / 50-200',
+        s => `${pct(s.medians.wf.max_drawdown)} / ${pct(s.medians.hold.max_drawdown)} / ${pct(s.medians.fixed.max_drawdown)}`) +
+    row('中位数 收益÷回撤：WF / 持有 / 50-200',
+        s => `${num(s.medians.wf.cagr_over_dd)} / ${num(s.medians.hold.cagr_over_dd)} / ${num(s.medians.fixed.cagr_over_dd)}`) +
+    row('中位数 夏普：WF / 持有 / 50-200',
+        s => `${num(s.medians.wf.sharpe)} / ${num(s.medians.hold.sharpe)} / ${num(s.medians.fixed.sharpe)}`) +
+    row('事后最优 − WF 的收益÷回撤（中位数）', s => num(s.median_ex_post_gap)) +
+    '</tbody></table>';
+
+  const key = state.wfboard.sort;
+  const stocks = data.stocks.slice().sort((a, b) => {
+    if (key === 'ticker') return state.wfboard.dir * (a.ticker < b.ticker ? -1 : a.ticker > b.ticker ? 1 : 0);
+    const x = wfValue(a, key), y = wfValue(b, key);
+    if (x === null) return 1;
+    if (y === null) return -1;
+    return state.wfboard.dir * (x - y);
+  });
+  let head = '<thead><tr><th data-key="ticker" style="text-align:left"' +
+    `${key === 'ticker' ? ' class="sort"' : ''}>股票</th><th>完整期</th>` +
+    WF_COLS.map(([k, title]) => `<th data-key="${k}"${k === key ? ' class="sort"' : ''}>${title}</th>`).join('') +
+    '</tr></thead>';
+  const body = stocks.map(s => {
+    const v = (k) => wfValue(s, k);
+    return `<tr data-ticker="${s.ticker}"><td class="tick">${s.ticker}</td>` +
+      `<td>${s.complete ? '✓' : '<span class="pill">非完整</span>'}</td>` +
+      `<td class="${cls(v('wf_cagr'))}">${sgn(v('wf_cagr'))}</td>` +
+      `<td class="bad">${pct(v('wf_dd'))}</td><td>${num(v('wf_ratio'))}</td>` +
+      `<td class="${cls(v('hold_cagr'))}">${sgn(v('hold_cagr'))}</td>` +
+      `<td class="bad">${pct(v('hold_dd'))}</td><td>${num(v('hold_ratio'))}</td>` +
+      `<td class="${cls(v('fixed_cagr'))}">${sgn(v('fixed_cagr'))}</td>` +
+      `<td class="bad">${pct(v('fixed_dd'))}</td><td>${num(v('fixed_ratio'))}</td>` +
+      `<td>${v('changes')}</td></tr>`;
+  }).join('');
+  $('wfBoardTable').innerHTML = head + '<tbody>' + body + '</tbody>';
+  $('wfBoardTable').querySelectorAll('th[data-key]').forEach(th => th.onclick = () => {
+    const k = th.dataset.key;
+    if (state.wfboard.sort === k) state.wfboard.dir = -state.wfboard.dir;
+    else { state.wfboard.sort = k; state.wfboard.dir = k === 'ticker' ? 1 : -1; }
+    renderWfBoard();
+  });
+  $('wfBoardTable').querySelectorAll('tr[data-ticker]').forEach(tr => tr.onclick = () => {
+    $('stock').value = tr.dataset.ticker;
+    setView('wf');
+    loadWf();
+  });
+  $('wfBoardMeta').textContent = `${data.stocks.length} 只 · ${data.combos} 组 · ` +
+    `${data.skipped.length} 只没有足够历史`;
+}
+
 window.addEventListener('resize', () => {
   if (state.combo && state.view === 'single') { renderPrice(state.combo); renderEquity(state.combo); }
+  if (state.view === 'wf' && state.wf.data) renderWfChart();
 });
 boot();
 </script>

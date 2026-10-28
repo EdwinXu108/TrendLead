@@ -185,12 +185,13 @@ def split_returns(days: list[str], curve) -> list[dict]:
     """The holdout split: 2024 second half, 2025, 2026 first half, from one curve starting at the anchor."""
     values = np.asarray(curve, dtype=float)
     out, base = [], 0
-    for label, bound in (('2024H2', '2024-12-31'), ('2025', '2025-12-31'), ('2026H1', '2026-06-30')):
-        indices = [i for i, day in enumerate(days) if day <= bound]
-        end = indices[-1] if indices else None
-        if end is None or end < base:
-            out.append(dict(period=label, value=None, start=days[base], end=None))
+    for label, low, high in (('2024H2', '2024-06-28', '2024-12-31'), ('2025', '2025-01-01', '2025-12-31'),
+                             ('2026H1', '2026-01-01', '2026-06-30')):
+        indices = [i for i, day in enumerate(days) if low <= day <= high]
+        if not indices:
+            out.append(dict(period=label, value=None, start=None, end=None))
             continue
+        end = indices[-1]
         out.append(dict(period=label, value=float(values[end] / values[base] - 1),
                         start=days[base], end=days[end]))
         base = end

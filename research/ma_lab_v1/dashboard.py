@@ -10,6 +10,7 @@ Then open http://127.0.0.1:8765 (the browser opens by itself with --open).
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import sys
 import threading
@@ -335,8 +336,18 @@ def main():
     class Server(HTTPServer):
         allow_reuse_address = False
 
-    server = Server(('127.0.0.1', args.port), Handler)
     url = f'http://127.0.0.1:{args.port}/'
+    try:
+        server = Server(('127.0.0.1', args.port), Handler)
+    except OSError as error:
+        busy = getattr(error, 'winerror', None) == 10048 or error.errno in (errno.EADDRINUSE, 48)
+        if not busy:
+            raise
+        # a second launch is not an error: the dashboard is already up, so just point the browser at it
+        print(f'port {args.port} is already in use; the dashboard is already running at {url}', flush=True)
+        if args.open:
+            webbrowser.open(url)
+        return
     print(f'ma_lab dashboard on {url}  (Ctrl+C to stop)', flush=True)
     if args.open:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()

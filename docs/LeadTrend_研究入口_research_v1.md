@@ -139,3 +139,19 @@ print(out['summary']['excess_cagr'])
 - **遇到未解决的公司行动会报错停止，不会默默算错。**目前开发段没有未解决的公司行动。
 - **少数分拆仍按有标识的代理估值**（复权因子或开盘缺口），见 `corporate_actions.resolution`。
 - **新库与旧库的经济结果：**TERRA_R1 的 28 条运行已核对，复用成立（见 `work/handoff/` 中的审阅记录）。2026-10-27 之后的两项变更会改变结果：排除 ACE/CMCSK（对 `MOM_EQ_10bp` 只改排名与池内公司数）与“缺一日容忍”（同一配置的 10bp 超额由 0.33% 变为 0.46%，成交 3830→3820 笔，17 个“信号日 × 证券”用到该容忍）。旧结果不再与当前引擎逐字节相同。
+
+## 7. 单只股票均线模块 ma_lab
+
+给一只股票、一个区间、多种均线与多组快慢参数，算每组"为多持有、为空现金"的周度策略，并与同区间一直持有对比。登记见 `research/ma_lab_v1/spec.md`。
+
+```bash
+python -X utf8 -m leadtrend_bt.ma_lab --security MSFT --start 2014-02-28 --end 2024-06-28 \
+  --types sma,ema,wma,dema,tema,hma,kama --fast 5,10,20,30,50 --slow 50,100,150,200,250 \
+  --cash zero --out work/ma_lab/MSFT --save-equity
+```
+
+- 证券可给代码（精确匹配 `strategy_securities.current_ticker`，有歧义会报错并列出候选）或 `security_id`；`end` 不得晚于 2024-06-28，`start` 不早于 2012-12-03。
+- 均线用该证券自己的 `tri_daily` 总回报、从 2012-12-03 起算（预热参与计算），缺价沿用前一日；7 种类型见 `MOVING_AVERAGES` 字典，新增类型只要加一个"名称 → 函数"。
+- 每周五收盘快线严格大于慢线为多，从该收盘持到下一个周五收盘；现金口径 `zero` 或 `dtb3`。
+- 输出 `results.csv`（一直持有第一行）、`report.md`（每种均线一张快线 × 慢线方阵，加收益÷回撤前 10 与后 10）、可选 `equity_daily.csv`。
+- 演示结果在 `research/ma_lab_v1/`（MSFT，168 组 × 2 种现金口径）。

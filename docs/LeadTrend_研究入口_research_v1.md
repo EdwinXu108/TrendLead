@@ -165,3 +165,5 @@ python -X utf8 -m leadtrend_bt.ma_lab --security MSFT --start 2014-02-28 --end 2
 - **速度：** 换一只新股票约 0.6 秒（`fast_rows.py` 一次建好索引与信号位置、回撤用累计最大值，462 行与 `ma_lab.run_lab` 逐字段相同，有测试守着）。
 - **全市场排行：** `research/ma_lab_v1/build_leaderboard.py` 预先算好全部 317 个代码 × 462 组的每股最优组合，写成 `leaderboard_<freq>_<cash>.json`；按同一组指标给股票排名，可只看"从起点就有效"的组合，点一行跳到该股详情。**两个排行都是样本内最优，不是可预期收益。**
 - 地址栏带上当前状态（`?security=NVDA&type=sma&fast=3&slow=250&freq=daily&view=single`），可收藏或分享。看板只读本地库，单线程 `HTTPServer`，不写任何文件；配色用 Okabe-Ito 蓝/橙，红绿色弱下仍可区分。
+
+**滚动验证。** 每年最后一个信号日收盘，只用之前的数据，从 462 组里按 年化÷|回撤| 挑一组，下一年用它；与一直持有、固定 SMA 50/200 比较，事后最优只作参照。计算在 `leadtrend_bt/ma_walk.py`，跑全部股票用 `python -X utf8 research/wf_v1/run_wf.py`（四种口径各约 52 秒），结果在 `research/wf_v1/wf_<freq>_<cash>.json` 与 `report.md`，登记见 `research/wf_v1/spec.md`。看板新增「滚动验证」（`?view=wf&security=MSFT`：三条线 + 每年挑选表）与「滚动验证汇总」（`?view=wfboard`：完整期/全部两组、可排序的每股表）。股票名单改为 `strategy_securities` 中至少一行 `strategy_eligible = 1` 的不歧义代码，共 318 只（原 339 只里去掉 21 只全为不可选的，CB 在内）。

@@ -53,3 +53,29 @@ def test_rebalance_is_overridable_because_the_m2_grid_registered_both_modes():
 def test_reserved_segment_is_rejected():
     with pytest.raises(ValueError):
         signal_layer_config('x', end='2024-07-05')
+
+
+def test_trend_config_carries_the_signal_layer_execution_rules():
+    from leadtrend_bt.signal_layer import trend_config
+    cfg = trend_config('T_sma50_200_N10_equal_zero', 'sma', 50, 200, 10, 'equal', 'zero')
+    assert cfg == dict(run_id='T_sma50_200_N10_equal_zero', mode='trend', ma='sma', fast=50, slow=200,
+                       top_n=10, slot='equal', cash_rate='zero', universe='pool', fractional=True,
+                       cost_bps=0, fee_per_order=0.0, execution='close', start='2014-02-28',
+                       end='2024-06-28', capital=100000.0, protocol='research_v1')
+    assert 'b' not in cfg and 'K' not in cfg and 'rebalance' not in cfg
+
+
+def test_trend_config_rejects_unknown_values():
+    from leadtrend_bt.signal_layer import trend_config
+    for kwargs in (dict(ma='hull'), dict(slot='risk'), dict(cash_rate='libor'), dict(universe='SPY')):
+        base = dict(ma='sma', fast=50, slow=200, top_n=10, slot='equal', cash_rate='zero')
+        base.update(kwargs)
+        with pytest.raises(ValueError):
+            trend_config('x', **base)
+
+
+def test_trend_config_keeps_the_defaults_of_signal_layer_config():
+    from leadtrend_bt.signal_layer import SIGNAL_LAYER, trend_config
+    cfg = trend_config('x', 'ema', 20, 100, 5, 'amount', 'dtb3', universe='VOO')
+    for key in ('fractional', 'cost_bps', 'fee_per_order', 'execution', 'start', 'end', 'capital', 'protocol'):
+        assert cfg[key] == SIGNAL_LAYER[key]

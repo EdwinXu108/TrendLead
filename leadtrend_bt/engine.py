@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 
 from leadtrend_db import api
 
+from . import trend
+
 LAST_ALLOWED_END = '2024-06-28'
 BENCH = 'BENCH:VOO'
 POOL_MODES = ('pool_ew', 'pool_cw', 'top10_cw', 'pool')
@@ -71,6 +73,7 @@ class Tranche:
     buy_cost: dict[str, float] = field(default_factory=dict)      # per issuer
     sell_proceeds: dict[str, float] = field(default_factory=dict)
     income: dict[str, float] = field(default_factory=dict)
+    interest: float = 0.0                                        # cash interest credited in trend mode
     trades: int = 0
 
 
@@ -107,6 +110,31 @@ class Backtest:
         self.ranking = str(self.cfg.get('ranking', 'momentum'))
         if self.ranking not in ('momentum', 'size', 'signal'):
             raise ValueError("ranking must be 'momentum', 'size' or 'signal'")
+        # trend mode: every holding follows its own moving-average signal (research/trend_v1/spec.md)
+        self.ma = str(self.cfg.get('ma', 'sma'))
+        self.fast = int(self.cfg.get('fast', 50))
+        self.slow = int(self.cfg.get('slow', 200))
+        self.slot = str(self.cfg.get('slot', 'equal'))
+        self.cash_rate = str(self.cfg.get('cash_rate', 'zero'))
+        self.universe = str(self.cfg.get('universe', 'pool'))
+        self.trend_signal: dict[str, dict[str, bool]] = {}
+        self.rf: dict[str, float] = dict(self.cfg.get('rf') or {})
+        if self.mode == 'trend':
+            if self.ma not in ('sma', 'ema', 'macd', 'always'):
+                raise ValueError("ma must be 'sma', 'ema', 'macd' or 'always'")
+            if self.slot not in ('equal', 'amount'):
+                raise ValueError("slot must be 'equal' or 'amount'")
+            if self.cash_rate not in ('zero', 'dtb3'):
+                raise ValueError("cash_rate must be 'zero' or 'dtb3'")
+            if self.universe not in ('pool', 'VOO'):
+                raise ValueError("universe must be 'pool' or 'VOO'")
+            if self.ma == 'macd':
+                self.fast, self.slow = trend.MACD[0], trend.MACD[1]
+            if not self.cfg.get('top_n'):
+                raise ValueError('trend mode requires top_n')
+            self.N = int(self.cfg['top_n'])
+            if self.N < 1:
+                raise ValueError('top_n must be positive')
         self.signal_name = str(self.cfg.get('signal', ''))
         self.signal_scores: dict[str, dict[str, float]] = {}
         self.execution = str(self.cfg.get('execution', 'next_open'))
@@ -156,9 +184,11 @@ class Backtest:
 
     # -- data ---------------------------------------------------------------------------------------------------
     def _cache_key(self):
-        family = 'pool' if self.mode in POOL_MODES else ('voo' if self.mode == 'voo' else 'signal')
-        return (api.database_identity(self.db_path), self.start, self.end, family, self.protocol, self.L,
-                self.ranking, self.signal_name)
+        family = ('trend' if self.mode == 'trend' else
+                  'pool' if self.mode in POOL_MODES else ('voo' if self.mode == 'voo' else 'signal'))
+        key = (api.database_identity(self.db_path), self.start, self.end, family, self.protocol, self.L,
+               self.ranking, self.signal_name)
+        return key + ((self.universe,) if self.mode == 'trend' else ())
 
     def load(self) -> None:
         if self.market is not None:
@@ -226,7 +256,11 @@ class Backtest:
         if self.terra_r1:
             self.continuity_links = api.issuer_continuity(db)
         from datetime import date, timedelta
-        lookback = (date.fromisoformat(self.start) - timedelta(days=max(400, (self.L + 10) * 2))).isoformat()
+        if self.mode == 'trend':
+            # moving averages need the security's whole stored history, not the L-day lookback of momentum
+            lookback = '2012-12-01'
+        else:
+            lookback = (date.fromisoformat(self.start) - timedelta(days=max(400, (self.L + 10) * 2))).isoformat()
         self.full_calendar = api.trading_days(lookback, self.end, db)
         self.calendar = [d for d in self.full_calendar if d >= self.start]
         self.signal_days = [d for d in api.friday_signal_days(self.start, self.end, db) if d >= self.start]
@@ -235,6 +269,18 @@ class Backtest:
         ids: set[str] = set()
         if self.mode == 'voo':
             ids = {BENCH}
+        elif self.mode == 'trend' and self.universe == 'VOO':
+            ids = {BENCH}
+            for day in self.signal_days:
+                self.pools[day] = dict(version_id='VOO',
+                                       amounts={BENCH: dict(issuer_id=BENCH, amount_cents=1.0)},
+                                       company_amounts={BENCH: 1.0},
+                                       securities=[dict(security_id=BENCH, issuer_id=BENCH, class_code='',
+                                                        current_security_id=BENCH, current_ticker='VOO',
+                                                        security_type='ETF', company='Vanguard 500 Index Fund',
+                                                        amount_cents=1.0, company_amount_cents=1.0)])
+                self.amounts[day] = {BENCH: 1.0}
+                self.issuer[BENCH] = BENCH
         elif self.mode in POOL_MODES:
             windows = [w for w in api.pool_windows(self.start, self.end, db) if w['effective_to'] >= self.start]
             for window in windows:
@@ -1039,10 +1085,17 @@ class Backtest:
     # -- main loop ----------------------------------------------------------------------------------------------
     def run(self) -> dict:
         self.load()
+        if self.mode == 'trend':
+            self.trend_signal = trend.signal_table(self, self.ma, self.fast, self.slow)
+            if self.cash_rate == 'dtb3' and not self.rf:
+                self.rf = (api.rf_daily(self.start, self.end, self.db_path) if self.db_path
+                           else api.rf_daily(self.start, self.end))
         self.tranches = [Tranche(index=j, cash=self.capital / self.K) for j in range(self.K)]
         signal_index = {day: i for i, day in enumerate(self.signal_days)}
         for day in self.calendar:
             self._apply_actions(day)
+            if self.mode == 'trend' and self.cash_rate == 'dtb3':
+                self._accrue_cash(day)
             if self.mode in POOL_MODES:
                 # a new pool version is held from the execution price of its first session
                 if day in self.pool_days:
@@ -1068,7 +1121,78 @@ class Backtest:
         for tranche in self.tranches:
             if week < tranche.index or (week - tranche.index) % self.K:
                 continue
-            self._queue_momentum(tranche, day)
+            if self.mode == 'trend':
+                self._queue_trend(tranche, day)
+            else:
+                self._queue_momentum(tranche, day)
+
+    def _trend_targets(self, day: str) -> list[tuple[str, str, float]]:
+        """The N largest companies of the day, one purchasable class each, largest fund amount first."""
+        pool = self.pools.get(day) or {}
+        ranked = sorted(pool.get('securities', []),
+                        key=lambda sec: (-float(sec.get('company_amount_cents') or 0.0), sec['security_id']))
+        return [(sec['security_id'], sec['issuer_id'], float(sec.get('company_amount_cents') or 0.0))
+                for sec in ranked[:self.N]]
+
+    def _accrue_cash(self, day: str) -> None:
+        rate = self.rf.get(day)
+        if not rate:
+            return
+        for tranche in self.tranches:
+            if tranche.cash <= 0:
+                continue
+            amount = tranche.cash * rate
+            tranche.cash += amount
+            tranche.interest += amount
+
+    def _queue_trend(self, tranche: Tranche, day: str) -> None:
+        """Each holding follows its own signal: exit on a bearish signal, a pool exit or a class switch; enter the
+        largest companies that are long and not held. Held names are never resized (research/trend_v1/spec.md)."""
+        ranked = self._trend_targets(day)
+        if not ranked:
+            return
+        signal = self.trend_signal.get(day, {})
+        target_sids = {sid for sid, _, _ in ranked}
+        target_by_issuer = {issuer: sid for sid, issuer, _ in ranked}
+        sells: list[tuple[str, str]] = []
+        switch: dict[str, str] = {}
+        for sid in list(tranche.positions):
+            issuer = tranche.issuer_of.get(sid, '')
+            if sid in target_sids:
+                if not signal.get(sid, False):
+                    sells.append((sid, 'signal'))
+            elif issuer in target_by_issuer:
+                sells.append((sid, 'class_switch'))
+                switch[target_by_issuer[issuer]] = sid
+            else:
+                sells.append((sid, 'pool'))
+        sold = {sid for sid, _ in sells}
+        proceeds = sum(tranche.positions[sid] * (self.close_on(sid, day) or 0.0) for sid in sold)
+        held_value = sum(tranche.positions[sid] * (self.close_on(sid, day) or 0.0)
+                         for sid in tranche.positions if sid not in sold)
+        equity = tranche.cash + proceeds + held_value
+        buys: list[tuple[str, str, float]] = []
+        for new_sid, old_sid in switch.items():
+            if signal.get(new_sid, False):
+                buys.append((new_sid, 'class_switch', tranche.positions[old_sid] * (self.close_on(old_sid, day) or 0.0)))
+        held_issuers = {tranche.issuer_of.get(sid, '') for sid in tranche.positions if sid not in sold}
+        total_amount = sum(amount for _, _, amount in ranked)
+        for sid, issuer, amount in ranked:
+            if sid in switch or issuer in held_issuers or sid in sold or not signal.get(sid, False):
+                continue
+            target = (equity * amount / total_amount if self.slot == 'amount' and total_amount > 0
+                      else equity / self.N)
+            buys.append((sid, 'signal', target))
+        for sid, reason in sells:
+            self.pending.append(dict(tranche=tranche.index, security_id=sid, side='sell', reason=reason,
+                                     signal_date=day, weight=0.0))
+            self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid, action='sell',
+                                       rank='', score='', window_missing=0))
+        for sid, reason, notional in buys:
+            self.pending.append(dict(tranche=tranche.index, security_id=sid, side='buy', reason=reason,
+                                     signal_date=day, weight=0.0, notional=notional))
+            self.decisions.append(dict(signal_date=day, tranche=tranche.index, security_id=sid, action='buy',
+                                       rank='', score='', window_missing=0))
 
     def _mark(self, day: str) -> None:
         if self.terra_r1:
@@ -1155,7 +1279,7 @@ class Backtest:
             if any(t.cash < -1e-7 for t in self.tranches):
                 raise ArithmeticError(f'{day}: negative cash')
             ledger = sum(sum(t.sell_proceeds.values()) + sum(t.income.values()) - sum(t.buy_cost.values())
-                         for t in self.tranches) + value
+                         + t.interest for t in self.tranches) + value
             if abs(ledger - (cash + value - self.capital)) > 1e-5:
                 raise ArithmeticError(f'{day}: issuer ledger does not reconcile')
         self.daily.append(dict(date=day, cash=cash, positions_value=value, equity=cash + value, benchmark=bench))

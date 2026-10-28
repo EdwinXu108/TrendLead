@@ -56,3 +56,30 @@ def signal_layer_config(run_id: str, **overrides) -> dict:
     if cfg['start'] >= cfg['end']:
         raise ValueError('start must be before end')
     return cfg
+
+
+def trend_config(run_id: str, ma: str, fast: int, slow: int, top_n: int, slot: str, cash_rate: str,
+                 universe: str = 'pool') -> dict:
+    """A complete trend-mode configuration under the same signal-layer execution rules.
+
+    b, K and rebalance do not exist in trend mode: every holding has its own exit, so there is no buffer, no
+    tranching and no rebalancing. Registered in research/trend_v1/spec.md.
+    """
+    cfg = {key: value for key, value in SIGNAL_LAYER.items() if key not in ('b', 'K', 'rebalance')}
+    cfg.update(mode='trend', ma=ma, fast=int(fast), slow=int(slow), top_n=int(top_n), slot=slot,
+               cash_rate=cash_rate, universe=universe, run_id=run_id)
+    if cfg['protocol'] != 'research_v1':
+        raise ValueError('trend mode runs under research_v1')
+    if cfg['end'] > LAST_ALLOWED_END:
+        raise ValueError(f'end {cfg["end"]} is in the reserved segment')
+    if cfg['start'] >= cfg['end']:
+        raise ValueError('start must be before end')
+    if ma not in ('sma', 'ema', 'macd', 'always'):
+        raise ValueError(f'unknown moving average: {ma}')
+    if slot not in ('equal', 'amount'):
+        raise ValueError(f'unknown slot rule: {slot}')
+    if cash_rate not in ('zero', 'dtb3'):
+        raise ValueError(f'unknown cash rate: {cash_rate}')
+    if universe not in ('pool', 'VOO'):
+        raise ValueError(f'unknown universe: {universe}')
+    return cfg

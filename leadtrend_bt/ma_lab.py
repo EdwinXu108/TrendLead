@@ -164,10 +164,13 @@ def resolve_security(security: str, db_path=None) -> str:
 
 def _total_return(sid: str, end: str, db_path=None) -> tuple[list[str], np.ndarray]:
     rows = api.tri_series([sid], FIRST_DAY, end, db_path)[sid]
-    days = [r[0] for r in rows if r[1] is not None]
-    values = np.array([float(r[1]) for r in rows if r[1] is not None])
-    if len(days) < 2:
+    observed = {r[0]: float(r[1]) for r in rows if r[1] is not None}
+    if len(observed) < 2:
         raise ValueError(f'{sid}: no total-return history up to {end}')
+    # the full trading calendar from the first observation, so a missing session (even a Friday) is carried
+    # forward instead of dropping out of the index
+    days = api.trading_days(min(observed), end, db_path)
+    values = np.array([observed.get(d, np.nan) for d in days])
     return days, carry_forward(values)
 
 

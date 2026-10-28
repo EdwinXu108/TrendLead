@@ -271,3 +271,11 @@ def test_msft_sma_50_200_matches_the_trend_v1_per_stock_file():
     assert abs(rule['max_drawdown'] - float(row['dd_rule'])) * 100 <= 0.01
     assert abs(hold['cagr'] - float(row['cagr_hold'])) * 100 <= 0.01
     assert abs(hold['max_drawdown'] - float(row['dd_hold'])) * 100 <= 0.01
+
+
+def test_missing_friday_is_carried_forward():
+    """BIIB has no bar on Friday 2020-11-06; the lab carries the previous close instead of failing."""
+    from leadtrend_bt.ma_lab import run_lab
+    out = run_lab('BIIB', '2020-10-02', '2020-12-31', types=['sma'], fasts=[5], slows=[50],
+                  db_path='data/db/leadtrend_db_v1.sqlite')
+    assert out['rows'] and out['buy_hold']['cagr'] == out['buy_hold']['cagr']

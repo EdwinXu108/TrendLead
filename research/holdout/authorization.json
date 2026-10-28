@@ -1,0 +1,8 @@
+{
+  "authorized_by": "investor",
+  "date": "2026-10-29",
+  "scope": "wf_v2",
+  "window": ["2024-07-01", "2026-06-30"],
+  "database": "data/db/leadtrend_db_full_v1.sqlite",
+  "rule": "保留段只检验截至 2024-06-28 冻结的参数与对照，不参与选参；登记后只跑一次"
+}

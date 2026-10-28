@@ -155,3 +155,5 @@ python -X utf8 -m leadtrend_bt.ma_lab --security MSFT --start 2014-02-28 --end 2
 - 每周五收盘快线严格大于慢线为多，从该收盘持到下一个周五收盘；现金口径 `zero` 或 `dtb3`。
 - 输出 `results.csv`（一直持有第一行）、`report.md`（每种均线一张快线 × 慢线方阵，加收益÷回撤前 10 与后 10）、可选 `equity_daily.csv`。
 - 演示结果在 `research/ma_lab_v1/`（MSFT，168 组 × 2 种现金口径）。
+
+**可视化看板。** 双击仓库根目录的 `dashboard.bat`（或运行 `python -X utf8 research/ma_lab_v1/dashboard.py --open`），浏览器会打开 `http://127.0.0.1:8765/`。页面顶部选股票、区间和现金口径，左侧选均线类型与快慢线（或直接点 5×5 方阵里的一格），右侧显示：复权股价与快慢线、买入 ▲ / 卖出 ▼ 标记、累计收益（策略 vs 一直持有）、8 个指标卡、每段持有的起止与收益、逐年收益。地址栏会带上当前状态（`?security=NVDA&type=ema&fast=20&slow=100&cash=dtb3`），可以直接收藏或分享。看板只读本地库，用 `HTTPServer` 单线程运行，不写任何文件。

@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LeadTrend · 单只股票均线看板</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --line: #e3e6ea; --text: #1f2328; --muted: #6b7280;
+    --up: #d14b4b; --down: #2e9e5b; --accent: #2f6fdb; --accent-soft: #e8f0fd;
+    --fast: #e08a1e; --slow: #7a53c4;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 13px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  header { display: flex; align-items: center; gap: 14px; padding: 12px 20px; background: var(--card);
+           border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20; flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0 8px 0 0; font-weight: 650; letter-spacing: .2px; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .ctrl { display: flex; align-items: center; gap: 6px; }
+  .ctrl label { color: var(--muted); font-size: 12px; }
+  select, input { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px;
+                  background: #fff; color: var(--text); }
+  input[type=date] { width: 130px; }
+  button { font: inherit; padding: 4px 12px; border: 1px solid var(--line); border-radius: 6px;
+           background: #fff; cursor: pointer; }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  main { display: grid; grid-template-columns: 300px 1fr; gap: 14px; padding: 14px 20px 28px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+  .card h2 { font-size: 12px; font-weight: 650; color: var(--muted); margin: 0; padding: 10px 12px 6px;
+             letter-spacing: .3px; }
+  .panel { padding: 0 12px 12px; }
+  .types { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 12px 10px; }
+  .types button { padding: 3px 8px; font-size: 12px; }
+  .types button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .row { display: flex; gap: 8px; padding: 0 12px 10px; }
+  .row > div { flex: 1; }
+  .row label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 2px; }
+  .row select { width: 100%; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { padding: 3px 6px; text-align: right; font-variant-numeric: tabular-nums; }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; }
+  .matrix td { cursor: pointer; border-radius: 4px; font-size: 11.5px; }
+  .matrix td:hover { outline: 1px solid var(--accent); }
+  .matrix td.on { outline: 2px solid var(--accent); }
+  .matrix td.na { color: #c3c8d0; cursor: default; }
+  .matrix th { font-size: 10.5px; }
+  .kpis { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; margin-bottom: 12px; }
+  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  .kpi .k { color: var(--muted); font-size: 11px; }
+  .kpi .v { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .kpi .b { color: var(--muted); font-size: 11px; margin-top: 1px; }
+  .up { color: var(--up); } .down { color: var(--down); }
+  .chart { position: relative; padding: 4px 8px 8px; }
+  .chart svg { display: block; width: 100%; }
+  .legend { display: flex; gap: 14px; padding: 2px 12px 0; color: var(--muted); font-size: 11.5px; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 5px;
+              vertical-align: middle; }
+  .tip { position: absolute; pointer-events: none; background: rgba(31,35,40,.92); color: #fff; padding: 6px 8px;
+         border-radius: 6px; font-size: 11.5px; line-height: 1.45; white-space: nowrap; opacity: 0;
+         transition: opacity .08s; z-index: 5; }
+  .grid2 { display: grid; grid-template-columns: 1.25fr 1fr; gap: 12px; margin-top: 12px; }
+  .scroll { max-height: 300px; overflow: auto; }
+  .scroll thead th { position: sticky; top: 0; background: var(--card); }
+  .note { color: var(--muted); font-size: 11.5px; padding: 0 12px 10px; }
+  .err { margin: 20px; padding: 12px; border: 1px solid #f0c2c2; background: #fdf3f3; color: #8a2b2b;
+         border-radius: 8px; }
+  .pill { display: inline-block; padding: 1px 6px; border-radius: 999px; background: var(--accent-soft);
+          color: var(--accent); font-size: 11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>LeadTrend · 单只股票均线看板</h1>
+  <div class="ctrl"><label>股票</label><select id="stock"></select></div>
+  <div class="ctrl"><label>起</label><input id="start" type="date" value="2014-02-28"></div>
+  <div class="ctrl"><label>止</label><input id="end" type="date" value="2024-06-28"></div>
+  <div class="ctrl"><label>空仓现金</label>
+    <select id="cash"><option value="zero">0 收益</option><option value="dtb3">3 个月国债</option></select>
+  </div>
+  <button id="reload">重新加载</button>
+  <span class="sub" id="meta"></span>
+</header>
+
+<main>
+  <section>
+    <div class="card">
+      <h2>均线组合</h2>
+      <div class="types" id="types"></div>
+      <div class="row">
+        <div><label>快线</label><select id="fast"></select></div>
+        <div><label>慢线</label><select id="slow"></select></div>
+      </div>
+      <div class="panel">
+        <table class="matrix" id="matrix"></table>
+        <div class="note">单元格：年化 / 最大回撤；颜色按 年化÷|回撤|，红好绿差。点击选中。</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="kpis" id="kpis"></div>
+
+    <div class="card">
+      <h2><span id="priceTitle">价格与买卖点</span>
+        <label style="float:right;font-weight:400;cursor:pointer">
+          <input type="checkbox" id="logScale" checked style="vertical-align:-1px"> 对数轴</label></h2>
+      <div class="legend" id="priceLegend"></div>
+      <div class="chart" id="priceChart"><div class="tip" id="priceTip"></div></div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <h2>累计收益（起点 = 100）</h2>
+      <div class="legend" id="equityLegend"></div>
+      <div class="chart" id="equityChart"><div class="tip" id="equityTip"></div></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h2>每段持有（按信号切换切分）</h2>
+        <div class="scroll panel"><table id="segments"></table></div>
+      </div>
+      <div class="card">
+        <h2>年度收益</h2>
+        <div class="scroll panel"><table id="annual"></table></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { meta: null, overview: null, combo: null, type: 'sma', fast: 50, slow: 200 };
+const pct = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? '—'
+  : (v * 100).toFixed(d) + '%';
+const sgn = (v, d = 1) => (v === null || v === undefined) ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(d) + '%';
+const cls = (v) => v === null || v === undefined ? '' : (v >= 0 ? 'up' : 'down');
+const num = (v, d = 2) => (v === null || v === undefined) ? '—' : v.toFixed(d);
+
+async function getJSON(url) {
+  const response = await fetch(url);
+  const body = await response.json();
+  if (!response.ok || body.error) throw new Error(body.error || response.statusText);
+  return body;
+}
+
+function params() {
+  return `security=${encodeURIComponent($('stock').value)}&start=${$('start').value}` +
+         `&end=${$('end').value}&cash=${$('cash').value}`;
+}
+
+async function boot() {
+  try {
+    const info = await getJSON('/api/stocks');
+    const stock = $('stock');
+    stock.innerHTML = info.stocks.map(s =>
+      `<option value="${s.ticker}">${s.ticker}${s.name ? ' · ' + s.name : ''}</option>`).join('');
+    stock.value = info.stocks.some(s => s.ticker === 'MSFT') ? 'MSFT' : info.stocks[0].ticker;
+    const link = new URLSearchParams(location.search);
+    if (link.get('security') && info.stocks.some(s => s.ticker === link.get('security'))) {
+      stock.value = link.get('security');
+    }
+    if (link.get('start')) $('start').value = link.get('start');
+    if (link.get('end')) $('end').value = link.get('end');
+    if (link.get('cash')) $('cash').value = link.get('cash');
+    if (link.get('type') && info.types.includes(link.get('type'))) state.type = link.get('type');
+    if (link.get('fast')) state.fast = +link.get('fast');
+    if (link.get('slow')) state.slow = +link.get('slow');
+    $('types').innerHTML = info.types.map(t => `<button data-type="${t}">${t.toUpperCase()}</button>`).join('');
+    $('types').querySelectorAll('button').forEach(b => b.onclick = () => {
+      state.type = b.dataset.type; state.fast = null; state.slow = null; loadOverview();
+    });
+    $('reload').onclick = () => loadOverview();
+    $('stock').onchange = () => loadOverview();
+    $('cash').onchange = () => loadOverview();
+    $('start').onchange = () => loadOverview();
+    $('end').onchange = () => loadOverview();
+    await loadOverview();
+  } catch (error) {
+    document.querySelector('main').innerHTML = `<div class="err">加载失败：${error.message}</div>`;
+  }
+}
+
+async function loadOverview() {
+  const data = await getJSON('/api/overview?' + params());
+  state.overview = data;
+  state.meta = data.meta;
+  $('meta').textContent = `${data.meta.security_id} · ${data.meta.evaluation_start} 至 ${data.meta.evaluation_end}` +
+                          ` · ${data.meta.signal_days} 个信号周`;
+  document.querySelectorAll('#types button').forEach(b =>
+    b.classList.toggle('on', b.dataset.type === state.type));
+  const combos = data.combos.filter(c => c.type === state.type);
+  const fasts = [...new Set(combos.map(c => c.fast))].sort((a, b) => a - b);
+  const slows = [...new Set(combos.map(c => c.slow))].sort((a, b) => a - b);
+  $('fast').innerHTML = fasts.map(v => `<option>${v}</option>`).join('');
+  $('slow').innerHTML = slows.map(v => `<option>${v}</option>`).join('');
+  const current = combos.find(c => c.fast === state.fast && c.slow === state.slow) || combos[0];
+  state.fast = current.fast; state.slow = current.slow;
+  $('fast').value = state.fast; $('slow').value = state.slow;
+  $('fast').onchange = () => { state.fast = +$('fast').value; selectCombo(); };
+  $('slow').onchange = () => { state.slow = +$('slow').value; selectCombo(); };
+  renderMatrix(combos, fasts, slows);
+  const url = new URL(location.href);
+  url.search = `security=${encodeURIComponent($('stock').value)}&start=${$('start').value}` +
+               `&end=${$('end').value}&cash=${$('cash').value}` +
+               `&type=${state.type}&fast=${state.fast}&slow=${state.slow}`;
+  history.replaceState(null, '', url);
+  await selectCombo();
+}
+
+function renderMatrix(combos, fasts, slows) {
+  const index = new Map(combos.map(c => [c.fast + '/' + c.slow, c]));
+  const ratios = combos.map(c => c.cagr_over_dd).filter(v => v !== null);
+  const lo = Math.min(...ratios), hi = Math.max(...ratios);
+  const shade = (v) => {
+    if (v === null) return '';
+    const t = hi === lo ? 0.5 : (v - lo) / (hi - lo);
+    const good = [209, 75, 75], bad = [46, 158, 91];
+    const mix = good.map((c, i) => Math.round(c * t + bad[i] * (1 - t)));
+    return `background: rgba(${mix[0]},${mix[1]},${mix[2]},${0.10 + 0.22 * t});`;
+  };
+  let html = '<thead><tr><th></th>' + slows.map(s => `<th>${s}</th>`).join('') + '</tr></thead><tbody>';
+  for (const f of fasts) {
+    html += `<tr><th>${f}</th>`;
+    for (const s of slows) {
+      const c = index.get(f + '/' + s);
+      if (!c) { html += '<td class="na">—</td>'; continue; }
+      const on = c.fast === state.fast && c.slow === state.slow ? ' on' : '';
+      html += `<td class="${on}" data-f="${f}" data-s="${s}" style="${shade(c.cagr_over_dd)}" ` +
+              `title="${c.type}_${f}_${s} 年化 ${pct(c.cagr)} 回撤 ${pct(c.max_drawdown)} 夏普 ${num(c.sharpe)}">` +
+              `${pct(c.cagr)}<br><span style="color:#6b7280">${pct(c.max_drawdown)}</span></td>`;
+    }
+    html += '</tr>';
+  }
+  $('matrix').innerHTML = html + '</tbody>';
+  $('matrix').querySelectorAll('td[data-f]').forEach(td => td.onclick = () => {
+    state.fast = +td.dataset.f; state.slow = +td.dataset.s;
+    $('fast').value = state.fast; $('slow').value = state.slow;
+    selectCombo();
+  });
+}
+
+async function selectCombo() {
+  const url = `/api/combo?${params()}&type=${state.type}&fast=${state.fast}&slow=${state.slow}`;
+  const data = await getJSON(url);
+  state.combo = data;
+  document.querySelectorAll('#matrix td[data-f]').forEach(td =>
+    td.classList.toggle('on', +td.dataset.f === state.fast && +td.dataset.s === state.slow));
+  renderKpis(data);
+  renderPrice(data);
+  renderEquity(data);
+  renderSegments(data);
+  renderAnnual(data);
+}
+
+function renderKpis(c) {
+  const m = c.metrics, h = state.overview.buy_hold;
+  const card = (k, v, base, klass = '') =>
+    `<div class="kpi"><div class="k">${k}</div><div class="v ${klass}">${v}</div>` +
+    `<div class="b">${base}</div></div>`;
+  $('kpis').innerHTML =
+    card('年化', pct(m.cagr), '持有 ' + pct(h.cagr), cls(m.cagr)) +
+    card('总收益', pct(m.total_return, 0), '持有 ' + pct(h.total_return, 0), cls(m.total_return)) +
+    card('最大回撤', pct(m.max_drawdown), '持有 ' + pct(h.max_drawdown), 'down') +
+    card('收益÷回撤', num(m.cagr_over_dd), '持有 ' + num(h.cagr_over_dd)) +
+    card('夏普', num(m.sharpe), '持有 ' + num(h.sharpe)) +
+    card('在场比例', pct(m.invested_share, 0), `买入 ${m.buys} 次`) +
+    card('平均持有', num(m.average_holding_weeks, 1) + ' 周', `共 ${c.segments.length} 段`) +
+    card('回撤区间', m.trough_date || '—', '峰 ' + (m.peak_date || '—'));
+}
+
+function niceTicks(min, max, count) {
+  const span = max - min || 1;
+  const step = Math.pow(10, Math.floor(Math.log10(span / count)));
+  const mult = [1, 2, 2.5, 5, 10].find(k => span / (step * k) <= count) || 10;
+  const size = step * mult;
+  const start = Math.ceil(min / size) * size;
+  const ticks = [];
+  for (let v = start; v <= max + 1e-9; v += size) ticks.push(v);
+  return ticks;
+}
+
+function logTicks(lo, hi) {
+  const out = [];
+  for (let k = Math.floor(lo); k <= Math.ceil(hi); k++) {
+    for (const m of [1, 2, 5]) {
+      const t = Math.log10(m) + k;
+      if (t >= lo && t <= hi) out.push(Math.pow(10, t));
+    }
+  }
+  return out;
+}
+
+function drawChart(container, tip, cfg) {
+  const box = container.getBoundingClientRect();
+  const width = Math.max(520, box.width - 16);
+  const height = cfg.height;
+  const pad = { l: 54, r: 12, t: 10, b: 22 };
+  const n = cfg.dates.length;
+  const raw = cfg.series.flatMap(s => s.values).filter(v => v !== null && Number.isFinite(v) && v > 0);
+  const useLog = !!cfg.log && raw.length > 0;
+  const T = (v) => useLog ? Math.log10(Math.max(v, 1e-9)) : v;
+  let lo = Math.min(...raw.map(T)), hi = Math.max(...raw.map(T));
+  const padY = (hi - lo) * 0.06 || 1;
+  lo -= padY; hi += padY;
+  const X = (i) => pad.l + (n <= 1 ? 0 : (i / (n - 1)) * (width - pad.l - pad.r));
+  const Y = (v) => pad.t + (1 - (T(v) - lo) / (hi - lo)) * (height - pad.t - pad.b);
+  const parts = [];
+  parts.push(`<svg viewBox="0 0 ${width} ${height}" height="${height}" preserveAspectRatio="none">`);
+  const ticks = useLog ? logTicks(lo, hi) : niceTicks(lo, hi, 5);
+  for (const tick of ticks) {
+    const y = Y(tick);
+    parts.push(`<line x1="${pad.l}" x2="${width - pad.r}" y1="${y}" y2="${y}" stroke="#eceef1"/>`);
+    parts.push(`<text x="${pad.l - 8}" y="${y + 3.5}" text-anchor="end" font-size="10.5" fill="#8b929c">` +
+               cfg.yFormat(tick) + `</text>`);
+  }
+  let lastYear = '';
+  for (let i = 0; i < n; i++) {
+    const year = cfg.dates[i].slice(0, 4);
+    if (year !== lastYear) {
+      lastYear = year;
+      const x = X(i);
+      parts.push(`<line x1="${x}" x2="${x}" y1="${pad.t}" y2="${height - pad.b}" stroke="#f4f5f7"/>`);
+      parts.push(`<text x="${x}" y="${height - 6}" font-size="10.5" fill="#8b929c">${year}</text>`);
+    }
+  }
+  for (const s of cfg.series) {
+    let path = '', started = false;
+    for (let i = 0; i < n; i++) {
+      const v = s.values[i];
+      if (v === null || !Number.isFinite(v)) { started = false; continue; }
+      path += (started ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' ';
+      started = true;
+    }
+    parts.push(`<path d="${path}" fill="none" stroke="${s.color}" stroke-width="${s.width || 1.6}"` +
+               `${s.dash ? ` stroke-dasharray="${s.dash}"` : ''} opacity="${s.opacity || 1}"/>`);
+  }
+  for (const marker of (cfg.markers || [])) {
+    const x = X(marker.i), y = Y(marker.value);
+    if (marker.side === 'buy') {
+      parts.push(`<path d="M${x} ${y + 12} l-6 10 l12 0 z" fill="#d14b4b" stroke="#fff" stroke-width="1"/>`);
+    } else {
+      parts.push(`<path d="M${x} ${y - 12} l-6 -10 l12 0 z" fill="#2e9e5b" stroke="#fff" stroke-width="1"/>`);
+    }
+  }
+  parts.push(`<line id="cross" x1="0" x2="0" y1="${pad.t}" y2="${height - pad.b}" stroke="#b9c0ca" ` +
+             `stroke-dasharray="3 3" opacity="0"/>`);
+  parts.push(`<rect x="${pad.l}" y="${pad.t}" width="${width - pad.l - pad.r}" height="${height - pad.t - pad.b}" ` +
+             `fill="transparent" class="hover"/>`);
+  parts.push('</svg>');
+  container.querySelectorAll('svg').forEach(s => s.remove());
+  container.insertAdjacentHTML('beforeend', parts.join(''));
+
+  const svg = container.querySelector('svg');
+  const cross = svg.querySelector('#cross');
+  const hover = svg.querySelector('.hover');
+  hover.addEventListener('mousemove', (event) => {
+    const rect = svg.getBoundingClientRect();
+    const px = (event.clientX - rect.left) * (width / rect.width);
+    const i = Math.max(0, Math.min(n - 1, Math.round((px - pad.l) / (width - pad.l - pad.r) * (n - 1))));
+    cross.setAttribute('x1', X(i)); cross.setAttribute('x2', X(i)); cross.setAttribute('opacity', 1);
+    const lines = [`<b>${cfg.dates[i]}</b>`].concat(cfg.series.map(s => {
+      const v = s.values[i];
+      return `${s.name}：${v === null || !Number.isFinite(v) ? '—' : cfg.yFormat(v)}`;
+    }));
+    tip.innerHTML = lines.join('<br>');
+    tip.style.opacity = 1;
+    const left = Math.min(rect.width - tip.offsetWidth - 8, Math.max(4, (event.clientX - rect.left) + 12));
+    tip.style.left = left + 'px';
+    tip.style.top = Math.max(4, event.clientY - rect.top - 10) + 'px';
+  });
+  hover.addEventListener('mouseleave', () => {
+    cross.setAttribute('opacity', 0); tip.style.opacity = 0;
+  });
+}
+
+function renderPrice(c) {
+  const price = state.overview.price;
+  const base = price.close.find(v => v !== null) || 1;
+  const scale = (arr) => arr.map(v => v === null ? null : v * base);
+  const dates = price.dates;
+  const idx = new Map(dates.map((d, i) => [d, i]));
+  const markers = (c.trades || []).filter(t => idx.has(t.date))
+    .map(t => ({ i: idx.get(t.date), side: t.side, value: t.tri * base }));
+  $('priceTitle').textContent = `价格与买卖点 · ${c.type.toUpperCase()} ${c.fast}/${c.slow}`;
+  $('priceLegend').innerHTML =
+    `<span><i style="background:#2f6fdb"></i>复权股价（起点 = 当日收盘价）</span>` +
+    `<span><i style="background:var(--fast)"></i>快线 ${c.fast}</span>` +
+    `<span><i style="background:var(--slow)"></i>慢线 ${c.slow}</span>` +
+    `<span style="color:var(--up)">▲ 买入</span><span style="color:var(--down)">▼ 卖出</span>` +
+    `<span style="color:#8b929c">· 含分红再投资，拆股已调整</span>`;
+  drawChart($('priceChart'), $('priceTip'), {
+    dates, height: 380, log: $('logScale').checked,
+    series: [
+      { name: '复权股价', values: scale(price.tri), color: '#2f6fdb', width: 1.9 },
+      { name: '快线', values: scale(c.fast_line), color: '#e08a1e', width: 1.3, opacity: 0.95 },
+      { name: '慢线', values: scale(c.slow_line), color: '#7a53c4', width: 1.3, opacity: 0.95 }
+    ],
+    markers,
+    yFormat: (v) => '$' + (Math.abs(v - Math.round(v)) < 1e-9 ? v.toFixed(0) : v.toFixed(2))
+  });
+}
+
+function renderEquity(c) {
+  const growth = (arr) => arr.map(v => v === null ? null : v * 100);
+  $('equityLegend').innerHTML =
+    `<span><i style="background:#2f6fdb"></i>策略</span><span><i style="background:#9aa1ab"></i>一直持有</span>`;
+  drawChart($('equityChart'), $('equityTip'), {
+    dates: c.dates, height: 240,
+    series: [
+      { name: '一直持有', values: growth(c.hold), color: '#9aa1ab', width: 1.4, dash: '4 3' },
+      { name: '策略', values: growth(c.equity), color: '#2f6fdb', width: 1.9 }
+    ],
+    yFormat: (v) => v.toFixed(0)
+  });
+}
+
+function renderSegments(c) {
+  const rows = c.segments.map((s, i) => {
+    const open = s.open_end ? '<span class="pill">持有中</span>' : '';
+    return `<tr><td>${i + 1}</td><td>${s.entry}</td><td>${s.exit} ${open}</td><td>${s.weeks}</td>` +
+           `<td class="${cls(s.ret)}">${sgn(s.ret)}</td>` +
+           `<td>${(s.entry_tri * 100).toFixed(0)}</td><td>${(s.exit_tri * 100).toFixed(0)}</td></tr>`;
+  }).join('');
+  $('segments').innerHTML =
+    `<thead><tr><th>#</th><th>入场</th><th>出场</th><th>周数</th><th>该段收益</th>` +
+    `<th>入场（起点=100）</th><th>出场</th></tr></thead><tbody>${rows || '<tr><td colspan="7">没有持仓段</td></tr>'}</tbody>`;
+}
+
+function renderAnnual(c) {
+  const hold = new Map((c.annual_hold || []).map(a => [a.year, a.value]));
+  const rows = (c.annual || []).map(a => {
+    const h = hold.get(a.year);
+    const diff = h === undefined || h === null ? null : a.value - h;
+    return `<tr><td>${a.year}${a.partial ? '<span class="pill">不完整</span>' : ''}</td>` +
+           `<td class="${cls(a.value)}">${sgn(a.value)}</td>` +
+           `<td class="${cls(h)}">${sgn(h)}</td>` +
+           `<td class="${cls(diff)}">${diff === null ? '—' : sgn(diff)}</td></tr>`;
+  }).join('');
+  $('annual').innerHTML =
+    `<thead><tr><th>年份</th><th>策略</th><th>持有</th><th>差</th></tr></thead><tbody>${rows}</tbody>`;
+}
+
+$('logScale').onchange = () => { if (state.combo) renderPrice(state.combo); };
+window.addEventListener('resize', () => { if (state.combo) { renderPrice(state.combo); renderEquity(state.combo); } });
+boot();
+</script>
+</body>
+</html>

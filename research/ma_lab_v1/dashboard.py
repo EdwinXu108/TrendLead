@@ -1,0 +1,289 @@
+"""Local dashboard for the single-stock moving-average lab.
+
+Serves one HTML page and a small JSON API on top of `leadtrend_bt.ma_lab`. No third-party packages: only the
+standard library and numpy, like the rest of the project.
+
+    python -X utf8 research/ma_lab_v1/dashboard.py --open
+
+Then open http://127.0.0.1:8765 (the browser opens by itself with --open).
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import threading
+import webbrowser
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+import numpy as np
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+sys.path.insert(0, str(ROOT))
+
+from leadtrend_bt import ma_lab          # noqa: E402
+from leadtrend_db import api             # noqa: E402
+
+DEFAULT_DB = str(ROOT / 'data' / 'db' / 'leadtrend_db_v1.sqlite')
+TYPES = ('sma', 'ema', 'wma', 'dema', 'tema', 'hma', 'kama')
+FASTS = (5, 10, 20, 30, 50)
+SLOWS = (50, 100, 150, 200, 250)
+DEFAULT_START, DEFAULT_END = '2014-02-28', '2024-06-28'
+
+
+def _round(values, digits=6):
+    out = []
+    for value in values:
+        if value is None or (isinstance(value, float) and not np.isfinite(value)):
+            out.append(None)
+        else:
+            out.append(round(float(value), digits))
+    return out
+
+
+def annual_returns(days: list[str], equity: list[float]) -> list[dict]:
+    """Calendar-year returns; a first year that starts after January and a last year that ends before December
+    are marked partial."""
+    out = []
+    start = 0
+    total = len(days)
+    for i in range(1, total + 1):
+        if i == total or days[i][:4] != days[start][:4]:
+            partial = (start == 0 and days[0][5:7] != '01') or (i == total and days[-1][5:7] != '12')
+            # the year runs from the previous year's last close, so the first session's move is included once
+            base = equity[start - 1] if start > 0 else equity[0]
+            out.append(dict(year=days[start][:4], value=equity[i - 1] / base - 1, partial=bool(partial)))
+            start = i
+    return out
+
+
+def _metric(value):
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, np.integer)):
+        return int(value)
+    if isinstance(value, (float, np.floating)):
+        return round(float(value), 6) if np.isfinite(value) else None
+    return value
+
+
+def clean(value):
+    """JSON-safe copy: numpy scalars become Python ones, non-finite numbers become null."""
+    if isinstance(value, dict):
+        return {k: clean(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [clean(v) for v in value]
+    if isinstance(value, np.bool_):
+        return bool(value)
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    if isinstance(value, (np.floating, float)):
+        number = float(value)
+        return number if np.isfinite(number) else None
+    return value
+
+
+class Lab:
+    """One security and window, with every combination's metrics and a cache of average lines."""
+
+    def __init__(self, security: str, start: str, end: str, cash: str, db_path: str):
+        self.db = db_path
+        self.cash = cash
+        self.security = security
+        self.sid = ma_lab.resolve_security(security, db_path)
+        self.start, self.end = start, end
+        self.days, self.values = ma_lab._total_return(self.sid, end, db_path)
+        self.signal_days = [d for d in api.friday_signal_days(start, end, db_path) if d >= start]
+        if not self.signal_days:
+            raise ValueError('no Friday signal day in the window')
+        self.index = {d: i for i, d in enumerate(self.days)}
+        self.signal_index = [self.index[d] for d in self.signal_days]
+        self.rf = api.rf_daily(self.signal_days[0], end, db_path)
+        self.lines: dict[tuple[str, int], np.ndarray] = {}
+        self.result = ma_lab.run_lab(security, start=start, end=end, types=TYPES, fasts=FASTS, slows=SLOWS,
+                                     cash_rate=cash, db_path=db_path)
+        window_start = self.index[self.result['evaluation_start']]
+        self.window_days = self.days[window_start:]
+        self.window_values = self.values[window_start:]
+        closes = api.close_series([self.sid], self.window_days[0], end, db_path)[self.sid]
+        self.closes = [closes.get(d) for d in self.window_days]
+        self.meta = dict(ticker=self._ticker(), security_id=self.sid, name=self._name(),
+                         start=start, end=end, cash=cash,
+                         evaluation_start=self.result['evaluation_start'],
+                         evaluation_end=self.result['evaluation_end'],
+                         signal_days=len(self.signal_days))
+
+    def _ticker(self) -> str:
+        row = api.connect(self.db).execute(
+            'select current_ticker from strategy_securities where security_id=? limit 1', (self.sid,)).fetchone()
+        return row[0] if row else self.sid
+
+    def _name(self) -> str:
+        row = api.connect(self.db).execute("""select coalesce(i.name, '') from strategy_securities ss
+                                              left join issuers i on i.issuer_id = ss.issuer_id
+                                              where ss.security_id=? limit 1""", (self.sid,)).fetchone()
+        return row[0] if row else ''
+
+    def average(self, kind: str, n: int) -> np.ndarray:
+        key = (kind, int(n))
+        if key not in self.lines:
+            self.lines[key] = ma_lab.MOVING_AVERAGES[kind](self.values, int(n))
+        return self.lines[key]
+
+    def combo(self, kind: str, fast: int, slow: int) -> dict:
+        if kind not in ma_lab.MOVING_AVERAGES:
+            raise ValueError(f'unknown average type: {kind}')
+        if not 0 < int(fast) < int(slow):
+            raise ValueError('fast must be positive and shorter than slow')
+        line_fast, line_slow = self.average(kind, fast), self.average(kind, slow)
+        valid = np.isfinite(line_fast) & np.isfinite(line_slow)
+        state = [bool(valid[i] and line_fast[i] > line_slow[i]) for i in self.signal_index]
+        days, equity = ma_lab.simulate(self.days, self.values, self.signal_days, state, self.cash, self.rf)
+        hold_days, hold_equity = ma_lab.simulate(self.days, self.values, self.signal_days,
+                                                 [True] * len(self.signal_days), self.cash, self.rf)
+        metrics = ma_lab.statistics(days, equity, self.rf)
+        buys = sum(1 for k, on in enumerate(state) if on and (k == 0 or not state[k - 1]))
+        metrics.update(invested_share=sum(state) / len(state), buys=buys,
+                       average_holding_weeks=(sum(state) / buys if buys else 0.0))
+        segments, trades = self._segments(state)
+        offset = self.index[days[0]]
+        return dict(key=f'{kind}_{fast}_{slow}', type=kind, fast=int(fast), slow=int(slow),
+                    dates=days, equity=_round(equity), hold=_round(hold_equity),
+                    tri=_round(self.window_values / self.window_values[0]),
+                    fast_line=_round(line_fast[offset:] / self.window_values[0]),
+                    slow_line=_round(line_slow[offset:] / self.window_values[0]),
+                    trades=trades, segments=segments,
+                    annual=annual_returns(days, equity), annual_hold=annual_returns(hold_days, hold_equity),
+                    metrics={k: _metric(v) for k, v in metrics.items()})
+
+    def _segments(self, state: list[bool]) -> tuple[list[dict], list[dict]]:
+        """Holding periods and the buy/sell markers that bound them."""
+        segments, trades = [], []
+        entry = None
+        for k, on in enumerate(state):
+            if on and entry is None:
+                entry = k
+                trades.append(dict(date=self.signal_days[k], side='buy', week=k))
+            elif not on and entry is not None:
+                trades.append(dict(date=self.signal_days[k], side='sell', week=k))
+                segments.append(self._segment(entry, k))
+                entry = None
+        if entry is not None:
+            segments.append(self._segment(entry, len(state) - 1, open_end=True))
+        for item in trades:
+            item['tri'] = round(float(self.values[self.index[item['date']]] / self.window_values[0]), 6)
+        return segments, trades
+
+    def _segment(self, entry: int, exit_: int, open_end: bool = False) -> dict:
+        start_i = self.index[self.signal_days[entry]]
+        end_i = self.index[self.signal_days[exit_]]
+        if open_end:
+            end_i = len(self.days) - 1
+        return dict(entry=self.signal_days[entry], exit=self.days[end_i], weeks=exit_ - entry + (1 if open_end else 0),
+                    ret=round(float(self.values[end_i] / self.values[start_i] - 1), 6), open_end=open_end,
+                    entry_tri=round(float(self.values[start_i] / self.window_values[0]), 6),
+                    exit_tri=round(float(self.values[end_i] / self.window_values[0]), 6))
+
+
+class Store:
+    def __init__(self, db_path: str):
+        self.db = db_path
+        self.cache: dict[tuple, Lab] = {}
+        self.lock = threading.Lock()
+
+    def lab(self, security: str, start: str, end: str, cash: str) -> Lab:
+        key = (security, start, end, cash)
+        with self.lock:
+            if key not in self.cache:
+                if len(self.cache) > 6:
+                    self.cache.clear()
+                self.cache[key] = Lab(security, start, end, cash, self.db)
+            return self.cache[key]
+
+    def stocks(self) -> list[dict]:
+        conn = api.connect(self.db)
+        rows = conn.execute("""select ss.current_ticker as ticker, ss.security_id as sid,
+                                      coalesce(i.name, '') as name
+                               from strategy_securities ss left join issuers i on i.issuer_id = ss.issuer_id
+                               where ss.strategy_eligible = 1 and ss.current_ticker <> ''
+                               order by ss.current_ticker""").fetchall()
+        seen: dict[str, list] = {}
+        for row in rows:
+            seen.setdefault(row['ticker'], []).append(row)
+        out = [dict(ticker=t, security_id=items[0]['sid'], name=items[0]['name'])
+               for t, items in sorted(seen.items()) if len({i['sid'] for i in items}) == 1]
+        return out
+
+
+STORE: Store
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):        # keep the console readable
+        pass
+
+    def _send(self, body: bytes, kind: str, status: int = 200):
+        self.send_response(status)
+        self.send_header('Content-Type', kind)
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _json(self, payload, status=200):
+        body = json.dumps(clean(payload), ensure_ascii=False, allow_nan=False)
+        self._send(body.encode('utf8'), 'application/json; charset=utf-8', status)
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        query = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+        try:
+            if parsed.path in ('/', '/index.html'):
+                self._send((HERE / 'dashboard.html').read_bytes(), 'text/html; charset=utf-8')
+            elif parsed.path == '/api/stocks':
+                self._json(dict(stocks=STORE.stocks(), types=TYPES, fasts=FASTS, slows=SLOWS))
+            elif parsed.path == '/api/overview':
+                lab = STORE.lab(query.get('security', 'MSFT'), query.get('start', DEFAULT_START),
+                                query.get('end', DEFAULT_END), query.get('cash', 'zero'))
+                self._json(dict(meta=lab.meta, buy_hold=lab.result['buy_hold'], combos=lab.result['rows'],
+                                price=dict(dates=lab.window_days, tri=_round(lab.window_values / lab.window_values[0]),
+                                           close=_round(lab.closes))))
+            elif parsed.path == '/api/combo':
+                lab = STORE.lab(query.get('security', 'MSFT'), query.get('start', DEFAULT_START),
+                                query.get('end', DEFAULT_END), query.get('cash', 'zero'))
+                self._json(lab.combo(query['type'], int(query['fast']), int(query['slow'])))
+            else:
+                self._json(dict(error='not found'), 404)
+        except KeyError as error:
+            self._json(dict(error=f'missing parameter: {error}'), 400)
+        except Exception as error:                      # surface the message instead of a stack trace
+            self._json(dict(error=f'{type(error).__name__}: {error}'), 400)
+
+
+def main():
+    global STORE
+    parser = argparse.ArgumentParser(description='single-stock moving-average dashboard')
+    parser.add_argument('--port', type=int, default=8765)
+    parser.add_argument('--db', default=DEFAULT_DB)
+    parser.add_argument('--open', action='store_true')
+    args = parser.parse_args()
+    STORE = Store(args.db)
+    # One thread on purpose: the sqlite connection behind api.connect belongs to the thread that opened it.
+    server = HTTPServer(('127.0.0.1', args.port), Handler)
+    url = f'http://127.0.0.1:{args.port}/'
+    print(f'ma_lab dashboard on {url}  (Ctrl+C to stop)', flush=True)
+    if args.open:
+        threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
+if __name__ == '__main__':
+    main()

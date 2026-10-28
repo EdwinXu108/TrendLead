@@ -225,7 +225,6 @@ class Store:
     def __init__(self, db_path: str):
         self.db = db_path
         self.cache: dict[tuple, Lab] = {}
-        self.walks: dict[tuple, dict] = {}
         self.walks2: dict[tuple, dict] = {}
         self.lock = threading.Lock()
 
@@ -237,22 +236,6 @@ class Store:
                     self.cache.clear()
                 self.cache[key] = Lab(security, start, end, cash, self.db, frequency)
             return self.cache[key]
-
-    def walk(self, security: str, start: str, end: str, cash: str, frequency: str = 'daily') -> dict:
-        key = (security, start, end, cash, frequency)
-        with self.lock:
-            if key not in self.walks:
-                if len(self.walks) > 6:
-                    self.walks.clear()
-                out = ma_walk.walk(security, start=start, end=end, cash_rate=cash,
-                                   frequency=frequency, db_path=self.db, with_curves=True)
-                curves = out.pop('curves', None) or {}
-                out['dates'] = curves.get('dates', [])
-                out['curves'] = {name: _round(values, 6) for name, values in curves.items() if name != 'dates'}
-                out['ticker'] = out.get('ticker', security)
-                out['name'] = next((s['name'] for s in self.stocks() if s['ticker'] == out['ticker']), '')
-                self.walks[key] = out
-            return self.walks[key]
 
     def wf2(self, security: str, segment: str = 'dev') -> dict:
         """Six walk-forward lines for one stock; the assignments come from the cached batch results."""
@@ -290,6 +273,9 @@ class Store:
                     out.update(ticker=walk.ticker, security_id=walk.sid)
                 out['segment'] = segment
                 out['combo_names'] = [f'{kind.upper()} {fast}/{slow}' for kind, fast, slow in ma_walk2.COMBOS]
+                first = {row['ticker']: row['first_effective']
+                         for row in ma_walk.stock_list(self.db, legacy_union=True)}
+                out['first_effective'] = first.get(out.get('ticker', security), '')
                 dates = out.pop('dates', [])
                 out['dates'] = dates
                 out['curves'] = {name: _round(values, 6) for name, values in out.pop('curves', {}).items()}
@@ -327,11 +313,6 @@ class Handler(BaseHTTPRequestHandler):
                 self._send((HERE / 'dashboard.html').read_bytes(), 'text/html; charset=utf-8')
             elif parsed.path == '/api/stocks':
                 self._json(dict(stocks=STORE.stocks(), types=TYPES, fasts=FASTS, slows=SLOWS))
-            elif parsed.path == '/api/wf':
-                walk = STORE.walk(query.get('security', 'MSFT'), query.get('start', DEFAULT_START),
-                                  query.get('end', DEFAULT_END), query.get('cash', 'zero'),
-                                  query.get('freq', 'daily'))
-                self._json(walk)
             elif parsed.path == '/api/wf2':
                 self._json(STORE.wf2(query.get('security', 'MSFT'), query.get('segment', 'dev')))
             elif parsed.path == '/api/wf2board':
@@ -341,15 +322,20 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(dict(error=f'wf_v2 缓存还没生成（{name}）',
                                     hint='python -X utf8 research/wf_v2/run_wf2.py'), 404)
                 else:
-                    self._send(path.read_bytes(), 'application/json; charset=utf-8')
-            elif parsed.path == '/api/wfboard':
-                name = f"wf_{query.get('freq', 'daily')}_{query.get('cash', 'zero')}.json"
-                path = ROOT / 'research' / 'wf_v1' / name
-                if not path.exists():
-                    self._json(dict(error=f'滚动验证缓存还没生成（{name}）',
-                                    hint='python -X utf8 research/wf_v1/run_wf.py'), 404)
+                    payload = json.loads(path.read_text(encoding='utf8'))
+                    current = {row['ticker'] for row in ma_walk.stock_list(STORE.db)}
+                    legacy = {row['ticker'] for row in ma_walk.stock_list(STORE.db, legacy_union=True)}
+                    payload['late_entrants'] = sorted(legacy - current)
+                    self._json(payload)
+            elif parsed.path == '/api/pool_ma':
+                summary_path = ROOT / 'research' / 'pool_ma_v1' / 'summary.json'
+                curves_path = ROOT / 'work' / 'pool_ma_v1' / 'curves.json'
+                if not summary_path.exists() or not curves_path.exists():
+                    self._json(dict(error='组合实验的结果还没生成',
+                                    hint='python -X utf8 research/pool_ma_v1/run_pool_ma.py'), 404)
                 else:
-                    self._send(path.read_bytes(), 'application/json; charset=utf-8')
+                    self._json(dict(summary=json.loads(summary_path.read_text(encoding='utf8')),
+                                    curves=json.loads(curves_path.read_text(encoding='utf8'))))
             elif parsed.path == '/api/leaderboard':
                 name = f"leaderboard_{query.get('freq', 'daily')}_{query.get('cash', 'zero')}.json"
                 path = HERE / name

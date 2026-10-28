@@ -3,141 +3,198 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LeadTrend · 均线看板</title>
+<title>LeadTrend 看板</title>
 <style>
   :root {
     --bg: #f6f7f9; --card: #ffffff; --line: #e3e6ea; --ink: #1f2328; --muted: #6b7280;
-    /* Okabe-Ito hues: blue and orange stay distinguishable with red-green colour vision deficiency */
-    --good: #0072B2; --bad: #D55E00; --fast: #E69F00; --slow: #56B4E9;
+    --good: #0072B2; --bad: #D55E00;
+    --c-own: #0072B2; --c-common: #56B4E9; --c-borrow: #CC79A7;
+    --c-fixed: #E69F00; --c-hold: #666666; --c-mix: #009E73;
     --accent-soft: #e7f1f9;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink);
-         font: 13px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
-  header { display: flex; align-items: center; gap: 10px; padding: 10px 18px; background: var(--card);
+         font: 13px/1.55 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 18px; background: var(--card);
            border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20; flex-wrap: wrap; }
-  header h1 { font-size: 15px; margin: 0 6px 0 0; font-weight: 650; }
-  .tabs { display: flex; gap: 3px; background: #eef0f3; padding: 3px; border-radius: 8px; }
-  .tabs button { border: 0; background: transparent; padding: 4px 13px; border-radius: 6px; cursor: pointer;
-                 font: inherit; color: var(--muted); }
+  header h1 { font-size: 15px; margin: 0 8px 0 0; font-weight: 650; }
+  .tabs { display: flex; gap: 3px; background: #eef0f3; padding: 3px; border-radius: 8px; flex-wrap: wrap; }
+  .tabs button { border: 0; background: transparent; padding: 4px 12px; border-radius: 6px; cursor: pointer;
+                 font: inherit; color: var(--muted); white-space: nowrap; }
   .tabs button.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
   .ctrl { display: flex; align-items: center; gap: 5px; }
+  .ctrl[hidden] { display: none; }
   .ctrl label { color: var(--muted); font-size: 12px; }
   select, input { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px;
                   background: #fff; color: var(--ink); }
-  input[type=date] { width: 126px; }
-  #stock { width: 96px; text-transform: uppercase; }
+  input[type=date] { width: 124px; }
+  #stock { width: 92px; text-transform: uppercase; }
   button.act { font: inherit; padding: 4px 12px; border: 1px solid var(--line); border-radius: 6px;
                background: #fff; cursor: pointer; }
   button.act:hover { border-color: var(--good); color: var(--good); }
   .sub { color: var(--muted); font-size: 11.5px; }
-  main { padding: 14px 18px 26px; }
+  main { padding: 16px 18px 30px; max-width: 1360px; margin: 0 auto; }
   main[hidden] { display: none; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
-  .card h2 { font-size: 12px; font-weight: 650; color: var(--muted); margin: 0; padding: 9px 12px 6px; }
-  .panel { padding: 0 12px 12px; }
-  .types { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 12px 8px; }
+  .lead { font-size: 17px; font-weight: 650; margin: 2px 0 14px; line-height: 1.45; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 12px; }
+  .card h2 { font-size: 12px; font-weight: 650; color: var(--muted); margin: 0; padding: 10px 14px 4px; }
+  .panel { padding: 0 14px 12px; }
+  .note { color: var(--muted); font-size: 11.5px; padding: 2px 14px 10px; line-height: 1.6; }
+  .chart { position: relative; padding: 2px 10px 8px; }
+  .chart svg { display: block; width: 100%; }
+  .legend { display: flex; gap: 14px; padding: 2px 14px 4px; color: var(--muted); font-size: 11.5px;
+            flex-wrap: wrap; align-items: center; }
+  .legend label { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; }
+  .tip { position: absolute; pointer-events: none; background: rgba(31,35,40,.94); color: #fff; padding: 6px 8px;
+         border-radius: 6px; font-size: 11.5px; line-height: 1.5; white-space: nowrap; opacity: 0;
+         transition: opacity .08s; z-index: 5; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { padding: 5px 8px; text-align: right; }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; border-bottom: 1px solid var(--line); }
+  td { border-bottom: 1px solid #f0f1f3; }
+  td.left, th.left { text-align: left; }
+  .scroll-x { overflow-x: auto; padding: 0 14px 12px; }
+  .scroll-y { max-height: 420px; overflow: auto; padding: 0 14px 12px; }
+  .scroll-y thead th { position: sticky; top: 0; background: var(--card); }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; }
+  .kpi .k { color: var(--muted); font-size: 11px; }
+  .kpi .v { font-size: 19px; font-weight: 650; margin-top: 2px; }
+  .kpi .row { color: var(--muted); font-size: 11.5px; margin-top: 3px; }
+  .good { color: var(--good); } .bad { color: var(--bad); }
+  .layout { display: grid; grid-template-columns: minmax(360px, 420px) 1fr; gap: 12px; }
+  .types { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 14px 8px; }
   .types button { padding: 2px 8px; font-size: 11.5px; border: 1px solid var(--line); background: #fff;
                   border-radius: 6px; cursor: pointer; color: var(--ink); }
   .types button.on { background: var(--good); border-color: var(--good); color: #fff; }
-  .row { display: flex; gap: 8px; padding: 0 12px 8px; }
-  .row > div { flex: 1; }
-  .row label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 2px; }
-  .row select { width: 100%; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { padding: 3px 5px; text-align: right; font-variant-numeric: tabular-nums; }
-  th { color: var(--muted); font-weight: 500; font-size: 10.5px; }
-  .matrix td { cursor: pointer; font-size: 9.5px; line-height: 1.25; border-radius: 3px; padding: 2px 1px;
-               text-align: center; }
-  .matrix td b { font-weight: 600; }
-  .matrix td span { color: #5c636d; }
+  .row2 { display: flex; gap: 8px; padding: 0 14px 8px; }
+  .row2 > div { flex: 1; }
+  .row2 label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 2px; }
+  .row2 select { width: 100%; }
+  .matrix td { cursor: pointer; font-size: 10px; border-radius: 3px; padding: 3px 1px; text-align: center;
+               border-bottom: 0; }
   .matrix td:hover { outline: 1px solid var(--good); }
   .matrix td.on { outline: 2px solid var(--good); }
-  .matrix th { font-size: 10px; }
-  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; margin-bottom: 12px; }
-  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; }
-  .kpi .k { color: var(--muted); font-size: 11px; }
-  .kpi .v { font-size: 16px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 1px; }
-  .kpi .b { color: var(--muted); font-size: 11px; }
-  .good { color: var(--good); } .bad { color: var(--bad); }
-  .chart { position: relative; padding: 2px 8px 6px; }
-  .chart svg { display: block; width: 100%; }
-  .legend { display: flex; gap: 12px; padding: 0 12px 2px; color: var(--muted); font-size: 11px; flex-wrap: wrap; }
-  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 4px;
-              vertical-align: middle; }
-  .tip { position: absolute; pointer-events: none; background: rgba(31,35,40,.94); color: #fff; padding: 6px 8px;
-         border-radius: 6px; font-size: 11.5px; line-height: 1.45; white-space: nowrap; opacity: 0;
-         transition: opacity .08s; z-index: 5; }
-  .grid2 { display: grid; grid-template-columns: 1.15fr 1fr; gap: 12px; margin-top: 12px; }
-  .scroll { max-height: 320px; overflow: auto; }
-  .scroll thead th { position: sticky; top: 0; background: var(--card); z-index: 1; }
-  .note { color: var(--muted); font-size: 11.5px; padding: 8px 12px 10px; line-height: 1.6; }
-  .err { margin: 18px; padding: 12px; border: 1px solid #f3cdb0; background: #fdf5ee; color: #8a4b16;
-         border-radius: 8px; }
-  .pill { display: inline-block; padding: 0 5px; border-radius: 999px; background: var(--accent-soft);
-          color: var(--good); font-size: 10.5px; }
-  .layout { display: grid; grid-template-columns: 430px 1fr; gap: 12px; }
-  .board-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
-  .board-bar .tabs button { padding: 3px 12px; font-size: 12px; }
-  .board th.sort { color: var(--ink); font-weight: 700; }
-  .board td.tick { text-align: left; font-weight: 600; }
-  .board tr:hover td { background: #f4f8fc; cursor: pointer; }
-  .board .combo { color: var(--muted); font-size: 11px; }
-  #wfSummary table { width: 780px; table-layout: fixed; }
-  #wfSummary td:first-child, #wfSummary th:first-child { width: 58%; padding-right: 18px; }
-  #wfBoardTable { font-size: 11.5px; }
-  #wfBoardTable th, #wfBoardTable td { padding: 2px 4px; white-space: nowrap; }
+  .matrix th { font-size: 10px; padding: 2px 1px; }
+  .banner { background: #fdf5ee; border: 1px solid #f3cdb0; color: #8a4b16; border-radius: 8px;
+            padding: 8px 12px; font-size: 12px; margin-bottom: 12px; line-height: 1.6; }
+  .banner a { color: #8a4b16; }
+  .state { margin: 14px; padding: 12px; border: 1px solid var(--line); background: #fff; border-radius: 8px;
+           color: var(--muted); }
+  .state.err { border-color: #f3cdb0; background: #fdf5ee; color: #8a4b16; }
+  details { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  details .body { color: var(--muted); font-size: 12px; line-height: 1.75; padding-top: 8px; }
   #loading { position: fixed; inset: 0; background: rgba(246,247,249,.5); display: none; align-items: center;
              justify-content: center; z-index: 50; font-size: 13px; color: var(--muted); }
   #loading.on { display: flex; }
+  .pill { display: inline-block; padding: 0 6px; border-radius: 999px; background: var(--accent-soft);
+          color: var(--good); font-size: 10.5px; }
+  @media (max-width: 1100px) {
+    .layout { grid-template-columns: 1fr; }
+    main { padding: 12px; }
+  }
 </style>
 </head>
 <body>
 <header>
   <h1>LeadTrend</h1>
   <div class="tabs" id="tabs">
-    <button data-view="single" class="on">单股</button>
-    <button data-view="wf">滚动验证</button>
-    <button data-view="wfboard">滚动验证汇总</button>
-    <button data-view="wf2">v2 单股</button>
-    <button data-view="wf2board">v2 汇总</button>
+    <button data-view="pool" class="on">组合实验</button>
+    <button data-view="single">单股均线</button>
+    <button data-view="wf2">单股滚动验证</button>
+    <button data-view="wf2board">滚动验证汇总</button>
     <button data-view="board">全市场排行</button>
   </div>
-  <div class="ctrl"><label>股票</label>
+  <div class="ctrl" id="ctl-stock" hidden><label>股票</label>
     <input id="stock" list="stockList" placeholder="代码" autocomplete="off">
     <datalist id="stockList"></datalist>
   </div>
-  <div class="ctrl"><label>起</label><input id="start" type="date" value="2014-02-28"></div>
-  <div class="ctrl"><label>止</label><input id="end" type="date" value="2024-06-28"></div>
-  <div class="ctrl"><label>现金</label>
-    <select id="cash"><option value="zero">0 收益</option><option value="dtb3">国债</option></select>
+  <div class="ctrl" id="ctl-dates" hidden><label>起</label><input id="start" type="date" value="2014-02-28">
+    <label>止</label><input id="end" type="date" value="2024-06-28"></div>
+  <div class="ctrl" id="ctl-cash" hidden><label>现金</label>
+    <select id="cash"><option value="zero">0 收益</option><option value="dtb3">国债</option></select></div>
+  <div class="ctrl" id="ctl-freq" hidden><label>信号</label>
+    <select id="freq"><option value="daily">每日</option><option value="weekly">每周</option></select></div>
+  <div class="ctrl" id="ctl-segment" hidden>
+    <div class="tabs" id="segTabs">
+      <button data-segment="dev" class="on">开发段</button>
+      <button data-segment="holdout">保留段</button>
+    </div>
   </div>
-  <div class="ctrl"><label>信号</label>
-    <select id="freq"><option value="daily">每日</option><option value="weekly">每周</option></select>
+  <div class="ctrl" id="ctl-subset" hidden>
+    <div class="tabs" id="subsetTabs">
+      <button data-subset="all" class="on">全部股票</button>
+      <button data-subset="current">剔除晚入池</button>
+    </div>
   </div>
-  <button class="act" id="reload">重新计算</button>
-  <span class="sub" id="meta"></span>
+  <button class="act" id="ctl-reload" hidden>重新计算</button>
 </header>
 
-<main id="view-single">
+<main id="view-pool">
+  <p class="lead">只买均线看多的股票，比随机买同样多只股票更好吗？</p>
+  <div id="poolState"></div>
+  <div id="poolBody" hidden>
+    <div class="card">
+      <h2>净值（对数轴，起点 = 100）</h2>
+      <div class="legend" id="poolLegend"></div>
+      <div class="chart" id="poolChart"><div class="tip" id="poolTip"></div></div>
+      <div class="note">灰色带是 100 条随机线的 5%–95% 区间，虚线是中位数。</div>
+    </div>
+    <div class="card">
+      <h2>回撤</h2>
+      <div class="chart" id="poolDdChart"><div class="tip" id="poolDdTip"></div></div>
+    </div>
+    <div class="card">
+      <h2>每周看多只数（蓝）与池子只数（灰）</h2>
+      <div class="chart" id="kmChart"><div class="tip" id="kmTip"></div></div>
+    </div>
+    <div class="card">
+      <h2>组合表现</h2>
+      <div class="scroll-x"><table id="poolTable"></table></div>
+      <div class="note">随机线只报分位，不报谷底日期与年内回撤。</div>
+    </div>
+    <div class="card">
+      <h2>看多满仓胜过多少条随机线（满分 100）</h2>
+      <div class="panel"><table id="beatsTable"></table></div>
+    </div>
+    <div class="card">
+      <h2>逐年收益</h2>
+      <div class="scroll-x"><table id="annualTable"></table></div>
+    </div>
+  </div>
+  <details>
+    <summary>这页怎么读</summary>
+    <div class="body">
+      每周最后一个交易日收盘，按当天生效的前 200 名单重建池子，固定 SMA 50/200 判断多空，零成本、小数股、
+      本金 10 万美元、现金不计息。<br>
+      看多满仓：只买看多的股票，每只 1/K，K 是看多只数。<br>
+      看多 + 现金：看多的每只 1/M，M 是池子只数，其余现金。<br>
+      全部等权：池子里每只 1/M。<br>
+      随机同数量：从池子里随机抽 K 只，每只 1/K，100 个种子。<br>
+      “胜”指看多满仓的指标比随机线好；最大回撤与最长水下越接近 0 越好。
+    </div>
+  </details>
+</main>
+
+<main id="view-single" hidden>
+  <p class="lead">一只股票的均线组合，历史上哪组最好？</p>
   <div class="layout">
     <section>
       <div class="card">
         <h2>均线组合（点击选中）</h2>
         <div class="types" id="types"></div>
-        <div class="row">
+        <div class="row2">
           <div><label>快线</label><select id="fast"></select></div>
           <div><label>慢线</label><select id="slow"></select></div>
         </div>
-        <div class="panel">
-          <table class="matrix" id="matrix"></table>
-          <div class="note">单元格：年化 / 最大回撤（%）。底色按 年化÷|回撤|：<b class="good">蓝=较好</b>、
-            <b class="bad">橙=较差</b>。</div>
-        </div>
+        <div class="panel"><table class="matrix" id="matrix"></table></div>
+        <div class="note">格子里是年化（%）；底色按 年化÷|回撤|，蓝好橙差。回撤与夏普见悬停提示。</div>
       </div>
-      <div class="card" style="margin-top:12px">
+      <div class="card">
         <h2>本股排行 <span class="sub" id="rankMeta"></span></h2>
-        <div class="row" style="gap:6px;align-items:center">
+        <div class="row2" style="align-items:center">
           <div><select id="rankMetric">
             <option value="cagr">年化榜</option>
             <option value="total_return">总收益榜</option>
@@ -147,8 +204,8 @@
           </select></div>
           <label class="sub" style="white-space:nowrap"><input type="checkbox" id="rankFull"> 只看起点有效</label>
         </div>
-        <div class="scroll panel" style="max-height:360px"><table class="board" id="rankTable"></table></div>
-        <div class="note">同一只股票内部 462 组自己排；点一行切到那条曲线。</div>
+        <div class="scroll-y"><table id="rankTable"></table></div>
+        <div class="note">同一只股票的 462 组自己排；点一行切到那条曲线。</div>
       </div>
     </section>
     <section>
@@ -161,386 +218,180 @@
         <div class="legend" id="priceLegend"></div>
         <div class="chart" id="priceChart"><div class="tip" id="priceTip"></div></div>
       </div>
-      <div class="card" style="margin-top:12px">
+      <div class="card">
         <h2>累计收益（起点 = 100）</h2>
         <div class="legend" id="equityLegend"></div>
         <div class="chart" id="equityChart"><div class="tip" id="equityTip"></div></div>
       </div>
-      <div class="grid2">
-        <div class="card">
-          <h2>每段持有</h2>
-          <div class="scroll panel"><table id="segments"></table></div>
-        </div>
-        <div class="card">
-          <h2>年度收益</h2>
-          <div class="scroll panel"><table id="annual"></table></div>
-        </div>
+      <div class="card">
+        <h2>每段持有</h2>
+        <div class="scroll-y"><table id="segments"></table></div>
+      </div>
+      <div class="card">
+        <h2>年度收益</h2>
+        <div class="scroll-y"><table id="annual"></table></div>
       </div>
     </section>
   </div>
-</main>
-
-<main id="view-wf" hidden>
-  <div class="kpis" id="wfKpis"></div>
-  <div class="card">
-    <h2><span>滚动验证：三条线（起点 = 100）</span>
-      <span id="wfZoomChip" class="sub" style="margin-left:10px"></span>
-      <label style="float:right;font-weight:400;cursor:pointer;color:var(--muted)">
-        <input type="checkbox" id="wfLog" checked style="vertical-align:-1px"> 对数轴</label></h2>
-    <div class="legend" id="wfLegend"></div>
-    <div class="chart" id="wfChart"><div class="tip" id="wfTip"></div></div>
-    <div class="note" id="wfNote"></div>
-  </div>
-  <div class="card" style="margin-top:12px">
-    <h2>每年挑中的组合 <span class="sub" id="wfMeta"></span></h2>
-    <div class="scroll panel" style="max-height:400px"><table class="board" id="wfTable"></table></div>
-    <div class="note">挑选日只用之前的数据，按 年化÷|回撤| 从 462 组里取最好的一组，下一年用它；
-      「下一年」指到下一个挑选日为止，最后一行到 2024-06-28。样本内最优只作参照，不是可以拿到的成绩。</div>
-  </div>
-</main>
-
-<main id="view-wfboard" hidden>
-  <div class="card">
-    <div class="panel" style="padding:18px 18px 14px">
-      <div id="wfHeadline" style="font-size:23px;font-weight:700;line-height:1.35"></div>
-      <div class="sub" id="wfSubline" style="margin-top:7px;font-size:12.5px"></div>
+  <details>
+    <summary>这页怎么读</summary>
+    <div class="body">
+      格子与排行都来自同一只股票的 462 组均线组合：7 种均线 × 66 组快慢线。信号在收盘判断、当天收盘换手；
+      为多持有，为空现金。年化按 252 个交易日折算；最大回撤是净值相对此前最高点的最大跌幅。
     </div>
-  </div>
-  <div class="card" style="margin-top:12px">
-    <div class="board-bar" style="padding:8px 12px 0;margin-bottom:0">
-      <div class="tabs" id="wfGroupTabs">
-        <button data-group="complete" class="on">完整期股票</button>
-        <button data-group="all">全部股票</button>
-      </div>
-      <span class="sub" id="wfBoardMeta"></span>
-    </div>
-    <div class="panel" id="wfSummary"></div>
-  </div>
-  <div class="card" style="margin-top:12px">
-    <div class="panel scroll" style="max-height:calc(100vh - 330px)">
-      <table class="board" id="wfBoardTable"></table>
-    </div>
-    <div class="note">点一行进入该股的滚动验证页；点列头排序。事后最优只作参照，不是可以拿到的成绩。</div>
-  </div>
+  </details>
 </main>
 
 <main id="view-wf2" hidden>
-  <div class="board-bar">
-    <div class="tabs" id="wf2SegTabs">
-      <button data-segment="dev" class="on">开发段</button>
-      <button data-segment="holdout">保留段</button>
+  <p class="lead">每年重挑一次参数，这只股票表现如何？</p>
+  <div id="wf2State"></div>
+  <div id="wf2Body" hidden>
+    <div class="kpis" id="wf2Kpis"></div>
+    <div class="card">
+      <h2>三条线（起点 = 100）</h2>
+      <div class="legend" id="wf2Legend"></div>
+      <div class="chart" id="wf2Chart"><div class="tip" id="wf2Tip"></div></div>
+      <div class="note" id="wf2Note"></div>
     </div>
-    <span class="sub" id="wf2Meta"></span>
+    <div class="card">
+      <h2>挑选 / 冻结的组合 <span class="sub" id="wf2PickMeta"></span></h2>
+      <div class="scroll-y"><table id="wf2Table"></table></div>
+      <div class="note" id="wf2PickNote"></div>
+    </div>
   </div>
-  <div class="kpis" id="wf2Kpis"></div>
-  <div class="card">
-    <h2><span>六条线（起点 = 100）</span>
-      <span id="wf2ZoomChip" class="sub" style="margin-left:10px"></span>
-      <label style="float:right;font-weight:400;cursor:pointer;color:var(--muted)">
-        <input type="checkbox" id="wf2Log" checked style="vertical-align:-1px"> 对数轴</label></h2>
-    <div class="legend" id="wf2Legend"></div>
-    <div class="chart" id="wf2Chart"><div class="tip" id="wf2Tip"></div></div>
-    <div class="note" id="wf2Note"></div>
-  </div>
-  <div class="card" style="margin-top:12px">
-    <h2>挑选 / 冻结的组合 <span class="sub" id="wf2PickMeta"></span></h2>
-    <div class="scroll panel" style="max-height:380px"><table class="board" id="wf2Table"></table></div>
-    <div class="note" id="wf2PickNote"></div>
-  </div>
+  <details>
+    <summary>这页怎么读</summary>
+    <div class="body">
+      本股挑选：每年最后一个交易日，只用之前的数据，从 462 组里按 年化÷回撤 挑一组，下一年用它。<br>
+      一直持有：同一区间买入并持有。<br>
+      同仓位：不择时，一直只拿与本股挑选相同的平均仓位，其余现金。<br>
+      其余三条（共同参数、借参数、固定 50/200）可以勾选查看，默认关闭。
+    </div>
+  </details>
 </main>
 
 <main id="view-wf2board" hidden>
-  <div class="card">
-    <div class="panel" style="padding:18px 18px 14px">
-      <div id="wf2Headline" style="font-size:22px;font-weight:700;line-height:1.4"></div>
-      <div class="sub" id="wf2Subline" style="margin-top:7px;font-size:12.5px"></div>
+  <p class="lead">本股挑选比对照线好多少？</p>
+  <div class="banner" id="wf2Banner"></div>
+  <div id="wf2BoardState"></div>
+  <div id="wf2BoardBody" hidden>
+    <div class="card">
+      <h2>六条线的中位数</h2>
+      <div class="scroll-x"><table id="wf2LinesTable"></table></div>
+    </div>
+    <div class="card">
+      <h2>本股挑选与谁比</h2>
+      <div class="scroll-x"><table id="wf2PairsTable"></table></div>
+      <div class="note">胜 = 本股挑选更好；差 = 本股挑选减对照。平 = 差的绝对值小于 1e-9。</div>
+    </div>
+    <div class="card">
+      <h2>逐股明细 <span class="sub" id="wf2BoardMeta"></span></h2>
+      <div class="scroll-y"><table id="wf2StocksTable"></table></div>
+      <div class="note">点一行进入该股的单股滚动验证；点列头排序。</div>
     </div>
   </div>
-  <div class="card" style="margin-top:12px">
-    <div class="board-bar" style="padding:8px 12px 0;margin-bottom:0">
-      <div class="tabs" id="wf2BoardSegTabs">
-        <button data-segment="dev" class="on">开发段</button>
-        <button data-segment="holdout">保留段</button>
-      </div>
-      <span class="sub" id="wf2BoardMeta"></span>
+  <details>
+    <summary>这页怎么读</summary>
+    <div class="body">
+      本股挑选：每年按本股回看区间的 年化÷回撤 挑一组。<br>
+      共同参数：每年全市场共用一组（各股回看中位最好、且在 90% 的股票上可参选）。<br>
+      借参数：每年把各股挑出的组合随机分给别的股票，20 个种子取中位。<br>
+      固定 50/200：从头到尾不换参数。一直持有：买入并持有。同仓位：按本股挑选的平均仓位固定持有。<br>
+      开发段评估从 2016 年底开始；保留段把 2024-06-28 冻结的参数原样用到 2026-06-30。
     </div>
-    <div class="panel" id="wf2Summary"></div>
-  </div>
-  <div class="card" style="margin-top:12px">
-    <div class="panel scroll" style="max-height:calc(100vh - 360px)">
-      <table class="board" id="wf2Stocks"></table>
-    </div>
-    <div class="note">点一行进入该股的 v2 单股页；点列头排序。F 是按 A 的在场比例做的同仓位对照，属事后归因，不是可执行方案。</div>
-  </div>
+  </details>
 </main>
 
 <main id="view-board" hidden>
-  <div class="board-bar">
-    <div class="tabs" id="boardTabs">
-      <button data-metric="total_return">总收益榜</button>
-      <button data-metric="cagr">年化榜</button>
-      <button data-metric="cagr_over_dd" class="on">收益÷回撤榜</button>
-      <button data-metric="sharpe">夏普榜</button>
-      <button data-metric="win_rate">胜率榜</button>
-    </div>
-    <label class="sub"><input type="checkbox" id="boardFull" checked> 只看从起点就有效的组合</label>
-    <div class="ctrl"><label>显示</label>
-      <select id="boardLimit"><option>30</option><option selected>50</option><option>100</option>
-        <option value="0">全部</option></select>
-    </div>
-    <span class="sub" id="boardMeta"></span>
-  </div>
-  <div class="card">
-    <div class="panel scroll" style="max-height:calc(100vh - 180px)">
-      <table class="board" id="boardTable"></table>
-    </div>
-    <div class="note">
-      每只股票在 7 种均线 × 66 组快慢线里取该指标最好的一组，再按这个指标给股票排名。这是<b>样本内最优</b>，
-      不能当作可预期的收益；点击一行跳到那只股票的组合详情。
+  <p class="lead">每只股票最好的均线组合是什么？</p>
+  <div id="boardState"></div>
+  <div id="boardBody" hidden>
+    <div class="card">
+      <h2>全市场排行 <span class="sub" id="boardMeta"></span></h2>
+      <div class="row2" style="padding-top:6px">
+        <div class="tabs" id="boardTabs">
+          <button data-metric="total_return">总收益</button>
+          <button data-metric="cagr">年化</button>
+          <button data-metric="cagr_over_dd" class="on">收益÷回撤</button>
+          <button data-metric="sharpe">夏普</button>
+          <button data-metric="win_rate">胜率</button>
+        </div>
+      </div>
+      <div class="scroll-y" style="max-height:calc(100vh - 260px)"><table id="boardTable"></table></div>
+      <div class="note">每只股票在 462 组里取该指标最好的一组，再按这个指标排名。这是样本内最优，不是可预期的收益。</div>
     </div>
   </div>
+  <details>
+    <summary>这页怎么读</summary>
+    <div class="body">
+      榜单按“每股取最优”排名：总收益、年化、收益÷回撤、夏普、胜率。胜率只统计交易段数不少于 10 的组合。
+      点一行跳到那只股票的单股均线页。
+    </div>
+  </details>
 </main>
 
-<div id="loading">计算中…</div>
+<div id="loading">正在读取…</div>
 
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { info: null, overview: null, combo: null, type: 'sma', fast: 20, slow: 100, view: 'single',
-                zoom: null,
-                rank: { metric: 'cagr_over_dd', full: false },
-                board: { metric: 'cagr_over_dd', full: true, limit: 50, data: null },
-                wf: { data: null, zoom: null },
-                wfboard: { data: null, group: 'complete', sort: 'wf_ratio', dir: -1 },
-                wf2: { data: null, segment: 'dev', zoom: null,
-                       show: { a: true, b: true, c: true, d: true, e: true, f: true } },
-                wf2board: { data: null, segment: 'dev', sort: 'a_ratio', dir: -1 } };
+const state = {
+  info: null, view: 'pool',
+  single: { data: null, type: 'sma', fast: 20, slow: 100, zoom: null },
+  wf2: { data: null, segment: 'dev', zoom: null, show: { a: true, b: false, c: false, d: false, e: true, f: true } },
+  wf2board: { data: null, segment: 'dev', subset: 'all', sort: 'a_cagr', dir: -1 },
+  board: { data: null, metric: 'cagr_over_dd', full: true, limit: 50 },
+  pool: { data: null, show: { long_full: true, all_equal: true, voo: true, random: true, long_plus_cash: false } }
+};
 const pct = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? '—' : (v * 100).toFixed(d) + '%';
 const sgn = (v, d = 1) => (v === null || v === undefined) ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(d) + '%';
-const cls = (v) => (v === null || v === undefined) ? '' : (v >= 0 ? 'good' : 'bad');
 const num = (v, d = 2) => (v === null || v === undefined) ? '—' : v.toFixed(d);
+const cls = (v) => (v === null || v === undefined) ? '' : (v >= 0 ? 'good' : 'bad');
+const busy = (on) => $('loading').classList.toggle('on', on);
+const setState = (id, html, kind = '') => {
+  const el = $(id); el.hidden = false; el.className = 'state ' + kind; el.innerHTML = html;
+};
 
 async function getJSON(url) {
   const response = await fetch(url);
   const body = await response.json();
-  if (!response.ok || body.error) throw new Error(body.error || response.statusText);
+  if (!response.ok || body.error) {
+    const error = new Error(body.error || response.statusText);
+    error.hint = body.hint;
+    throw error;
+  }
   return body;
 }
-const busy = (on) => $('loading').classList.toggle('on', on);
+
 const params = () => `security=${encodeURIComponent($('stock').value)}&start=${$('start').value}` +
                      `&end=${$('end').value}&cash=${$('cash').value}&freq=${$('freq').value}`;
 
-async function boot() {
-  try {
-    const info = await getJSON('/api/stocks');
-    state.info = info;
-    $('stockList').innerHTML = info.stocks.map(s => `<option value="${s.ticker}">${s.name || ''}</option>`).join('');
-    $('stock').value = info.stocks.some(s => s.ticker === 'MSFT') ? 'MSFT' : info.stocks[0].ticker;
-    $('types').innerHTML = info.types.map(t => `<button data-type="${t}">${t.toUpperCase()}</button>`).join('');
-    $('types').querySelectorAll('button').forEach(b => b.onclick = () => {
-      state.type = b.dataset.type; state.fast = null; state.slow = null; loadOverview();
-    });
-    const link = new URLSearchParams(location.search);
-    if (link.get('security') && info.stocks.some(s => s.ticker === link.get('security'))) {
-      $('stock').value = link.get('security');
-    }
-    for (const key of ['start', 'end']) if (link.get(key)) $(key).value = link.get(key);
-    if (link.get('cash')) $('cash').value = link.get('cash');
-    if (link.get('freq') === 'weekly') $('freq').value = 'weekly';
-    if (link.get('type') && info.types.includes(link.get('type'))) state.type = link.get('type');
-    if (link.get('fast')) state.fast = +link.get('fast');
-    if (link.get('slow')) state.slow = +link.get('slow');
-    if (['board', 'rank', 'wf', 'wfboard', 'wf2', 'wf2board'].includes(link.get('view'))) state.view = link.get('view');
-    if (link.get('segment') === 'holdout') { state.wf2.segment = 'holdout'; state.wf2board.segment = 'holdout'; }
-    if (link.get('zoom') && link.get('zoom').includes(',')) {
-      state.pendingZoom = link.get('zoom').split(',').map(s => s.trim());
-    }
-    if (link.get('metric') && METRIC_LABEL[link.get('metric')]) {
-      state.rank.metric = link.get('metric');
-      state.board.metric = link.get('metric');
-      $('rankMetric').value = link.get('metric');
-      document.querySelectorAll('#boardTabs button').forEach(b =>
-        b.classList.toggle('on', b.dataset.metric === link.get('metric')));
-    }
-
-    $('reload').onclick = () => { loadOverview(); if (state.view === 'wf') loadWf(); };
-    $('stock').onchange = () => {
-      loadOverview(); if (state.view === 'wf') loadWf(); if (state.view === 'wf2') loadWf2();
-    };
-    $('cash').onchange = () => {
-      loadOverview(); if (state.view === 'board') loadBoard();
-      if (state.view === 'wf') loadWf(); if (state.view === 'wfboard') loadWfBoard();
-      if (state.view === 'wf2') loadWf2(); if (state.view === 'wf2board') loadWf2Board();
-    };
-    $('freq').onchange = () => {
-      loadOverview(); if (state.view === 'board') loadBoard();
-      if (state.view === 'wf') loadWf(); if (state.view === 'wfboard') loadWfBoard();
-      if (state.view === 'wf2') loadWf2(); if (state.view === 'wf2board') loadWf2Board();
-    };
-    $('start').onchange = () => loadOverview();
-    $('end').onchange = () => loadOverview();
-    $('tabs').querySelectorAll('button').forEach(b => b.onclick = () => setView(b.dataset.view));
-    $('boardTabs').querySelectorAll('button').forEach(b => b.onclick = () => {
-      state.board.metric = b.dataset.metric;
-      $('boardTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
-      const url = new URL(location.href); url.searchParams.set('metric', b.dataset.metric);
-      history.replaceState(null, '', url);
-      renderBoard();
-    });
-    $('rankMetric').onchange = () => {
-      state.rank.metric = $('rankMetric').value;
-      const url = new URL(location.href); url.searchParams.set('metric', state.rank.metric);
-      history.replaceState(null, '', url);
-      renderRank();
-    };
-    $('rankFull').onchange = () => { state.rank.full = $('rankFull').checked; renderRank(); };
-    $('boardFull').onchange = () => { state.board.full = $('boardFull').checked; renderBoard(); };
-    $('boardLimit').onchange = () => { state.board.limit = +$('boardLimit').value; renderBoard(); };
-    $('logScale').onchange = () => { if (state.combo) renderPrice(state.combo); };
-    $('wfLog').onchange = () => { if (state.wf.data) renderWfChart(); };
-    $('wfGroupTabs').querySelectorAll('button').forEach(b => b.onclick = () => {
-      state.wfboard.group = b.dataset.group;
-      $('wfGroupTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
-      renderWfBoard();
-    });
-    $('wf2Log').onchange = () => { if (state.wf2.data) renderWf2Chart(); };
-    $('wf2SegTabs').querySelectorAll('button').forEach(b => b.onclick = () => {
-      state.wf2.segment = b.dataset.segment;
-      $('wf2SegTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
-      loadWf2();
-    });
-    $('wf2BoardSegTabs').querySelectorAll('button').forEach(b => b.onclick = () => {
-      state.wf2board.segment = b.dataset.segment;
-      $('wf2BoardSegTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
-      loadWf2Board();
-    });
-    setView(state.view);
-    await loadOverview();
-  } catch (error) {
-    document.querySelector('main').innerHTML = `<div class="err">加载失败：${error.message}</div>`;
-  }
-}
+const CONTROLS = {
+  pool: [],
+  single: ['stock', 'dates', 'cash', 'freq', 'reload'],
+  wf2: ['stock', 'segment'],
+  wf2board: ['segment', 'subset'],
+  board: ['freq', 'cash']
+};
 
 function setView(view) {
   state.view = view;
-  for (const name of ['single', 'wf', 'wfboard', 'wf2', 'wf2board', 'board']) {
-    $('view-' + name).hidden = view !== name;
-  }
+  for (const name of ['pool', 'single', 'wf2', 'wf2board', 'board']) $('view-' + name).hidden = view !== name;
   $('tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.view === view));
+  const shown = CONTROLS[view] || [];
+  for (const name of ['stock', 'dates', 'cash', 'freq', 'segment', 'subset', 'reload']) {
+    $('ctl-' + name).hidden = !shown.includes(name);
+  }
   const url = new URL(location.href);
   url.searchParams.set('view', view);
   history.replaceState(null, '', url);
-  if (view === 'board') loadBoard();
-  if (view === 'wf') loadWf();
-  if (view === 'wfboard') loadWfBoard();
+  if (view === 'pool') loadPool();
+  if (view === 'single') loadOverview();
   if (view === 'wf2') loadWf2();
   if (view === 'wf2board') loadWf2Board();
+  if (view === 'board') loadBoard();
 }
 
-async function loadOverview() {
-  busy(true);
-  state.zoom = null;
-  try {
-    const data = await getJSON('/api/overview?' + params());
-    state.overview = data;
-    $('meta').textContent = `${data.meta.security_id} · ${data.meta.evaluation_start} 至 ${data.meta.evaluation_end}` +
-      ` · ${data.meta.signal_days} 个信号${data.meta.frequency === 'daily' ? '日' : '周'}`;
-    document.querySelectorAll('#types button').forEach(b => b.classList.toggle('on', b.dataset.type === state.type));
-    const combos = data.combos.filter(c => c.type === state.type);
-    const fasts = [...new Set(combos.map(c => c.fast))].sort((a, b) => a - b);
-    const slows = [...new Set(combos.map(c => c.slow))].sort((a, b) => a - b);
-    $('fast').innerHTML = fasts.map(v => `<option>${v}</option>`).join('');
-    $('slow').innerHTML = slows.map(v => `<option>${v}</option>`).join('');
-    const current = combos.find(c => c.fast === state.fast && c.slow === state.slow) || combos[0];
-    state.fast = current.fast; state.slow = current.slow;
-    $('fast').value = state.fast; $('slow').value = state.slow;
-    $('fast').onchange = () => { state.fast = +$('fast').value; selectCombo(); };
-    $('slow').onchange = () => { state.slow = +$('slow').value; selectCombo(); };
-    renderMatrix(combos, fasts, slows);
-    const url = new URL(location.href);
-    for (const [k, v] of Object.entries({ security: $('stock').value, start: $('start').value, end: $('end').value,
-                                          cash: $('cash').value, freq: $('freq').value, type: state.type,
-                                          fast: state.fast, slow: state.slow })) url.searchParams.set(k, v);
-    history.replaceState(null, '', url);
-    await selectCombo();
-    if (state.pendingZoom) {
-      const dates = data.price.dates;
-      const near = (target) => {
-        let best = 0;
-        for (let i = 0; i < dates.length; i++) if (dates[i] <= target) best = i;
-        return best;
-      };
-      const a = near(state.pendingZoom[0]), b = near(state.pendingZoom[1]);
-      if (b > a) { state.zoom = [a, b]; redraw(); }
-      state.pendingZoom = null;
-    }
-  } finally { busy(false); }
-}
-
-function shade(value, lo, hi) {
-  if (value === null) return '';
-  const t = hi === lo ? 0.5 : (value - lo) / (hi - lo);
-  const good = [0, 114, 178], bad = [213, 94, 0];
-  const mix = good.map((c, i) => Math.round(c * t + bad[i] * (1 - t)));
-  return `background: rgba(${mix[0]},${mix[1]},${mix[2]},${0.12 + 0.32 * t});`;
-}
-
-function renderMatrix(combos, fasts, slows) {
-  const index = new Map(combos.map(c => [c.fast + '/' + c.slow, c]));
-  const ratios = combos.map(c => c.cagr_over_dd).filter(v => v !== null);
-  const lo = Math.min(...ratios), hi = Math.max(...ratios);
-  let html = '<thead><tr><th></th>' + slows.map(s => `<th>${s}</th>`).join('') + '</tr></thead><tbody>';
-  for (const f of fasts) {
-    html += `<tr><th>${f}</th>`;
-    for (const s of slows) {
-      const c = index.get(f + '/' + s);
-      if (!c) { html += '<td style="color:#c3c8d0">—</td>'; continue; }
-      const on = c.fast === state.fast && c.slow === state.slow ? ' on' : '';
-      html += `<td class="${on}" data-f="${f}" data-s="${s}" style="${shade(c.cagr_over_dd, lo, hi)}" ` +
-              `title="${c.type.toUpperCase()} ${f}/${s} | 年化 ${pct(c.cagr)} | 回撤 ${pct(c.max_drawdown)} | ` +
-              `收益÷回撤 ${num(c.cagr_over_dd)} | 夏普 ${num(c.sharpe)} | 在场 ${pct(c.invested_share, 0)}">` +
-              `<b>${(c.cagr * 100).toFixed(0)}</b><br><span>${(c.max_drawdown * 100).toFixed(0)}</span></td>`;
-    }
-    html += '</tr>';
-  }
-  $('matrix').innerHTML = html + '</tbody>';
-  $('matrix').querySelectorAll('td[data-f]').forEach(td => td.onclick = () => {
-    state.fast = +td.dataset.f; state.slow = +td.dataset.s;
-    $('fast').value = state.fast; $('slow').value = state.slow;
-    selectCombo();
-  });
-}
-
-async function selectCombo() {
-  busy(true);
-  try {
-    const data = await getJSON(`/api/combo?${params()}&type=${state.type}&fast=${state.fast}&slow=${state.slow}`);
-    state.combo = data;
-    document.querySelectorAll('#matrix td[data-f]').forEach(td =>
-      td.classList.toggle('on', +td.dataset.f === state.fast && +td.dataset.s === state.slow));
-    renderKpis(data);
-    renderPrice(data);
-    renderEquity(data);
-    renderSegments(data);
-    renderAnnual(data);
-    renderRank();
-    updateZoomChip();
-  } finally { busy(false); }
-}
-
-function renderKpis(c) {
-  const m = c.metrics, h = state.overview.buy_hold;
-  const card = (k, v, base, klass = '') =>
-    `<div class="kpi"><div class="k">${k}</div><div class="v ${klass}">${v}</div><div class="b">${base}</div></div>`;
-  $('kpis').innerHTML =
-    card('年化', pct(m.cagr), '持有 ' + pct(h.cagr), cls(m.cagr - h.cagr)) +
-    card('总收益', pct(m.total_return, 0), '持有 ' + pct(h.total_return, 0), cls(m.total_return - h.total_return)) +
-    card('最大回撤', pct(m.max_drawdown), '持有 ' + pct(h.max_drawdown), 'bad') +
-    card('收益÷回撤', num(m.cagr_over_dd), '持有 ' + num(h.cagr_over_dd)) +
-    card('夏普', num(m.sharpe), '持有 ' + num(h.sharpe)) +
-    card('在场比例', pct(m.invested_share, 0), `买入 ${m.buys} 次`) +
-    card('平均持有', num(m.average_holding_weeks, 1) + ' 周', `共 ${c.segments.length} 段`) +
-    card('回撤谷底', m.trough_date || '—', '峰 ' + (m.peak_date || '—'));
-}
+// -- chart --------------------------------------------------------------------------------------------------------
 
 function niceTicks(min, max, count) {
   const span = max - min || 1;
@@ -565,19 +416,23 @@ function logTicks(lo, hi) {
 
 function drawChart(container, tip, cfg) {
   const box = container.getBoundingClientRect();
-  const width = Math.max(520, box.width - 16);
+  const width = Math.max(320, box.width - 20);
   const height = cfg.height;
-  const pad = { l: 56, r: 12, t: 10, b: 22 };
-  const setZoom = cfg.setZoom || ((range) => { state.zoom = range; redraw(); });
+  const pad = { l: 58, r: 12, t: 10, b: 22 };
   const all = cfg.dates.length;
   const [z0, z1] = cfg.zoom ? [Math.max(0, cfg.zoom[0]), Math.min(all - 1, cfg.zoom[1])] : [0, all - 1];
   const dates = cfg.dates.slice(z0, z1 + 1);
   const series = cfg.series.map(s => ({ ...s, values: s.values.slice(z0, z1 + 1) }));
-  const markers = (cfg.markers || []).filter(m => m.i >= z0 && m.i <= z1).map(m => ({ ...m, i: m.i - z0 }));
+  const band = cfg.band ? { lower: cfg.band.lower.slice(z0, z1 + 1), upper: cfg.band.upper.slice(z0, z1 + 1),
+                            color: cfg.band.color } : null;
   const n = dates.length;
-  const raw = series.flatMap(s => s.values).filter(v => v !== null && Number.isFinite(v) && v > 0);
-  const spread = raw.length ? Math.max(...raw) / Math.max(Math.min(...raw), 1e-9) : 1;
-  const useLog = !!cfg.log && raw.length > 0 && spread > 3;
+  const finite = series.flatMap(s => s.values).concat(band ? band.upper.concat(band.lower) : [])
+    .filter(v => v !== null && Number.isFinite(v));
+  const positive = finite.filter(v => v > 0);
+  const spread = positive.length ? Math.max(...positive) / Math.max(Math.min(...positive), 1e-9) : 1;
+  const useLog = !!cfg.log && positive.length > 0 && spread > 3;
+  const raw = useLog ? positive : finite;
+  if (!raw.length) { container.querySelectorAll('svg').forEach(s => s.remove()); return; }
   const T = (v) => useLog ? Math.log10(Math.max(v, 1e-9)) : v;
   let lo = Math.min(...raw.map(T)), hi = Math.max(...raw.map(T));
   const padY = (hi - lo) * 0.06 || 1;
@@ -601,6 +456,12 @@ function drawChart(container, tip, cfg) {
       parts.push(`<text x="${X(i)}" y="${height - 6}" font-size="10.5" fill="#8b929c">${mark}</text>`);
     }
   }
+  if (band) {
+    let up = '', down = '';
+    for (let i = 0; i < n; i++) up += (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(band.upper[i]).toFixed(1) + ' ';
+    for (let i = n - 1; i >= 0; i--) down += 'L' + X(i).toFixed(1) + ' ' + Y(band.lower[i]).toFixed(1) + ' ';
+    parts.push(`<path d="${up}${down}Z" fill="${band.color}" opacity="0.16"/>`);
+  }
   for (const s of series) {
     let path = '', started = false;
     for (let i = 0; i < n; i++) {
@@ -609,16 +470,8 @@ function drawChart(container, tip, cfg) {
       path += (started ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' ';
       started = true;
     }
-    parts.push(`<path d="${path}" fill="none" stroke="${s.color}" stroke-width="${s.width || 1.6}"` +
-               `${s.dash ? ` stroke-dasharray="${s.dash}"` : ''} opacity="${s.opacity || 1}"/>`);
-  }
-  for (const marker of markers) {
-    const x = X(marker.i), y = Y(marker.value);
-    if (marker.side === 'buy') {
-      parts.push(`<path d="M${x} ${y + 11} l-6 10 l12 0 z" fill="#0072B2" stroke="#fff" stroke-width="1"/>`);
-    } else {
-      parts.push(`<path d="M${x} ${y - 11} l-6 -10 l12 0 z" fill="#D55E00" stroke="#fff" stroke-width="1"/>`);
-    }
+    parts.push(`<path d="${path}" fill="none" stroke="${s.color}" stroke-width="${s.width || 1.7}"` +
+               `${s.dash ? ` stroke-dasharray="${s.dash}"` : ''}/>`);
   }
   parts.push(`<line id="cross" x1="0" x2="0" y1="${pad.t}" y2="${height - pad.b}" stroke="#b9c0ca" ` +
              `stroke-dasharray="3 3" opacity="0"/>`);
@@ -647,8 +500,7 @@ function drawChart(container, tip, cfg) {
   svg.querySelector('.hover').addEventListener('mouseleave', () => {
     cross.setAttribute('opacity', 0); tip.style.opacity = 0;
   });
-
-  // drag across the plot to zoom both charts into that stretch of time
+  const setZoom = cfg.setZoom || ((range) => { state.single.zoom = range; redrawSingle(); });
   const brush = svg.querySelector('#brush');
   const toIndex = (clientX) => {
     const rect = svg.getBoundingClientRect();
@@ -674,52 +526,293 @@ function drawChart(container, tip, cfg) {
     brush.setAttribute('opacity', 0);
     const a = Math.min(anchor, i), b = Math.max(anchor, i);
     anchor = null;
-    if (b - a < 3) return;                       // a click, not a drag
+    if (b - a < 3) return;
     setZoom([z0 + a, z0 + b]);
   });
   svg.addEventListener('mouseleave', () => { anchor = null; brush.setAttribute('opacity', 0); });
   svg.addEventListener('dblclick', () => setZoom(null));
 }
 
-function redraw() {
-  if (!state.combo) return;
-  renderPrice(state.combo);
-  renderEquity(state.combo);
+// -- pool experiment -----------------------------------------------------------------------------------------------
+
+const POOL_LINES = [
+  ['long_full', '看多满仓', '#0072B2'],
+  ['all_equal', '全部等权', '#666666'],
+  ['voo', 'VOO', '#009E73'],
+  ['random', '随机同数量中位', '#999999'],
+  ['long_plus_cash', '看多 + 现金', '#CC79A7']
+];
+
+async function loadPool() {
+  busy(true);
+  setState('poolState', '正在读取…');
+  try {
+    const data = await getJSON('/api/pool_ma');
+    state.pool.data = data;
+    $('poolState').hidden = true;
+    $('poolState').innerHTML = '';
+    $('poolBody').hidden = false;
+    renderPool();
+  } catch (error) {
+    $('poolBody').hidden = true;
+    setState('poolState', `${error.message}<br><span class="sub">${error.hint || ''}</span>`, 'err');
+  } finally { busy(false); }
+}
+
+function normalize(values) {
+  const base = values[0] || 1;
+  return values.map(v => v === null ? null : v / base * 100);
+}
+
+function drawdownSeries(values) {
+  let peak = values[0];
+  return values.map(v => {
+    if (v === null) return null;
+    peak = Math.max(peak, v);
+    return (v / peak - 1) * 100;
+  });
+}
+
+function renderPool() {
+  const { summary, curves } = state.pool.data;
+  const show = state.pool.show;
+  $('poolLegend').innerHTML = POOL_LINES.map(([key, label, color]) =>
+    `<label><input type="checkbox" data-key="${key}" ${show[key] ? 'checked' : ''} style="vertical-align:-1px">` +
+    `<i style="background:${color}"></i>${label}</label>`).join('') +
+    '<span>拖动可放大，双击复位</span>';
+  $('poolLegend').querySelectorAll('input[data-key]').forEach(cb => cb.onchange = () => {
+    state.pool.show[cb.dataset.key] = cb.checked;
+    renderPool();
+  });
+
+  const series = [];
+  for (const [key, label, color] of POOL_LINES) {
+    if (!show[key]) continue;
+    if (key === 'random') {
+      series.push({ name: label, values: normalize(curves.random.p50), color, dash: '4 3', width: 1.5 });
+    } else {
+      series.push({ name: label, values: normalize(curves.equity[key]), color, width: key === 'long_full' ? 2.1 : 1.5 });
+    }
+  }
+  const band = show.random ? { lower: normalize(curves.random.p05), upper: normalize(curves.random.p95), color: '#999999' } : null;
+  drawChart($('poolChart'), $('poolTip'), {
+    dates: curves.dates, height: 340, log: true, series, band,
+    yFormat: (v) => v.toFixed(0)
+  });
+  const ddSeries = series.map(s => ({ ...s, values: drawdownSeries(s.values) }));
+  drawChart($('poolDdChart'), $('poolDdTip'), {
+    dates: curves.dates, height: 190, log: false, series: ddSeries,
+    yFormat: (v) => v.toFixed(0) + '%'
+  });
+  drawChart($('kmChart'), $('kmTip'), {
+    dates: curves.weekly.map(w => w.date), height: 150, log: false,
+    series: [
+      { name: '看多只数', values: curves.weekly.map(w => w.K), color: '#0072B2', width: 1.4 },
+      { name: '池子只数', values: curves.weekly.map(w => w.M), color: '#666666', width: 1.2 }
+    ],
+    yFormat: (v) => v.toFixed(0)
+  });
+
+  const p = summary.portfolios, r = summary.random.metrics;
+  const rows = [
+    ['看多满仓', p.long_full, p.long_full.excess_vs_voo],
+    ['看多 + 现金', p.long_plus_cash, p.long_plus_cash.excess_vs_voo],
+    ['全部等权', p.all_equal, p.all_equal.excess_vs_voo],
+    ['随机中位', null, r.cagr.median - p.voo.cagr],
+    ['随机 5%', null, r.cagr.p05 - p.voo.cagr],
+    ['随机 95%', null, r.cagr.p95 - p.voo.cagr],
+    ['VOO', p.voo, 0]
+  ];
+  let html = '<thead><tr><th class="left">组合</th><th>年化</th><th>比 VOO 多（少）</th><th>最大回撤</th>' +
+    '<th>谷底</th><th>最长水下（交易日）</th><th>2020 年内回撤</th><th>2022 年内回撤</th>' +
+    '<th>最差自然年</th><th>收益÷回撤</th></tr></thead><tbody>';
+  const cell = (value, formatter, klass = '') => `<td class="${klass}">${formatter(value)}</td>`;
+  for (const [label, row, excess] of rows) {
+    if (row) {
+      html += `<tr><td class="left">${label}</td>` +
+        cell(row.cagr, sgn, cls(row.cagr)) + cell(excess, sgn, cls(excess)) +
+        cell(row.max_drawdown, pct, 'bad') + `<td>${row.trough_date || '—'}</td>` +
+        `<td>${row.longest_underwater_sessions}</td>` +
+        cell(row.max_drawdown_2020, pct, 'bad') + cell(row.max_drawdown_2022, pct, 'bad') +
+        cell(row.worst_year.return_, pct, cls(row.worst_year.return_)) + `<td>${num(row.cagr_over_dd)}</td></tr>`;
+    } else {
+      const key = label === '随机中位' ? 'median' : label === '随机 5%' ? 'p05' : 'p95';
+      html += `<tr><td class="left">${label}</td>` +
+        cell(r.cagr[key], sgn, cls(r.cagr[key])) + cell(excess, sgn, cls(excess)) +
+        cell(r.max_drawdown[key], pct, 'bad') + '<td>—</td>' +
+        `<td>${Math.round(r.longest_underwater_sessions[key])}</td>` +
+        '<td>—</td><td>—</td>' + cell(r.worst_year_return[key], pct, cls(r.worst_year_return[key])) +
+        `<td>${num(r.cagr_over_dd[key])}</td></tr>`;
+    }
+  }
+  $('poolTable').innerHTML = html + '</tbody>';
+
+  const beats = summary.random.beats;
+  $('beatsTable').innerHTML = '<thead><tr><th class="left">指标</th><th>胜过（条）</th></tr></thead><tbody>' +
+    `<tr><td class="left">年化</td><td>${beats.cagr}</td></tr>` +
+    `<tr><td class="left">最大回撤</td><td>${beats.max_drawdown}</td></tr>` +
+    `<tr><td class="left">最长水下</td><td>${beats.longest_underwater_sessions}</td></tr>` +
+    `<tr><td class="left">收益÷回撤</td><td>${beats.cagr_over_dd}</td></tr></tbody>`;
+
+  const years = Object.keys(p.all_equal.annual_returns).sort();
+  let annual = '<thead><tr><th class="left">年份</th><th>看多满仓</th><th>看多 + 现金</th><th>全部等权</th>' +
+    '<th>VOO</th><th>随机中位</th></tr></thead><tbody>';
+  for (const year of years) {
+    annual += `<tr><td class="left">${year}</td>` +
+      cell(p.long_full.annual_returns[year], sgn, cls(p.long_full.annual_returns[year])) +
+      cell(p.long_plus_cash.annual_returns[year], sgn, cls(p.long_plus_cash.annual_returns[year])) +
+      cell(p.all_equal.annual_returns[year], sgn, cls(p.all_equal.annual_returns[year])) +
+      cell(p.voo.annual_returns[year], sgn, cls(p.voo.annual_returns[year])) +
+      cell(summary.random.annual[year] ? summary.random.annual[year].median : null, sgn,
+           cls(summary.random.annual[year] ? summary.random.annual[year].median : null)) + '</tr>';
+  }
+  $('annualTable').innerHTML = annual + '</tbody>';
+}
+
+// -- single stock --------------------------------------------------------------------------------------------------
+
+const METRIC_LABEL = { total_return: '总收益', cagr: '年化', cagr_over_dd: '年化÷回撤', sharpe: '夏普', win_rate: '胜率' };
+const WIN_MIN_SEGMENTS = 10;
+
+async function loadOverview() {
+  busy(true);
+  setState('kpis', '正在读取…');
+  state.single.zoom = null;
+  try {
+    const data = await getJSON('/api/overview?' + params());
+    state.single.data = data;
+    const combos = data.combos.filter(c => c.type === state.single.type);
+    const fasts = [...new Set(combos.map(c => c.fast))].sort((a, b) => a - b);
+    const slows = [...new Set(combos.map(c => c.slow))].sort((a, b) => a - b);
+    $('fast').innerHTML = fasts.map(v => `<option>${v}</option>`).join('');
+    $('slow').innerHTML = slows.map(v => `<option>${v}</option>`).join('');
+    const current = combos.find(c => c.fast === state.single.fast && c.slow === state.single.slow) || combos[0];
+    state.single.fast = current.fast; state.single.slow = current.slow;
+    $('fast').value = state.single.fast; $('slow').value = state.single.slow;
+    $('fast').onchange = () => { state.single.fast = +$('fast').value; selectCombo(); };
+    $('slow').onchange = () => { state.single.slow = +$('slow').value; selectCombo(); };
+    document.querySelectorAll('#types button').forEach(b =>
+      b.classList.toggle('on', b.dataset.type === state.single.type));
+    renderMatrix(combos, fasts, slows);
+    const url = new URL(location.href);
+    for (const [k, v] of Object.entries({ security: $('stock').value, start: $('start').value,
+                                          end: $('end').value, cash: $('cash').value, freq: $('freq').value,
+                                          type: state.single.type, fast: state.single.fast, slow: state.single.slow })) {
+      url.searchParams.set(k, v);
+    }
+    history.replaceState(null, '', url);
+    await selectCombo();
+  } catch (error) {
+    $('kpis').innerHTML = '';
+    setState('kpis', error.message, 'err');
+  } finally { busy(false); }
+}
+
+function shade(value, lo, hi) {
+  if (value === null) return '';
+  const t = hi === lo ? 0.5 : (value - lo) / (hi - lo);
+  const good = [0, 114, 178], bad = [213, 94, 0];
+  const mix = good.map((c, i) => Math.round(c * t + bad[i] * (1 - t)));
+  return `background: rgba(${mix[0]},${mix[1]},${mix[2]},${0.12 + 0.32 * t});`;
+}
+
+function renderMatrix(combos, fasts, slows) {
+  const index = new Map(combos.map(c => [c.fast + '/' + c.slow, c]));
+  const ratios = combos.map(c => c.cagr_over_dd).filter(v => v !== null);
+  const lo = Math.min(...ratios), hi = Math.max(...ratios);
+  let html = '<thead><tr><th></th>' + slows.map(s => `<th>${s}</th>`).join('') + '</tr></thead><tbody>';
+  for (const f of fasts) {
+    html += `<tr><th>${f}</th>`;
+    for (const s of slows) {
+      const c = index.get(f + '/' + s);
+      if (!c) { html += '<td style="color:#c3c8d0">—</td>'; continue; }
+      const on = c.fast === state.single.fast && c.slow === state.single.slow ? ' on' : '';
+      html += `<td class="${on}" data-f="${f}" data-s="${s}" style="${shade(c.cagr_over_dd, lo, hi)}" ` +
+              `title="年化 ${pct(c.cagr)} · 回撤 ${pct(c.max_drawdown)} · 收益÷回撤 ${num(c.cagr_over_dd)} · ` +
+              `夏普 ${num(c.sharpe)} · 在场 ${pct(c.invested_share, 0)}">${(c.cagr * 100).toFixed(0)}</td>`;
+    }
+    html += '</tr>';
+  }
+  $('matrix').innerHTML = html + '</tbody>';
+  $('matrix').querySelectorAll('td[data-f]').forEach(td => td.onclick = () => {
+    state.single.fast = +td.dataset.f; state.single.slow = +td.dataset.s;
+    $('fast').value = state.single.fast; $('slow').value = state.single.slow;
+    selectCombo();
+  });
+}
+
+async function selectCombo() {
+  busy(true);
+  try {
+    const data = await getJSON(`/api/combo?${params()}&type=${state.single.type}` +
+                               `&fast=${state.single.fast}&slow=${state.single.slow}`);
+    state.single.combo = data;
+    document.querySelectorAll('#matrix td[data-f]').forEach(td =>
+      td.classList.toggle('on', +td.dataset.f === state.single.fast && +td.dataset.s === state.single.slow));
+    renderKpis(data);
+    renderPrice(data);
+    renderEquity(data);
+    renderSegments(data);
+    renderAnnual(data);
+    renderRank();
+    updateZoomChip();
+  } catch (error) {
+    setState('kpis', error.message, 'err');
+  } finally { busy(false); }
+}
+
+function kpi(label, value, klass = '') {
+  return `<div class="kpi"><div class="k">${label}</div><div class="v ${klass}">${value}</div></div>`;
+}
+
+function renderKpis(c) {
+  const m = c.metrics;
+  $('kpis').className = 'kpis';
+  $('kpis').innerHTML =
+    kpi('年化', sgn(m.cagr), cls(m.cagr)) +
+    kpi('总收益', sgn(m.total_return, 0), cls(m.total_return)) +
+    kpi('最大回撤', pct(m.max_drawdown), 'bad') +
+    kpi('收益÷回撤', num(m.cagr_over_dd)) +
+    kpi('夏普', num(m.sharpe)) +
+    kpi('在场比例', pct(m.invested_share, 0)) +
+    kpi('买入次数', String(m.buys)) +
+    kpi('平均持有（周）', num(m.average_holding_weeks, 1));
+}
+
+function redrawSingle() {
+  if (!state.single.combo) return;
+  renderPrice(state.single.combo);
+  renderEquity(state.single.combo);
   updateZoomChip();
 }
 
 function updateZoomChip() {
   const chip = $('zoomChip');
-  if (!state.zoom || !state.overview) { chip.textContent = ''; return; }
-  const dates = state.overview.price.dates;
-  const [a, b] = state.zoom;
+  if (!state.single.zoom || !state.single.data) { chip.textContent = ''; return; }
+  const dates = state.single.data.price.dates;
+  const [a, b] = state.single.zoom;
   chip.innerHTML = `放大 ${dates[a]} ~ ${dates[b]} <a href="#" id="zoomReset" style="color:#0072B2">重置</a>`;
   const link = $('zoomReset');
-  if (link) link.onclick = (event) => { event.preventDefault(); state.zoom = null; redraw(); };
+  if (link) link.onclick = (event) => { event.preventDefault(); state.single.zoom = null; redrawSingle(); };
 }
 
 function renderPrice(c) {
-  const price = state.overview.price;
+  const price = state.single.data.price;
   const base = price.close.find(v => v !== null) || 1;
   const scale = (arr) => arr.map(v => v === null ? null : v * base);
-  const idx = new Map(price.dates.map((d, i) => [d, i]));
-  const markers = (c.trades || []).filter(t => idx.has(t.date))
-    .map(t => ({ i: idx.get(t.date), side: t.side, value: t.tri * base }));
   $('priceTitle').textContent = `价格与买卖点 · ${c.type.toUpperCase()} ${c.fast}/${c.slow}`;
   $('priceLegend').innerHTML =
     `<span><i style="background:#1f2328"></i>复权股价</span>` +
     `<span><i style="background:#E69F00"></i>快线 ${c.fast}</span>` +
     `<span><i style="background:#56B4E9"></i>慢线 ${c.slow}</span>` +
-    `<span><b style="color:#0072B2">▲</b> 买入</span><span><b style="color:#D55E00">▼</b> 卖出</span>` +
-    `<span>含分红再投资，拆股已调整</span>`;
+    `<span><b style="color:#0072B2">▲</b> 买入</span><span><b style="color:#D55E00">▼</b> 卖出</span>`;
   drawChart($('priceChart'), $('priceTip'), {
-    dates: price.dates, height: 380, log: $('logScale').checked, zoom: state.zoom,
+    dates: price.dates, height: 340, log: $('logScale').checked, zoom: state.single.zoom,
     series: [
       { name: '复权股价', values: scale(price.tri), color: '#1f2328', width: 1.9 },
       { name: '快线', values: scale(c.fast_line), color: '#E69F00', width: 1.3 },
       { name: '慢线', values: scale(c.slow_line), color: '#56B4E9', width: 1.3 }
     ],
-    markers,
     yFormat: (v) => '$' + (Math.abs(v - Math.round(v)) < 1e-9 ? v.toFixed(0) : v.toFixed(2))
   });
 }
@@ -727,15 +820,14 @@ function renderPrice(c) {
 function renderEquity(c) {
   const growth = (arr) => arr.map(v => v === null ? null : v * 100);
   const top = Math.max(...c.equity.filter(v => v !== null)) * 100;
-  // a curve that spans more than an order of magnitude reads better on a log axis
   const spread = top > 800;
   $('equityLegend').innerHTML =
-    `<span><i style="background:#0072B2"></i>策略</span><span><i style="background:#9aa1ab"></i>一直持有</span>` +
+    `<span><i style="background:#0072B2"></i>策略</span><span><i style="background:#666666"></i>一直持有</span>` +
     (spread ? '<span>（对数轴）</span>' : '');
   drawChart($('equityChart'), $('equityTip'), {
-    dates: c.dates, height: 230, log: spread, zoom: state.zoom,
+    dates: c.dates, height: 200, log: spread, zoom: state.single.zoom,
     series: [
-      { name: '一直持有', values: growth(c.hold), color: '#9aa1ab', width: 1.4, dash: '4 3' },
+      { name: '一直持有', values: growth(c.hold), color: '#666666', width: 1.4, dash: '4 3' },
       { name: '策略', values: growth(c.equity), color: '#0072B2', width: 1.9 }
     ],
     yFormat: (v) => v.toFixed(0)
@@ -743,453 +835,149 @@ function renderEquity(c) {
 }
 
 function renderSegments(c) {
-  const daily = state.overview.meta.frequency === 'daily';
+  const daily = state.single.data.meta.frequency === 'daily';
   const rows = c.segments.map((s, i) => {
     const open = s.open_end ? ' <span class="pill">持有中</span>' : '';
     const length = daily ? `${s.bars} 交易日` : `${s.bars} 周`;
-    return `<tr><td>${i + 1}</td><td>${s.entry}</td><td>${s.exit}${open}</td><td>${length}</td>` +
-           `<td class="${cls(s.ret)}">${sgn(s.ret)}</td>` +
-           `<td>${(s.entry_tri * 100).toFixed(0)}</td><td>${(s.exit_tri * 100).toFixed(0)}</td></tr>`;
+    return `<tr><td>${i + 1}</td><td class="left">${s.entry}</td><td class="left">${s.exit}${open}</td>` +
+           `<td>${length}</td><td class="${cls(s.ret)}">${sgn(s.ret)}</td></tr>`;
   }).join('');
   $('segments').innerHTML =
-    `<thead><tr><th>#</th><th>入场</th><th>出场</th><th>长度</th><th>该段收益</th>` +
-    `<th>入场(100)</th><th>出场</th></tr></thead><tbody>${rows || '<tr><td colspan="7">没有持仓段</td></tr>'}</tbody>`;
+    '<thead><tr><th>#</th><th class="left">入场</th><th class="left">出场</th><th>长度</th>' +
+    '<th>该段收益</th></tr></thead><tbody>' +
+    (rows || '<tr><td colspan="5">没有持仓段</td></tr>') + '</tbody>';
 }
 
 function renderAnnual(c) {
   const hold = new Map((c.annual_hold || []).map(a => [a.year, a.value]));
   const rows = (c.annual || []).map(a => {
     const h = hold.get(a.year);
-    const diff = h === undefined || h === null ? null : a.value - h;
-    return `<tr><td>${a.year}${a.partial ? ' <span class="pill">不完整</span>' : ''}</td>` +
+    return `<tr><td class="left">${a.year}${a.partial ? ' <span class="pill">不完整</span>' : ''}</td>` +
            `<td class="${cls(a.value)}">${sgn(a.value)}</td>` +
-           `<td class="${cls(h)}">${sgn(h)}</td>` +
-           `<td class="${cls(diff)}">${diff === null ? '—' : sgn(diff)}</td></tr>`;
+           `<td class="${cls(h)}">${sgn(h)}</td></tr>`;
   }).join('');
-  $('annual').innerHTML =
-    `<thead><tr><th>年份</th><th>策略</th><th>持有</th><th>差</th></tr></thead><tbody>${rows}</tbody>`;
+  $('annual').innerHTML = '<thead><tr><th class="left">年份</th><th>策略</th><th>一直持有</th></tr></thead><tbody>' +
+    rows + '</tbody>';
 }
 
-const METRIC_LABEL = { total_return: '总收益', cagr: '年化', cagr_over_dd: '年化÷回撤', sharpe: '夏普',
-                       win_rate: '胜率' };
-const WIN_MIN_SEGMENTS = 10;      // a win rate from a couple of trades says nothing
-
 function renderRank() {
-  const data = state.overview;
+  const data = state.single.data;
   if (!data) return;
-  const metric = state.rank.metric;
+  const metric = $('rankMetric').value;
   let rows = data.combos.filter(r => r[metric] !== null && r[metric] !== undefined);
-  if (state.rank.full) rows = rows.filter(r => !r.warmup_short);
+  if ($('rankFull').checked) rows = rows.filter(r => !r.warmup_short);
   if (metric === 'win_rate') rows = rows.filter(r => (r.segments || 0) >= WIN_MIN_SEGMENTS);
   rows.sort((a, b) => b[metric] - a[metric]);
   const value = (r) => {
-    if (r[metric] === null || r[metric] === undefined) return '—';
     if (metric === 'cagr_over_dd' || metric === 'sharpe') return num(r[metric]);
-    return sgn(r[metric], metric === 'win_rate' ? 0 : 1);
+    if (metric === 'win_rate') return pct(r[metric], 0);
+    return sgn(r[metric], metric === 'total_return' ? 0 : 1);
   };
-  let html = '<thead><tr><th>#</th><th style="text-align:left">组合</th>' +
-    `<th class="sort">${METRIC_LABEL[metric]}</th><th>回撤</th><th>胜率(段)</th></tr></thead><tbody>`;
+  let html = '<thead><tr><th>#</th><th class="left">组合</th><th>' + METRIC_LABEL[metric] + '</th>' +
+    '<th>最大回撤</th><th>段数</th></tr></thead><tbody>';
   rows.forEach((r, i) => {
-    const on = r.type === state.type && r.fast === state.fast && r.slow === state.slow;
-    const win = r.win_rate === null || r.win_rate === undefined ? '—' : pct(r.win_rate, 0);
-    html += `<tr data-type="${r.type}" data-fast="${r.fast}" data-slow="${r.slow}"` +
-      `${on ? ' style="background:#e7f1f9"' : ''} ` +
-      `title="年化 ${pct(r.cagr)} · 总收益 ${pct(r.total_return, 0)} · 收益÷回撤 ${num(r.cagr_over_dd)} · ` +
-      `夏普 ${num(r.sharpe)} · 在场 ${pct(r.invested_share, 0)} · 买入 ${r.buys} 次">` +
-      `<td>${i + 1}</td>` +
-      `<td style="text-align:left;font-weight:600">${r.type.toUpperCase()} ${r.fast}/${r.slow}` +
+    html += `<tr data-type="${r.type}" data-fast="${r.fast}" data-slow="${r.slow}"><td>${i + 1}</td>` +
+      `<td class="left">${r.type.toUpperCase()} ${r.fast}/${r.slow}` +
       `${r.warmup_short ? ' <span class="pill">预热</span>' : ''}</td>` +
       `<td class="${metric === 'win_rate' ? '' : cls(r[metric])}">${value(r)}</td>` +
-      `<td class="bad">${pct(r.max_drawdown)}</td>` +
-      `<td>${win}<span class="sub">(${r.segments ?? '—'})</span></td></tr>`;
+      `<td class="bad">${pct(r.max_drawdown)}</td><td>${r.segments ?? '—'}</td></tr>`;
   });
   $('rankTable').innerHTML = html + '</tbody>';
   $('rankTable').querySelectorAll('tr[data-type]').forEach(tr => tr.onclick = () => {
-    state.type = tr.dataset.type; state.fast = +tr.dataset.fast; state.slow = +tr.dataset.slow;
-    document.querySelectorAll('#types button').forEach(b => b.classList.toggle('on', b.dataset.type === state.type));
-    $('fast').value = state.fast; $('slow').value = state.slow;
+    state.single.type = tr.dataset.type;
+    state.single.fast = +tr.dataset.fast;
+    state.single.slow = +tr.dataset.slow;
+    document.querySelectorAll('#types button').forEach(b => b.classList.toggle('on', b.dataset.type === state.single.type));
+    $('fast').value = state.single.fast; $('slow').value = state.single.slow;
     selectCombo();
   });
-  $('rankMeta').textContent = `${data.meta.ticker} · ${rows.length} 组 · ${METRIC_LABEL[metric]}` +
-    `${state.rank.full ? ' · 只看起点有效' : ''}`;
+  $('rankMeta').textContent = `${data.meta.ticker} · ${rows.length} 组`;
 }
 
-async function loadBoard() {
-  busy(true);
-  try {
-    const data = await getJSON(`/api/leaderboard?freq=${$('freq').value}&cash=${$('cash').value}`);
-    state.board.data = data;
-    renderBoard();
-  } catch (error) {
-    $('boardTable').innerHTML = `<tbody><tr><td><div class="err">${error.message}</div></td></tr></tbody>`;
-    $('boardMeta').textContent = '';
-  } finally { busy(false); }
-}
+// -- walk-forward v2 -----------------------------------------------------------------------------------------------
 
-function renderBoard() {
-  const data = state.board.data;
-  if (!data) return;
-  const key = state.board.full ? 'best_full' : 'best';
-  const metric = state.board.metric;
-  const rows = data.stocks
-    .map(s => ({ stock: s, pick: (s[key] || s.best)[metric] }))
-    .filter(r => r.pick && r.pick[metric] !== null && r.pick[metric] !== undefined);
-  rows.sort((a, b) => b.pick[metric] - a.pick[metric]);
-  if (!rows.length) {
-    $('boardTable').innerHTML = '<tbody><tr><td><div class="err">这个榜还没有数据：' +
-      '缓存里没有该指标（胜率榜需要重建一次缓存：<code>python -X utf8 research/ma_lab_v1/build_leaderboard.py</code>）' +
-      '</div></td></tr></tbody>';
-    $('boardMeta').textContent = '';
-    return;
-  }
-  const shown = rows.slice(0, state.board.limit || rows.length);
-  const cols = [['total_return', '总收益'], ['cagr', '年化'], ['cagr_over_dd', '年化÷回撤'],
-                ['sharpe', '夏普'], ['win_rate', '胜率'], ['max_drawdown', '最大回撤'],
-                ['invested_share', '在场']];
-  let html = '<thead><tr><th>#</th><th style="text-align:left">股票</th><th style="text-align:left">最佳组合</th>' +
-    cols.map(([k, label]) => `<th class="${k === metric ? 'sort' : ''}">${label}</th>`).join('') +
-    '<th>段数</th><th>持有年化</th><th>超额年化</th></tr></thead><tbody>';
-  shown.forEach((row, i) => {
-    const s = row.stock, p = row.pick;
-    const diff = p.cagr - s.hold.cagr;
-    html += `<tr data-ticker="${s.ticker}" data-type="${p.type}" data-fast="${p.fast}" data-slow="${p.slow}">` +
-      `<td>${i + 1}</td><td class="tick">${s.ticker}</td>` +
-      `<td class="combo" style="text-align:left">${p.type.toUpperCase()} ${p.fast}/${p.slow}` +
-      `${p.warmup_short ? ' <span class="pill">预热</span>' : ''}</td>` +
-      `<td class="${cls(p.total_return)}">${sgn(p.total_return, 0)}</td>` +
-      `<td class="${cls(p.cagr)}">${sgn(p.cagr)}</td>` +
-      `<td>${num(p.cagr_over_dd)}</td><td>${num(p.sharpe)}</td>` +
-      `<td>${p.win_rate === null || p.win_rate === undefined ? '—' : pct(p.win_rate, 0)}</td>` +
-      `<td class="bad">${pct(p.max_drawdown)}</td><td>${pct(p.invested_share, 0)}</td>` +
-      `<td>${p.segments === null || p.segments === undefined ? '—' : p.segments}</td>` +
-      `<td>${pct(s.hold.cagr)}</td><td class="${cls(diff)}">${sgn(diff)}</td></tr>`;
-  });
-  $('boardTable').innerHTML = html + '</tbody>';
-  $('boardTable').querySelectorAll('tr[data-ticker]').forEach(tr => tr.onclick = () => {
-    $('stock').value = tr.dataset.ticker;
-    state.type = tr.dataset.type; state.fast = +tr.dataset.fast; state.slow = +tr.dataset.slow;
-    setView('single');
-    loadOverview();
-  });
-  $('boardMeta').textContent = `${data.frequency === 'daily' ? '每日' : '每周'}信号 · 现金 ` +
-    `${data.cash === 'zero' ? '0' : '国债'} · 每股 ${data.combos} 组 · ${data.stocks.length} 只 · 生成于 ${data.built}`;
-}
-
-
-// -- walk-forward views -----------------------------------------------------------------------------------------
-
-const WF_COLORS = { wf: '#0072B2', hold: '#666666', fixed: '#E69F00' };
-
-async function loadWf() {
-  busy(true);
-  try {
-    const data = await getJSON('/api/wf?' + params());
-    state.wf.data = data;
-    state.wf.zoom = null;
-    renderWf();
-  } catch (error) {
-    $('wfKpis').innerHTML = `<div class="err">${error.message}</div>`;
-    $('wfChart').querySelectorAll('svg').forEach(s => s.remove());
-    $('wfTable').innerHTML = '';
-    $('wfMeta').textContent = '';
-    $('wfNote').textContent = '';
-    $('wfLegend').innerHTML = '';
-  } finally { busy(false); }
-}
-
-function renderWf() {
-  const data = state.wf.data;
-  if (!data) return;
-  if (!data.computable) {
-    $('wfKpis').innerHTML = '';
-    $('wfChart').querySelectorAll('svg').forEach(s => s.remove());
-    $('wfTable').innerHTML = '';
-    $('wfLegend').innerHTML = '';
-    $('wfMeta').textContent = data.ticker || '';
-    const reason = data.reason || '';
-    $('wfNote').textContent = reason.includes('no selection day')
-      ? '这只股票在 2016–2023 年间没有攒够 252 个交易日的回看历史，无法做滚动验证。'
-      : reason.includes('no total-return history')
-        ? '这只股票在 2024-06-28 之前没有总回报数据，无法做滚动验证。'
-        : (reason || '这只股票没有足够的开发段历史。');
-    return;
-  }
-  const L = data.lines;
-  const card = (label, r, color) => `<div class="kpi"><div class="k" style="color:${color}">${label}</div>` +
-    `<div class="v">${pct(r.cagr)}</div>` +
-    `<div class="b">回撤 ${pct(r.max_drawdown)} · 收益÷回撤 ${num(r.cagr_over_dd)}</div>` +
-    `<div class="b">夏普 ${num(r.sharpe)} · 总收益 ${pct(r.total_return, 0)}</div>` +
-    `<div class="b">在场 ${pct(r.invested_share, 0)} · 买入 ${r.buys} 次</div></div>`;
-  $('wfKpis').innerHTML = card('滚动验证 WF', L.wf, WF_COLORS.wf) +
-    card('一直持有', L.hold, WF_COLORS.hold) + card('固定 SMA 50/200', L.fixed, WF_COLORS.fixed);
-  const ex = L.ex_post || {};
-  const exLine = (ex.cagr === undefined || ex.cagr === null) ? '' :
-    `事后最优（只作参照）：${(ex.type || '').toUpperCase()} ${ex.fast}/${ex.slow}，年化 ${pct(ex.cagr)}、` +
-    `回撤 ${pct(ex.max_drawdown)}、收益÷回撤 ${num(ex.cagr_over_dd)}。`;
-  $('wfNote').innerHTML = `${data.complete ? '完整期' : '非完整期'}：评估从 ${data.evaluation_start} 至 ` +
-    `${data.evaluation_end}，共 ${data.evaluation_sessions} 个交易日；${data.selections.length} 次挑选里换了 ` +
-    `${data.stability.changes} 次组合。${exLine}`;
-  $('wfLegend').innerHTML =
-    `<span><i style="background:${WF_COLORS.wf}"></i>滚动验证</span>` +
-    `<span><i style="background:${WF_COLORS.hold}"></i>一直持有</span>` +
-    `<span><i style="background:${WF_COLORS.fixed}"></i>固定 SMA 50/200</span>` +
-    `<span>拖动可放大，双击复位</span>`;
-  renderWfChart();
-  renderWfTable();
-  updateWfChip();
-}
-
-function renderWfChart() {
-  const data = state.wf.data;
-  if (!data || !data.computable) return;
-  const grow = (arr) => arr.map(v => v === null ? null : v * 100);
-  drawChart($('wfChart'), $('wfTip'), {
-    dates: data.dates, height: 380, log: $('wfLog').checked, zoom: state.wf.zoom,
-    setZoom: (range) => { state.wf.zoom = range; renderWfChart(); updateWfChip(); },
-    series: [
-      { name: '一直持有', values: grow(data.curves.hold), color: WF_COLORS.hold, width: 1.4, dash: '4 3' },
-      { name: '固定 50/200', values: grow(data.curves.fixed), color: WF_COLORS.fixed, width: 1.5 },
-      { name: '滚动验证', values: grow(data.curves.wf), color: WF_COLORS.wf, width: 2.1 }
-    ],
-    yFormat: (v) => v.toFixed(0)
-  });
-}
-
-function updateWfChip() {
-  const chip = $('wfZoomChip');
-  const data = state.wf.data;
-  if (!data || !state.wf.zoom || !data.dates) { chip.textContent = ''; return; }
-  const [a, b] = state.wf.zoom;
-  chip.innerHTML = `放大 ${data.dates[a]} ~ ${data.dates[b]} ` +
-    `<a href="#" id="wfZoomReset" style="color:#0072B2">重置</a>`;
-  const link = $('wfZoomReset');
-  if (link) link.onclick = (event) => {
-    event.preventDefault(); state.wf.zoom = null; renderWfChart(); updateWfChip();
-  };
-}
-
-function renderWfTable() {
-  const data = state.wf.data;
-  const rows = data.selections.map(r => {
-    const p = r.period;
-    const cell = (x) => `<td class="${cls(x.ret)}">${sgn(x.ret)}` +
-      `<span class="sub"> / ${pct(x.max_drawdown)}</span></td>`;
-    return `<tr><td>${r.date}</td>` +
-      `<td style="text-align:left;font-weight:600">${r.type.toUpperCase()} ${r.fast}/${r.slow}</td>` +
-      `<td>${num(r.lookback_cagr_over_dd)}</td>` + cell(p.wf) + cell(p.hold) + cell(p.fixed) + '</tr>';
-  }).join('');
-  $('wfTable').innerHTML =
-    '<thead><tr><th>挑选日</th><th style="text-align:left">挑中的组合</th><th>回看 收益÷回撤</th>' +
-    '<th>下一年 WF</th><th>下一年 持有</th><th>下一年 50/200</th></tr></thead><tbody>' +
-    (rows || '<tr><td colspan="6">没有有效挑选日</td></tr>') + '</tbody>';
-  $('wfMeta').textContent = `${data.ticker} · ${data.selections.length} 次挑选 · 换 ${data.stability.changes} 次 · ` +
-    Object.entries(data.stability.types).map(([k, v]) => k.toUpperCase() + '×' + v).join('、');
-}
-
-async function loadWfBoard() {
-  busy(true);
-  try {
-    const data = await getJSON(`/api/wfboard?freq=${$('freq').value}&cash=${$('cash').value}`);
-    state.wfboard.data = data;
-    renderWfBoard();
-  } catch (error) {
-    $('wfHeadline').innerHTML = `<div class="err">${error.message}</div>`;
-    $('wfSubline').textContent = '';
-    $('wfSummary').innerHTML = '';
-    $('wfBoardTable').innerHTML = '';
-    $('wfBoardMeta').textContent = '';
-  } finally { busy(false); }
-}
-
-const WF_COLS = [
-  ['wf_cagr', 'WF 年化'], ['wf_dd', 'WF 回撤'], ['wf_ratio', 'WF 收益÷回撤'],
-  ['hold_cagr', '持有 年化'], ['hold_dd', '持有 回撤'], ['hold_ratio', '持有 收益÷回撤'],
-  ['fixed_cagr', '50/200 年化'], ['fixed_dd', '50/200 回撤'], ['fixed_ratio', '50/200 收益÷回撤'],
-  ['changes', '换组合']
+const WF2_LINES = [
+  ['a', '本股挑选', '#0072B2'],
+  ['b', '共同参数', '#56B4E9'],
+  ['c', '借参数', '#CC79A7'],
+  ['d', '固定 50/200', '#E69F00'],
+  ['e', '一直持有', '#666666'],
+  ['f', '同仓位', '#009E73']
 ];
-
-function wfValue(stock, key) {
-  if (key === 'changes') return stock.stability.changes;
-  const [line, metric] = key.split('_');
-  const name = metric === 'dd' ? 'max_drawdown' : metric === 'ratio' ? 'cagr_over_dd' : 'cagr';
-  const row = stock.lines[line];
-  return row && row[name] !== undefined ? row[name] : null;
-}
-
-function renderWfBoard() {
-  const data = state.wfboard.data;
-  if (!data) return;
-  const group = state.wfboard.group;
-  const summary = data.summary[group];
-  const label = group === 'complete' ? '完整期' : '全部';
-  $('wfHeadline').innerHTML = `${label} ${summary.stocks} 只股票里，滚动验证的年化÷回撤胜过固定 SMA 50/200 的有 ` +
-    `<span style="color:${WF_COLORS.wf}">${summary.beats_fixed} 只</span>` +
-    `（${pct(summary.beats_fixed / summary.stocks, 0)}）。`;
-  $('wfSubline').textContent = `${data.frequency === 'daily' ? '每日' : '每周'}信号 · 现金 ` +
-    `${data.cash === 'zero' ? '0 收益' : '国债'} · 评估 2016 年底至 2024-06-28 · 每年按 收益÷回撤 重挑一次 · ` +
-    `生成于 ${data.built}`;
-  const both = [['complete', '完整期'], ['all', '全部']];
-  const row = (title, fn) => `<tr><td style="text-align:left">${title}</td>` +
-    both.map(([k]) => `<td>${fn(data.summary[k])}</td>`).join('') + '</tr>';
-  $('wfSummary').innerHTML = '<table class="board" style="width:780px;table-layout:fixed">' +
-    '<colgroup><col style="width:58%"><col><col></colgroup>' +
-    '<thead><tr><th style="text-align:left">指标</th><th>完整期</th><th>全部</th></tr></thead><tbody>' +
-    row('股票数', s => s.stocks) +
-    row('WF 胜过固定 50/200（收益÷回撤）', s => `${s.beats_fixed}（${pct(s.beats_fixed / s.stocks, 0)}）`) +
-    row('WF 胜过一直持有（收益÷回撤）', s => `${s.beats_hold_ratio}（${pct(s.beats_hold_ratio / s.stocks, 0)}）`) +
-    row('WF 胜过一直持有（年化）', s => `${s.beats_hold_cagr}（${pct(s.beats_hold_cagr / s.stocks, 0)}）`) +
-    row('中位数 年化：WF / 持有 / 50-200',
-        s => `${pct(s.medians.wf.cagr)} / ${pct(s.medians.hold.cagr)} / ${pct(s.medians.fixed.cagr)}`) +
-    row('中位数 最大回撤：WF / 持有 / 50-200',
-        s => `${pct(s.medians.wf.max_drawdown)} / ${pct(s.medians.hold.max_drawdown)} / ${pct(s.medians.fixed.max_drawdown)}`) +
-    row('中位数 收益÷回撤：WF / 持有 / 50-200',
-        s => `${num(s.medians.wf.cagr_over_dd)} / ${num(s.medians.hold.cagr_over_dd)} / ${num(s.medians.fixed.cagr_over_dd)}`) +
-    row('中位数 夏普：WF / 持有 / 50-200',
-        s => `${num(s.medians.wf.sharpe)} / ${num(s.medians.hold.sharpe)} / ${num(s.medians.fixed.sharpe)}`) +
-    row('事后最优 − WF 的收益÷回撤（中位数）', s => num(s.median_ex_post_gap)) +
-    '</tbody></table>';
-
-  const key = state.wfboard.sort;
-  const stocks = data.stocks.slice().sort((a, b) => {
-    if (key === 'ticker') return state.wfboard.dir * (a.ticker < b.ticker ? -1 : a.ticker > b.ticker ? 1 : 0);
-    const x = wfValue(a, key), y = wfValue(b, key);
-    if (x === null) return 1;
-    if (y === null) return -1;
-    return state.wfboard.dir * (x - y);
-  });
-  let head = '<thead><tr><th data-key="ticker" style="text-align:left"' +
-    `${key === 'ticker' ? ' class="sort"' : ''}>股票</th><th>完整期</th>` +
-    WF_COLS.map(([k, title]) => `<th data-key="${k}"${k === key ? ' class="sort"' : ''}>${title}</th>`).join('') +
-    '</tr></thead>';
-  const body = stocks.map(s => {
-    const v = (k) => wfValue(s, k);
-    return `<tr data-ticker="${s.ticker}"><td class="tick">${s.ticker}</td>` +
-      `<td>${s.complete ? '✓' : '<span class="pill">非完整</span>'}</td>` +
-      `<td class="${cls(v('wf_cagr'))}">${sgn(v('wf_cagr'))}</td>` +
-      `<td class="bad">${pct(v('wf_dd'))}</td><td>${num(v('wf_ratio'))}</td>` +
-      `<td class="${cls(v('hold_cagr'))}">${sgn(v('hold_cagr'))}</td>` +
-      `<td class="bad">${pct(v('hold_dd'))}</td><td>${num(v('hold_ratio'))}</td>` +
-      `<td class="${cls(v('fixed_cagr'))}">${sgn(v('fixed_cagr'))}</td>` +
-      `<td class="bad">${pct(v('fixed_dd'))}</td><td>${num(v('fixed_ratio'))}</td>` +
-      `<td>${v('changes')}</td></tr>`;
-  }).join('');
-  $('wfBoardTable').innerHTML = head + '<tbody>' + body + '</tbody>';
-  $('wfBoardTable').querySelectorAll('th[data-key]').forEach(th => th.onclick = () => {
-    const k = th.dataset.key;
-    if (state.wfboard.sort === k) state.wfboard.dir = -state.wfboard.dir;
-    else { state.wfboard.sort = k; state.wfboard.dir = k === 'ticker' ? 1 : -1; }
-    renderWfBoard();
-  });
-  $('wfBoardTable').querySelectorAll('tr[data-ticker]').forEach(tr => tr.onclick = () => {
-    $('stock').value = tr.dataset.ticker;
-    setView('wf');
-    loadWf();
-  });
-  $('wfBoardMeta').textContent = `${data.stocks.length} 只 · ${data.combos} 组 · ` +
-    `${data.skipped.length} 只没有足够历史`;
-}
-
-
-// -- walk-forward v2 --------------------------------------------------------------------------------------------
-
-const WF2_LINES = [['a', 'A 本股挑选'], ['b', 'B 共同参数'], ['c', 'C 借参数'], ['d', 'D 固定 50/200'],
-                   ['e', 'E 一直持有'], ['f', 'F 同仓位']];
-const WF2_COLORS = { a: '#0072B2', b: '#56B4E9', c: '#CC79A7', d: '#E69F00', e: '#666666', f: '#009E73' };
-const WF2_CONTROLS = [['b', 'B 共同参数'], ['c', 'C 借参数'], ['d', 'D 固定 50/200'], ['e', 'E 一直持有'],
-                      ['f', 'F 同仓位']];
+const WF2_CONTROLS = [['b', '共同参数'], ['c', '借参数'], ['d', '固定 50/200'], ['e', '一直持有'], ['f', '同仓位']];
 const WF2_FIELDS = [['cagr', '年化差'], ['max_drawdown', '回撤差'], ['cagr_over_dd', '收益÷回撤差']];
+
+function segmentLabel(segment) { return segment === 'holdout' ? '保留段' : '开发段'; }
 
 async function loadWf2() {
   busy(true);
+  setState('wf2State', '正在读取…');
   try {
-    const data = await getJSON(`/api/wf2?security=${encodeURIComponent($('stock').value)}&segment=${state.wf2.segment}`);
+    const data = await getJSON(`/api/wf2?security=${encodeURIComponent($('stock').value)}` +
+                               `&segment=${state.wf2.segment}`);
     state.wf2.data = data;
     state.wf2.zoom = null;
+    $('wf2State').hidden = true;
+    $('wf2State').innerHTML = '';
+    $('wf2Body').hidden = false;
     renderWf2();
   } catch (error) {
-    $('wf2Kpis').innerHTML = `<div class="err">${error.message}</div>`;
-    $('wf2Chart').querySelectorAll('svg').forEach(s => s.remove());
-    $('wf2Legend').innerHTML = '';
-    $('wf2Table').innerHTML = '';
-    $('wf2Meta').textContent = '';
-    $('wf2Note').textContent = '';
+    $('wf2Body').hidden = true;
+    setState('wf2State', `${error.message}<br><span class="sub">${error.hint || ''}</span>`, 'err');
   } finally { busy(false); }
-}
-
-function comboName(index) {
-  const data = state.wf2.data;
-  return (index === null || index === undefined || !data.combo_names) ? '—' : data.combo_names[index];
 }
 
 function renderWf2() {
   const data = state.wf2.data;
-  if (!data) return;
-  if (!data.computable) {
-    $('wf2Kpis').innerHTML = '';
-    $('wf2Chart').querySelectorAll('svg').forEach(s => s.remove());
-    $('wf2Legend').innerHTML = '';
-    $('wf2Table').innerHTML = '';
-    $('wf2Meta').textContent = data.ticker || '';
-    $('wf2Note').textContent = data.reason || '这只股票没有足够的开发段历史。';
-    return;
-  }
-  const segment = data.segment === 'holdout' ? '保留段' : '开发段';
-  $('wf2Meta').textContent = `${data.ticker} · ${data.evaluation_start} 至 ${data.evaluation_end} · ${segment}` +
-    (data.from2016 === false ? ' · 非完整期' : '');
-  $('wf2Kpis').innerHTML = WF2_LINES.map(([key, label]) => {
+  const label = segmentLabel(data.segment);
+  $('wf2State').className = 'state';
+  $('wf2State').innerHTML = data.first_effective && data.first_effective > '2024-06-28'
+    ? `<div class="banner">这只股票 ${data.first_effective.slice(0, 7)} 才进入前 200，以下结果含入池前的价格。</div>`
+    : '';
+  $('wf2Kpis').innerHTML = [WF2_LINES[0], WF2_LINES[4], WF2_LINES[5]].map(([key, title, color]) => {
     const r = data.lines[key];
     if (!r) return '';
-    return `<div class="kpi"><div class="k" style="color:${WF2_COLORS[key]}">${label}</div>` +
-      `<div class="v">${pct(r.cagr)}</div>` +
-      `<div class="b">回撤 ${pct(r.max_drawdown)} · 收益÷回撤 ${num(r.cagr_over_dd)}</div>` +
-      `<div class="b">夏普 ${num(r.sharpe)} · 在场 ${pct(r.invested_share, 0)}</div></div>`;
+    return `<div class="kpi"><div class="k" style="color:${color}">${title}</div>` +
+      `<div class="v">${sgn(r.cagr)}</div>` +
+      `<div class="row">最大回撤 ${pct(r.max_drawdown)}</div>` +
+      `<div class="row">收益÷回撤 ${num(r.cagr_over_dd)}</div></div>`;
   }).join('');
-  const empties = WF2_LINES.filter(([key]) => data.empty[key]).map(([key, label]) =>
-    `${label} 尚无信号 ${data.empty[key].no_signal}、有效为空 ${data.empty[key].flat_signal}`).join('；');
-  $('wf2Note').innerHTML = `${segment}：评估 ${data.evaluation_start} 至 ${data.evaluation_end}，共 ` +
-    `${data.evaluation_sessions} 个交易日。${empties}。` +
-    (data.segment === 'holdout' ? `F 的仓位比例 ${pct(data.mix_share, 1)}。` : '');
-  $('wf2Legend').innerHTML = WF2_LINES.map(([key, label]) =>
-    `<label style="cursor:pointer"><input type="checkbox" data-line="${key}" ` +
-    `${state.wf2.show[key] ? 'checked' : ''} style="vertical-align:-1px"> ${label}</label>`).join('') +
+  $('wf2Legend').innerHTML = WF2_LINES.map(([key, title, color]) =>
+    `<label><input type="checkbox" data-line="${key}" ${state.wf2.show[key] ? 'checked' : ''} ` +
+    `style="vertical-align:-1px"><i style="background:${color}"></i>${title}</label>`).join('') +
     '<span>拖动可放大，双击复位</span>';
   $('wf2Legend').querySelectorAll('input[data-line]').forEach(cb => cb.onchange = () => {
     state.wf2.show[cb.dataset.line] = cb.checked;
     renderWf2Chart();
   });
+  const ex = data.lines.ex_post;
+  $('wf2Note').innerHTML = `${label}：${data.evaluation_start} 至 ${data.evaluation_end}，` +
+    `${data.evaluation_sessions} 个交易日。` +
+    (data.segment === 'dev' && ex && ex.cagr !== null && ex.cagr !== undefined
+      ? `事后最优（只作参照）${ex.type.toUpperCase()} ${ex.fast}/${ex.slow}。` : '') +
+    `同仓位的仓位比例 ${pct(data.mix_share, 1)}。`;
   renderWf2Chart();
   renderWf2Table();
-  updateWf2Chip();
 }
 
 function renderWf2Chart() {
   const data = state.wf2.data;
   if (!data || !data.computable) return;
   const series = WF2_LINES.filter(([key]) => state.wf2.show[key] && data.curves[key])
-    .map(([key, label]) => ({
-      name: label,
-      values: data.curves[key].map(v => v === null ? null : v * 100),
-      color: WF2_COLORS[key], width: key === 'a' ? 2.1 : 1.4,
-      dash: key === 'e' ? '4 3' : undefined
+    .map(([key, title, color]) => ({
+      name: title, values: data.curves[key].map(v => v === null ? null : v * 100), color,
+      width: key === 'a' ? 2.1 : 1.4, dash: key === 'e' ? '4 3' : undefined
     }));
   drawChart($('wf2Chart'), $('wf2Tip'), {
-    dates: data.dates, height: 400, log: $('wf2Log').checked, zoom: state.wf2.zoom,
-    setZoom: (range) => { state.wf2.zoom = range; renderWf2Chart(); updateWf2Chip(); },
+    dates: data.dates, height: 340, log: true, zoom: state.wf2.zoom,
+    setZoom: (range) => { state.wf2.zoom = range; renderWf2Chart(); },
     series, yFormat: (v) => v.toFixed(0)
   });
 }
 
-function updateWf2Chip() {
-  const chip = $('wf2ZoomChip');
+function comboName(index) {
   const data = state.wf2.data;
-  if (!data || !state.wf2.zoom || !data.dates) { chip.textContent = ''; return; }
-  const [a, b] = state.wf2.zoom;
-  chip.innerHTML = `放大 ${data.dates[a]} ~ ${data.dates[b]} ` +
-    `<a href="#" id="wf2ZoomReset" style="color:#0072B2">重置</a>`;
-  const link = $('wf2ZoomReset');
-  if (link) link.onclick = (event) => {
-    event.preventDefault(); state.wf2.zoom = null; renderWf2Chart(); updateWf2Chip();
-  };
+  return (index === null || index === undefined || !data.combo_names) ? '—' : data.combo_names[index];
 }
 
 function renderWf2Table() {
@@ -1199,140 +987,271 @@ function renderWf2Table() {
       const b = data.b[pick.year];
       const c = data.c['0'] ? data.c['0'][pick.year] : null;
       return `<tr><td>${pick.year}</td><td>${data.eligible_by_year[pick.year]}</td>` +
-        `<td style="text-align:left;font-weight:600">${pick.type.toUpperCase()} ${pick.fast}/${pick.slow}</td>` +
-        `<td style="text-align:left">${comboName(b)}</td><td style="text-align:left">${comboName(c)}</td></tr>`;
+        `<td class="left">${pick.type.toUpperCase()} ${pick.fast}/${pick.slow}</td>` +
+        `<td class="left">${comboName(b)}</td><td class="left">${comboName(c)}</td></tr>`;
     }).join('');
-    $('wf2Table').innerHTML =
-      '<thead><tr><th>年份</th><th>可参选</th><th style="text-align:left">A 本股挑选</th>' +
-      '<th style="text-align:left">B 共同参数</th><th style="text-align:left">C 借参数（种子 0）</th></tr></thead><tbody>' +
-      rows + '</tbody>';
+    $('wf2Table').innerHTML = '<thead><tr><th>年份</th><th>可参选组合</th><th class="left">本股挑选</th>' +
+      '<th class="left">共同参数</th><th class="left">借参数（示例）</th></tr></thead><tbody>' + rows + '</tbody>';
     $('wf2PickMeta').textContent = `${data.picks.length} 次挑选`;
-    $('wf2PickNote').textContent = 'A 每年按本股回看区间的 年化÷回撤 挑一组；B 是当年全市场共用的参数；' +
-      'C 是种子 0 分到的别的股票的组合。挑选日只用之前的数据。';
+    $('wf2PickNote').textContent = '本股挑选每年按本股回看区间的 年化÷回撤 挑一组；共同参数是全市场当年共用的一组；' +
+      '借参数是第 1 次随机分配到的别的股票的组合。';
   } else {
     const a = data.assignments || {};
-    const rows = WF2_LINES.map(([key, label]) => {
+    const rows = WF2_LINES.map(([key, title]) => {
       const r = data.lines[key];
       if (!r) return '';
       const combo = key === 'a' ? comboName(a.a) : key === 'b' ? comboName(a.b)
         : key === 'c' ? comboName(a.c ? a.c['0'] : null) : key === 'd' ? 'SMA 50/200'
         : key === 'e' ? '一直持有' : `股票 ${pct(a.f, 1)} + 现金`;
-      return `<tr><td style="text-align:left;font-weight:600">${label}</td>` +
-        `<td style="text-align:left">${combo}</td>` +
+      return `<tr><td class="left">${title}</td><td class="left">${combo}</td>` +
         `<td class="${cls(r.cagr)}">${sgn(r.cagr)}</td><td class="bad">${pct(r.max_drawdown)}</td>` +
-        `<td>${num(r.cagr_over_dd)}</td><td>${num(r.sharpe)}</td>` +
-        `<td>${pct(r.invested_share, 0)}</td><td>${r.buys}</td></tr>`;
+        `<td>${num(r.cagr_over_dd)}</td><td>${num(r.sharpe)}</td><td>${pct(r.invested_share, 0)}</td></tr>`;
     }).join('');
-    $('wf2Table').innerHTML =
-      '<thead><tr><th style="text-align:left">线</th><th style="text-align:left">冻结的组合</th><th>年化</th>' +
-      '<th>最大回撤</th><th>收益÷回撤</th><th>夏普</th><th>在场</th><th>买入</th></tr></thead><tbody>' +
-      rows + '</tbody>';
+    $('wf2Table').innerHTML = '<thead><tr><th class="left">线</th><th class="left">冻结的组合</th><th>年化</th>' +
+      '<th>最大回撤</th><th>收益÷回撤</th><th>夏普</th><th>在场</th></tr></thead><tbody>' + rows + '</tbody>';
     $('wf2PickMeta').textContent = '2024-06-28 冻结，整段不变';
-    $('wf2PickNote').textContent = 'A、B、C 的参数在 2024-06-28 收盘挑定，保留段内不再重挑；D、E 不变；' +
-      'F 用开发段 A 的在场比例。';
+    $('wf2PickNote').textContent = '本股挑选、共同参数、借参数的参数在 2024-06-28 收盘挑定，保留段内不再重挑。';
   }
 }
 
+// -- walk-forward summary ------------------------------------------------------------------------------------------
+
 async function loadWf2Board() {
   busy(true);
+  setState('wf2BoardState', '正在读取…');
   try {
     const data = await getJSON(`/api/wf2board?segment=${state.wf2board.segment}`);
     state.wf2board.data = data;
+    $('wf2BoardState').hidden = true;
+    $('wf2BoardState').innerHTML = '';
+    $('wf2BoardBody').hidden = false;
     renderWf2Board();
   } catch (error) {
-    $('wf2Headline').innerHTML = `<div class="err">${error.message}</div>`;
-    $('wf2Subline').textContent = '';
-    $('wf2Summary').innerHTML = '';
-    $('wf2Stocks').innerHTML = '';
-    $('wf2BoardMeta').textContent = '';
+    $('wf2BoardBody').hidden = true;
+    setState('wf2BoardState', `${error.message}<br><span class="sub">${error.hint || ''}</span>`, 'err');
   } finally { busy(false); }
 }
 
-function wf2Value(stock, key) {
-  const [line, metric] = key.split('_');
-  const name = metric === 'dd' ? 'max_drawdown' : metric === 'ratio' ? 'cagr_over_dd' : 'cagr';
-  const row = stock.lines[line];
-  return row && row[name] !== undefined ? row[name] : null;
+function median(values) {
+  const clean = values.filter(v => v !== null && v !== undefined && Number.isFinite(v)).sort((a, b) => a - b);
+  if (!clean.length) return null;
+  const mid = Math.floor(clean.length / 2);
+  return clean.length % 2 ? clean[mid] : (clean[mid - 1] + clean[mid]) / 2;
+}
+
+function subsetStocks(data) {
+  if (state.wf2board.subset !== 'current' || !data.late_entrants) return data.stocks;
+  const late = new Set(data.late_entrants);
+  return data.stocks.filter(s => !late.has(s.ticker));
 }
 
 function renderWf2Board() {
   const data = state.wf2board.data;
-  if (!data) return;
-  const summary = data.segment === 'dev' ? data.summary.from2016 : data.summary;
-  const label = data.segment === 'dev' ? '开发段（评估从 2016 年开始）' : '保留段';
-  $('wf2Headline').innerHTML = `${label} ${summary.stocks} 只里，A 的收益÷回撤胜过 ` +
-    `<span style="color:${WF2_COLORS.b}">B 共同参数 ${summary.pairs.b.cagr_over_dd.win} 只</span>、` +
-    `<span style="color:${WF2_COLORS.d}">D 固定 50/200 ${summary.pairs.d.cagr_over_dd.win} 只</span>、` +
-    `<span style="color:${WF2_COLORS.e}">E 一直持有 ${summary.pairs.e.cagr_over_dd.win} 只</span>。`;
-  $('wf2Subline').textContent = data.segment === 'dev'
-    ? `每日信号 · 现金不计息 · 2016 年底至 2024-06-28 · 每年按 年化÷回撤 重挑一次 · 生成于 ${data.built}`
-    : `每日信号 · 现金不计息 · 2024-06-28 至 2026-06-30 · 参数冻结于 2024-06-28 · 生成于 ${data.built}`;
-  const both = data.segment === 'dev' ? [['from2016', '从 2016 年'], ['all', '全部']] : [['holdout', '保留段']];
-  const row = (title, fn) => `<tr><td style="text-align:left">${title}</td>` +
-    both.map(([key]) => `<td>${fn(key === 'holdout' ? data.summary : data.summary[key])}</td>`).join('') + '</tr>';
-  const pairRow = (control, title, field, name) => `<tr><td style="text-align:left">A − ${title}：${name}</td>` +
-    both.map(([key]) => {
-      const s = key === 'holdout' ? data.summary : data.summary[key];
-      const item = s.pairs[control][field];
-      const unit = field === 'cagr_over_dd' ? (v) => num(v, 2, true) : (v) => pct(v, 1, true);
-      return `<td>${unit(item.median)} · 胜 ${item.win} / 负 ${item.loss} / 平 ${item.tie}</td>`;
-    }).join('') + '</tr>';
-  let html = '<table class="board" style="width:940px;table-layout:fixed">' +
-    '<colgroup><col style="width:56%">' + '<col>'.repeat(both.length) + '</colgroup>' +
-    '<thead><tr><th style="text-align:left">指标</th>' +
-    both.map(([, title]) => `<th>${title}</th>`).join('') + '</tr></thead><tbody>' +
-    row('股票数', s => s.stocks) +
-    row('中位数 年化：A / B / C / D / E / F', s => WF2_LINES.map(([key]) => pct(s.lines[key].cagr)).join(' / ')) +
-    row('中位数 回撤：A / B / C / D / E / F',
-        s => WF2_LINES.map(([key]) => pct(s.lines[key].max_drawdown)).join(' / ')) +
-    row('中位数 收益÷回撤：A / B / C / D / E / F',
-        s => WF2_LINES.map(([key]) => num(s.lines[key].cagr_over_dd)).join(' / '));
-  for (const [control, title] of WF2_CONTROLS) {
-    for (const [field, name] of WF2_FIELDS) html += pairRow(control, title, field, name);
+  const subset = state.wf2board.subset;
+  $('wf2Banner').innerHTML = '名单含 2024-06-28 之后才入池的股票；所有股票从 2016 年整段计算，不管当时是否在池中。' +
+    ' 详见 <a href="/research/wf_v2/errata.md" target="_blank">勘误</a>。';
+  const stocks = subsetStocks(data);
+  const useSubset = subset === 'current';
+  const lineMedian = (key, metric) => median(stocks.map(s => s.lines[key] ? s.lines[key][metric] : null));
+  const pairMedian = (key, field) => median(stocks.map(s => s.diffs[key] ? s.diffs[key][field] : null));
+  const pairCount = (key, field, sign) => stocks.filter(s => {
+    const v = s.diffs[key] ? s.diffs[key][field] : null;
+    return v !== null && v !== undefined && (sign > 0 ? v > 1e-9 : v < -1e-9);
+  }).length;
+
+  let lines = '<thead><tr><th class="left">线</th><th>年化中位</th><th>最大回撤中位</th><th>收益÷回撤中位</th>' +
+    '<th>夏普中位</th><th>平均在场比例</th></tr></thead><tbody>';
+  for (const [key, title, color] of WF2_LINES) {
+    const values = stocks.map(s => s.lines[key] ? s.lines[key] : null).filter(Boolean);
+    lines += `<tr><td class="left"><span style="color:${color}">●</span> ${title}</td>` +
+      `<td class="${cls(lineMedian(key, 'cagr'))}">${sgn(lineMedian(key, 'cagr'))}</td>` +
+      `<td class="bad">${pct(lineMedian(key, 'max_drawdown'))}</td>` +
+      `<td>${num(lineMedian(key, 'cagr_over_dd'))}</td>` +
+      `<td>${num(lineMedian(key, 'sharpe'))}</td>` +
+      `<td>${pct(median(values.map(v => v.invested_share)), 0)}</td></tr>`;
   }
-  html += '</tbody></table>';
-  $('wf2Summary').innerHTML = html;
+  $('wf2LinesTable').innerHTML = lines + '</tbody>';
+
+  let pairs = '<thead><tr><th class="left" rowspan="2">对照线</th><th colspan="3">年化差</th>' +
+    '<th colspan="3">回撤差</th><th colspan="3">收益÷回撤差</th></tr>' +
+    '<tr><th>中位</th><th>胜</th><th>负</th><th>中位</th><th>胜</th><th>负</th>' +
+    '<th>中位</th><th>胜</th><th>负</th></tr></thead><tbody>';
+  for (const [key, title] of WF2_CONTROLS) {
+    const cells = [];
+    for (const [field] of WF2_FIELDS) {
+      const formatter = field === 'cagr_over_dd' ? (v) => num(v) : (v) => sgn(v);
+      cells.push(`<td>${formatter(pairMedian(key, field))}</td>`);
+      cells.push(`<td>${pairCount(key, field, 1)}</td>`);
+      cells.push(`<td>${pairCount(key, field, -1)}</td>`);
+    }
+    pairs += `<tr><td class="left">${title}</td>${cells.join('')}</tr>`;
+  }
+  $('wf2PairsTable').innerHTML = pairs + '</tbody>';
 
   const key = state.wf2board.sort;
-  const stocks = data.stocks.slice().sort((a, b) => {
-    const x = wf2Value(a, key), y = wf2Value(b, key);
+  const sorted = stocks.slice().sort((a, b) => {
+    if (key === 'ticker') return state.wf2board.dir * (a.ticker < b.ticker ? -1 : a.ticker > b.ticker ? 1 : 0);
+    const [line, metric] = key.split('_');
+    const field = metric === 'dd' ? 'max_drawdown' : metric === 'ratio' ? 'cagr_over_dd' : 'cagr';
+    const x = a.lines[line] ? a.lines[line][field] : null;
+    const y = b.lines[line] ? b.lines[line][field] : null;
     if (x === null) return 1;
     if (y === null) return -1;
     return state.wf2board.dir * (x - y);
   });
-  const cols = [['a_cagr', 'A 年化'], ['a_dd', 'A 回撤'], ['a_ratio', 'A 收益÷回撤']];
-  for (const [line, title] of WF2_LINES.slice(1)) {
-    cols.push([`${line}_ratio`, `${title.split(' ')[0]} 收益÷回撤`]);
+  let head = '<thead><tr><th class="left" data-key="ticker">股票</th>';
+  for (const [line, title] of WF2_LINES) {
+    head += `<th data-key="${line}_cagr">${title} 年化</th>`;
+    head += `<th data-key="${line}_ratio">${title} 收益÷回撤</th>`;
   }
-  let head = '<thead><tr><th data-key="ticker" style="text-align:left">股票</th>' +
-    cols.map(([k, title]) => `<th data-key="${k}"${k === key ? ' class="sort"' : ''}>${title}</th>`).join('') +
-    '</tr></thead>';
-  const body = stocks.map(s => `<tr data-ticker="${s.ticker}"><td class="tick">${s.ticker}</td>` +
-    cols.map(([k]) => {
-      const value = wf2Value(s, k);
-      if (k.endsWith('_dd')) return `<td class="bad">${pct(value)}</td>`;
-      if (k.endsWith('_cagr')) return `<td class="${cls(value)}">${sgn(value)}</td>`;
-      return `<td>${num(value)}</td>`;
-    }).join('') + '</tr>').join('');
-  $('wf2Stocks').innerHTML = head + '<tbody>' + body + '</tbody>';
-  $('wf2Stocks').querySelectorAll('th[data-key]').forEach(th => th.onclick = () => {
+  head += '</tr></thead>';
+  const body = sorted.map(s => {
+    let row = `<tr data-ticker="${s.ticker}"><td class="left">${s.ticker}</td>`;
+    for (const [line] of WF2_LINES) {
+      const r = s.lines[line];
+      row += `<td class="${r ? cls(r.cagr) : ''}">${r ? sgn(r.cagr) : '—'}</td>`;
+      row += `<td>${r ? num(r.cagr_over_dd) : '—'}</td>`;
+    }
+    return row + '</tr>';
+  }).join('');
+  $('wf2StocksTable').innerHTML = head + '<tbody>' + body + '</tbody>';
+  $('wf2StocksTable').querySelectorAll('th[data-key]').forEach(th => th.onclick = () => {
     const k = th.dataset.key;
     if (state.wf2board.sort === k) state.wf2board.dir = -state.wf2board.dir;
     else { state.wf2board.sort = k; state.wf2board.dir = k === 'ticker' ? 1 : -1; }
     renderWf2Board();
   });
-  $('wf2Stocks').querySelectorAll('tr[data-ticker]').forEach(tr => tr.onclick = () => {
+  $('wf2StocksTable').querySelectorAll('tr[data-ticker]').forEach(tr => tr.onclick = () => {
     $('stock').value = tr.dataset.ticker;
     setView('wf2');
     loadWf2();
   });
-  $('wf2BoardMeta').textContent = `${data.stocks.length} 只 · ${data.combos} 组 · ${data.skipped.length} 只没有足够历史`;
+  $('wf2BoardMeta').textContent = `${segmentLabel(data.segment)} · ${stocks.length} 只` +
+    (useSubset ? '（已剔除晚入池）' : '');
+}
+
+// -- leaderboard ---------------------------------------------------------------------------------------------------
+
+async function loadBoard() {
+  busy(true);
+  setState('boardState', '正在读取…');
+  try {
+    const data = await getJSON(`/api/leaderboard?freq=${$('freq').value}&cash=${$('cash').value}`);
+    state.board.data = data;
+    $('boardState').hidden = true;
+    $('boardState').innerHTML = '';
+    $('boardBody').hidden = false;
+    renderBoard();
+  } catch (error) {
+    $('boardBody').hidden = true;
+    setState('boardState', `${error.message}<br><span class="sub">${error.hint || ''}</span>`, 'err');
+  } finally { busy(false); }
+}
+
+function renderBoard() {
+  const data = state.board.data;
+  const key = state.board.full ? 'best_full' : 'best';
+  const metric = state.board.metric;
+  const rows = data.stocks.map(s => ({ stock: s, pick: (s[key] || s.best)[metric] }))
+    .filter(r => r.pick && r.pick[metric] !== null && r.pick[metric] !== undefined);
+  rows.sort((a, b) => b.pick[metric] - a.pick[metric]);
+  const shown = rows.slice(0, state.board.limit || rows.length);
+  let html = '<thead><tr><th>#</th><th class="left">股票</th><th class="left">最佳组合</th>' +
+    '<th>总收益</th><th>年化</th><th>收益÷回撤</th><th>夏普</th><th>胜率</th><th>最大回撤</th>' +
+    '<th>段数</th></tr></thead><tbody>';
+  shown.forEach((row, i) => {
+    const s = row.stock, p = row.pick;
+    html += `<tr data-ticker="${s.ticker}" data-type="${p.type}" data-fast="${p.fast}" data-slow="${p.slow}">` +
+      `<td>${i + 1}</td><td class="left">${s.ticker}</td>` +
+      `<td class="left">${p.type.toUpperCase()} ${p.fast}/${p.slow}</td>` +
+      `<td class="${cls(p.total_return)}">${sgn(p.total_return, 0)}</td>` +
+      `<td class="${cls(p.cagr)}">${sgn(p.cagr)}</td>` +
+      `<td>${num(p.cagr_over_dd)}</td><td>${num(p.sharpe)}</td>` +
+      `<td>${p.win_rate === null || p.win_rate === undefined ? '—' : pct(p.win_rate, 0)}</td>` +
+      `<td class="bad">${pct(p.max_drawdown)}</td><td>${p.segments ?? '—'}</td></tr>`;
+  });
+  $('boardTable').innerHTML = html + '</tbody>';
+  $('boardTable').querySelectorAll('tr[data-ticker]').forEach(tr => tr.onclick = () => {
+    $('stock').value = tr.dataset.ticker;
+    state.single.type = tr.dataset.type;
+    state.single.fast = +tr.dataset.fast;
+    state.single.slow = +tr.dataset.slow;
+    setView('single');
+    loadOverview();
+  });
+  $('boardMeta').textContent = `${data.frequency === 'daily' ? '每日' : '每周'}信号 · 现金 ` +
+    `${data.cash === 'zero' ? '0' : '国债'} · ${data.stocks.length} 只`;
+}
+
+// -- boot ----------------------------------------------------------------------------------------------------------
+
+async function boot() {
+  try {
+    const info = await getJSON('/api/stocks');
+    state.info = info;
+    $('stockList').innerHTML = info.stocks.map(s => `<option value="${s.ticker}">${s.name || ''}</option>`).join('');
+    $('stock').value = info.stocks.some(s => s.ticker === 'MSFT') ? 'MSFT' : info.stocks[0].ticker;
+    $('types').innerHTML = info.types.map(t => `<button data-type="${t}">${t.toUpperCase()}</button>`).join('');
+    $('types').querySelectorAll('button').forEach(b => b.onclick = () => {
+      state.single.type = b.dataset.type; loadOverview();
+    });
+    const link = new URLSearchParams(location.search);
+    if (link.get('security') && info.stocks.some(s => s.ticker === link.get('security'))) {
+      $('stock').value = link.get('security');
+    }
+    for (const key of ['start', 'end']) if (link.get(key)) $(key).value = link.get(key);
+    if (link.get('cash')) $('cash').value = link.get('cash');
+    if (link.get('freq') === 'weekly') $('freq').value = 'weekly';
+    if (link.get('type') && info.types.includes(link.get('type'))) state.single.type = link.get('type');
+    if (link.get('fast')) state.single.fast = +link.get('fast');
+    if (link.get('slow')) state.single.slow = +link.get('slow');
+    if (link.get('segment') === 'holdout') { state.wf2.segment = 'holdout'; state.wf2board.segment = 'holdout'; }
+    if (link.get('subset') === 'current') state.wf2board.subset = 'current';
+    const views = ['pool', 'single', 'wf2', 'wf2board', 'board'];
+    if (views.includes(link.get('view'))) state.view = link.get('view');
+    $('segTabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.segment === state.wf2.segment));
+    $('subsetTabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.subset === state.wf2board.subset));
+
+    $('ctl-reload').onclick = () => loadOverview();
+    $('stock').onchange = () => {
+      if (state.view === 'single') loadOverview();
+      if (state.view === 'wf2') loadWf2();
+    };
+    $('cash').onchange = () => { if (state.view === 'single') loadOverview(); if (state.view === 'board') loadBoard(); };
+    $('freq').onchange = () => { if (state.view === 'single') loadOverview(); if (state.view === 'board') loadBoard(); };
+    $('start').onchange = () => { if (state.view === 'single') loadOverview(); };
+    $('end').onchange = () => { if (state.view === 'single') loadOverview(); };
+    $('tabs').querySelectorAll('button').forEach(b => b.onclick = () => setView(b.dataset.view));
+    $('segTabs').querySelectorAll('button').forEach(b => b.onclick = () => {
+      state.wf2.segment = b.dataset.segment;
+      state.wf2board.segment = b.dataset.segment;
+      $('segTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      if (state.view === 'wf2') loadWf2();
+      if (state.view === 'wf2board') loadWf2Board();
+    });
+    $('subsetTabs').querySelectorAll('button').forEach(b => b.onclick = () => {
+      state.wf2board.subset = b.dataset.subset;
+      $('subsetTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      if (state.wf2board.data) renderWf2Board();
+    });
+    $('logScale').onchange = () => { if (state.single.combo) renderPrice(state.single.combo); };
+    $('boardTabs').querySelectorAll('button').forEach(b => b.onclick = () => {
+      state.board.metric = b.dataset.metric;
+      $('boardTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      if (state.board.data) renderBoard();
+    });
+    $('rankMetric').onchange = () => renderRank();
+    $('rankFull').onchange = () => renderRank();
+    setView(state.view);
+  } catch (error) {
+    document.querySelector('main').innerHTML = `<div class="state err">${error.message}</div>`;
+  }
 }
 
 window.addEventListener('resize', () => {
-  if (state.combo && state.view === 'single') { renderPrice(state.combo); renderEquity(state.combo); }
-  if (state.view === 'wf' && state.wf.data) renderWfChart();
+  if (state.view === 'single' && state.single.combo) { renderPrice(state.single.combo); renderEquity(state.single.combo); }
   if (state.view === 'wf2' && state.wf2.data) renderWf2Chart();
+  if (state.view === 'pool' && state.pool.data) renderPool();
 });
 boot();
 </script>

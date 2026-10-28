@@ -98,3 +98,60 @@ def test_fast_rows_match_run_lab_for_every_combination():
                 assert abs(left - right) <= 1e-9, (a['type'], a['fast'], a['slow'], key, left, right)
         for key in ('peak_date', 'trough_date', 'recovery_date', 'first_valid_signal_day', 'warmup_short'):
             assert a[key] == b[key], (a['type'], a['fast'], a['slow'], key, a[key], b[key])
+
+
+def _serve(db):
+    import threading
+    from http.server import HTTPServer
+    dashboard.STORE = dashboard.Store(str(db))
+    server = HTTPServer(('127.0.0.1', 0), dashboard.Handler)
+    port = server.server_address[1]
+    results = {}
+
+    def client():
+        import json
+        import urllib.request
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+        def get(path):
+            try:
+                with opener.open(f'http://127.0.0.1:{port}{path}', timeout=180) as response:
+                    return response.status, json.loads(response.read().decode('utf8'))
+            except urllib.error.HTTPError as error:
+                return error.code, json.loads(error.read().decode('utf8'))
+
+        try:
+            results['pool'] = get('/api/pool_ma')
+            results['wf'] = get('/api/wf?security=MSFT&start=2014-02-28&end=2024-06-28&cash=zero&freq=daily')
+            results['wfboard'] = get('/api/wfboard?freq=daily&cash=zero')
+            results['wf2board'] = get('/api/wf2board?segment=dev')
+        finally:
+            server.shutdown()
+
+    thread = threading.Thread(target=client, daemon=True)
+    thread.start()
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
+        thread.join(timeout=10)
+    return results
+
+
+def test_the_pool_endpoint_and_the_removed_wf_v1_endpoints():
+    from leadtrend_db import api
+    if not api.DB_PATH.exists():
+        pytest.skip('released database is not present')
+    cache = ROOT / 'work' / 'pool_ma_v1' / 'curves.json'
+    if not cache.exists():
+        pytest.skip('the pool experiment has not been run')
+    results = _serve(api.DB_PATH)
+    status, pool = results['pool']
+    assert status == 200 and {'summary', 'curves'} <= set(pool)
+    assert pool['curves']['dates'] and pool['curves']['weekly']
+    assert pool['summary']['random']['beats']['cagr'] <= pool['summary']['random']['seeds']
+    assert results['wf'][0] == 404 and results['wfboard'][0] == 404
+    status, board = results['wf2board']
+    assert status == 200 and board['stocks'] and len(board['late_entrants']) == 39
+    first = board['stocks'][0]
+    assert {'ticker', 'lines', 'diffs'} <= set(first)

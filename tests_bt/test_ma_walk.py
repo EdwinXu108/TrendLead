@@ -2,13 +2,8 @@
 from __future__ import annotations
 
 import csv
-import importlib.util
-import json
 import math
-import threading
-import urllib.request
 from datetime import date, timedelta
-from http.server import HTTPServer
 from pathlib import Path
 
 import numpy as np
@@ -19,11 +14,6 @@ from leadtrend_db import api
 
 ROOT = Path(__file__).resolve().parent.parent
 DB = api.DB_PATH
-SPEC = importlib.util.spec_from_file_location('ma_dashboard_wf', ROOT / 'research' / 'ma_lab_v1' / 'dashboard.py')
-dashboard = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(dashboard)
-
-
 def synthetic(days: int = 2900, seed: int = 7):
     """A weekday calendar from 2012-12-03 and a random walk with a small drift."""
     rng = np.random.default_rng(seed)
@@ -146,61 +136,6 @@ def test_the_stock_list_is_eligible_and_excludes_the_excluded_company():
     legacy = ma_walk.stock_list(DB, legacy_union=True)
     assert len(legacy) == 318
     assert {row['ticker'] for row in stocks} < {row['ticker'] for row in legacy}
-
-
-def test_the_two_walk_forward_endpoints_answer():
-    if not DB.exists():
-        pytest.skip('released database is not present')
-    cache = ROOT / 'research' / 'wf_v1' / 'wf_daily_zero.json'
-    if not cache.exists():
-        pytest.skip('the walk-forward cache has not been built')
-    # the sqlite connection belongs to the thread that opened it: compute here, then serve in this thread
-    direct = ma_walk.walk('MSFT', db_path=DB)
-    dashboard.STORE = dashboard.Store(str(DB))
-    server = HTTPServer(('127.0.0.1', 0), dashboard.Handler)
-    port = server.server_address[1]
-    results: dict = {}
-
-    def client():
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-
-        def get(path):
-            with opener.open(f'http://127.0.0.1:{port}{path}', timeout=180) as response:
-                return response.status, json.loads(response.read().decode('utf8'))
-
-        try:
-            results['wf'] = get('/api/wf?security=MSFT&start=2014-02-28&end=2024-06-28&cash=zero&freq=daily')
-            results['board'] = get('/api/wfboard?freq=daily&cash=zero')
-        except Exception as error:              # noqa: BLE001 - surfaced below
-            results['error'] = error
-        finally:
-            server.shutdown()
-
-    thread = threading.Thread(target=client, daemon=True)
-    thread.start()
-    try:
-        server.serve_forever()
-    finally:
-        server.server_close()
-        thread.join(timeout=10)
-    assert 'error' not in results, results.get('error')
-
-    status, walk = results['wf']
-    assert status == 200 and walk['computable']
-    assert len(walk['dates']) == len(walk['curves']['wf']) == len(walk['curves']['hold'])
-    assert walk['curves']['wf'][0] == pytest.approx(1.0)
-    assert walk['lines']['wf']['cagr'] == pytest.approx(direct['lines']['wf']['cagr'], abs=1e-6)
-    assert [row['date'] for row in walk['selections']] == [row['date'] for row in direct['selections']]
-    assert all({'date', 'type', 'fast', 'slow', 'lookback_cagr_over_dd', 'period'} <= set(row)
-               for row in walk['selections'])
-
-    status, board = results['board']
-    assert status == 200 and board['stocks']
-    assert board['summary']['complete']['stocks'] <= board['summary']['all']['stocks']
-    assert board['summary']['complete']['beats_fixed'] <= board['summary']['complete']['stocks']
-    first = board['stocks'][0]
-    assert {'ticker', 'complete', 'lines', 'selections', 'stability'} <= set(first)
-    assert {'cagr', 'max_drawdown', 'cagr_over_dd', 'sharpe'} <= set(first['lines']['wf'])
 
 
 def test_the_registered_weekly_demo_still_matches_its_archive():

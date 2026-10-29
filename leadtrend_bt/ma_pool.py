@@ -56,16 +56,16 @@ class Market:
         self.diagnostics = diagnostics
 
 
-def load_market(db_path=None, start: str = START, end: str = LAST_ALLOWED_END) -> Market:
+def load_market(db_path=None, start: str = START, end: str = LAST_ALLOWED_END, scope=None) -> Market:
     """Pools per signal day, total-return matrix over the full stored history, and the SMA 50/200 flag."""
     _check_end(end)
     signal_days = api.friday_signal_days(start, end, db_path)
     calendar = api.trading_days(FIRST_DAY, end, db_path)
     raw_pools, union = {}, set()
     for day in signal_days:
-        pool = api.pool_at(day, db_path)
-        representatives = engine.Backtest._representatives(api.pool_amounts(pool['version_id'], db_path),
-                                                           api.pool_company_amounts(pool['version_id'], db_path))
+        pool = api.pool_at(day, db_path, scope)
+        representatives = engine.Backtest._representatives(api.pool_amounts(pool['version_id'], db_path, scope),
+                                                           api.pool_company_amounts(pool['version_id'], db_path, scope))
         raw_pools[day] = [row['security_id'] for row in representatives]
         union.update(raw_pools[day])
     sids = sorted(union)
@@ -83,8 +83,10 @@ def load_market(db_path=None, start: str = START, end: str = LAST_ALLOWED_END) -
     diagnostics = dict(missing_tri_cells=missing,
                        missing_tri_securities=len({sid for day in signal_days for sid in raw_pools[day]
                                                    if not np.isfinite(values[calendar.index(day), column[sid]])}),
-                       pool_versions=len({api.pool_at(day, db_path)['version_id'] for day in signal_days}))
-    return Market(calendar, sids, values, long, pools, diagnostics)
+                       pool_versions=len({api.pool_at(day, db_path, scope)['version_id'] for day in signal_days}))
+    market = Market(calendar, sids, values, long, pools, diagnostics)
+    market.db_path, market.scope = db_path, scope
+    return market
 
 
 # -- weights -----------------------------------------------------------------------------------------------------
@@ -176,8 +178,10 @@ def portfolio_metrics(simulation: dict) -> dict:
 
 
 def run(market: Market, signal_days: list[str], start: str = START, capital: float = CAPITAL,
-        seeds: int = SEEDS) -> dict:
+        seeds: int = SEEDS, scope=None) -> dict:
     """The four deterministic portfolios and the random band."""
+    if scope is not None and getattr(market, 'scope', None) != scope:
+        raise ValueError('market scope does not match requested scope')
     out = {}
     plans = dict(all_equal=equal_targets(market, signal_days),
                  long_plus_cash=long_targets(market, signal_days, full=False),
@@ -187,7 +191,7 @@ def run(market: Market, signal_days: list[str], start: str = START, capital: flo
         out[name] = portfolio_metrics(simulation)
         out[name]['equity'] = simulation['equity']
 
-    bench = api.tri_series([BENCH], start, market.days[-1])
+    bench = api.tri_series([BENCH], start, market.days[-1], getattr(market, 'db_path', None))
     series = {day: value for day, value, _ in bench[BENCH]}
     first = series.get(start)
     if first is None:

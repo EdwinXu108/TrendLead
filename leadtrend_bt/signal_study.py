@@ -110,7 +110,7 @@ def _period(day: str) -> str:
     return ''
 
 
-def build_panel(db_path=None) -> dict:
+def build_panel(db_path=None, scope=None) -> dict:
     """Signal days, per-day company universe (largest eligible class per issuer) and total-return series."""
     signal_days = api.friday_signal_days('2014-02-28', LAST_ALLOWED_END, db_path)
     calendar = api.trading_days('2012-12-01', LAST_ALLOWED_END, db_path)
@@ -119,8 +119,8 @@ def build_panel(db_path=None) -> dict:
     universe: dict[str, dict[str, float]] = {}
     ids: set[str] = set()
     for day in signal_days:
-        pool = api.pool_at(day, db_path)
-        amounts = api.pool_amounts(pool['version_id'], db_path) if pool['version_id'] else {}
+        pool = api.pool_at(day, db_path, scope)
+        amounts = api.pool_amounts(pool['version_id'], db_path, scope) if pool['version_id'] else {}
         best: dict[str, tuple[float, str]] = {}
         for sid, row in amounts.items():
             issuer = row['issuer_id']
@@ -351,5 +351,5 @@ def _std(values: list[float]) -> float:
     return math.sqrt(sum((v - mean) ** 2 for v in values) / (len(values) - 1))
 
 
-def run_study(db_path=None) -> dict:
-    return compute(build_panel(db_path))
+def run_study(db_path=None, scope=None) -> dict:
+    return compute(build_panel(db_path, scope))

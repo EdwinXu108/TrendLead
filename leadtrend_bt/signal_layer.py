@@ -32,7 +32,7 @@ SIGNAL_LAYER = dict(
 FIXED = tuple(SIGNAL_LAYER)
 # `rebalance` is the one protocol field a caller may vary: the archived M2 grid registered both R1 and R1W to
 # measure what restoring equal weight every week does. Everything else in SIGNAL_LAYER is the protocol itself.
-OVERRIDABLE = ('ranking', 'signal', 'L', 'N', 'rebalance', 'top_m', 'w')
+OVERRIDABLE = ('ranking', 'signal', 'L', 'N', 'rebalance', 'top_m', 'w', 'scope')
 
 
 def signal_layer_config(run_id: str, **overrides) -> dict:

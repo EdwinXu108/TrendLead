@@ -34,7 +34,7 @@ SIGNALS = {
 }
 
 
-def context(db_path=None) -> dict:
+def context(db_path=None, scope=None) -> dict:
     """Matrices and per-day pool membership for every signal."""
     days = api.trading_days(LOOKBACK_START, LAST, db_path) if db_path else api.trading_days(LOOKBACK_START, LAST)
     index = {d: i for i, d in enumerate(days)}
@@ -42,8 +42,8 @@ def context(db_path=None) -> dict:
     pools: dict[str, dict[str, str]] = {}
     version_of: dict[str, str] = {}
     for day in signal_days:
-        pool = api.pool_at(day, db_path) if db_path else api.pool_at(day)
-        amounts = api.pool_amounts(pool['version_id'], db_path) if db_path else api.pool_amounts(pool['version_id'])
+        pool = api.pool_at(day, db_path, scope)
+        amounts = api.pool_amounts(pool['version_id'], db_path, scope)
         best: dict[str, tuple[float, str]] = {}
         for sid, row in amounts.items():
             issuer = row['issuer_id']
@@ -213,9 +213,9 @@ def compute(name: str, ctx: dict) -> dict[str, dict[str, float]]:
 _CACHE: dict[tuple, dict] = {}
 
 
-def scores(name: str, db_path=None) -> dict[str, dict[str, float]]:
+def scores(name: str, db_path=None, scope=None) -> dict[str, dict[str, float]]:
     """Cached per (database, signal) inside one process."""
-    key = (str(db_path), name)
+    key = (api.database_identity(db_path), name, scope)
     if key not in _CACHE:
-        _CACHE[key] = compute(name, context(db_path))
+        _CACHE[key] = compute(name, context(db_path, scope))
     return _CACHE[key]

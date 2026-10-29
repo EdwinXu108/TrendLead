@@ -33,7 +33,7 @@ LAST_ALLOWED_END = ma_lab.LAST_ALLOWED_END
 
 # -- the stock list ------------------------------------------------------------------------------------------------
 
-def stock_list(db_path=None, as_of: str = LAST_ALLOWED_END, legacy_union: bool = False) -> list[dict]:
+def stock_list(db_path=None, as_of: str = LAST_ALLOWED_END, legacy_union: bool = False, scope=None) -> list[dict]:
     """Unambiguous tickers whose security has at least one strategy-eligible row.
 
     By default only securities that were already eligible in a quarterly version whose effective date
@@ -47,18 +47,22 @@ def stock_list(db_path=None, as_of: str = LAST_ALLOWED_END, legacy_union: bool =
     `first_report_period` (that version's report period).
     """
     conn = api.connect(db_path) if db_path else api.connect()
+    scoped = None
+    if scope is not None:
+        api._scope_members(conn, '', scope)
+        scoped = {(r[0], r[1]) for r in conn.execute('select version_id, issuer_id from scope_members where scope=?', (scope,))}
     effective = {row[0]: row[1] for row in conn.execute(
         'select version_id, min(active_from) from price_quarter_coverage group by version_id')}
     periods = {row[0]: row[1] for row in conn.execute('select version_id, report_period from pool_versions')}
     rows = conn.execute("""select ss.security_id as sid, ss.current_ticker as ticker, ss.version_id as version,
-                                  ss.strategy_eligible as eligible, coalesce(i.name, '') as name
+                                  ss.strategy_eligible as eligible, ss.issuer_id as issuer, coalesce(i.name, '') as name
                            from strategy_securities ss left join issuers i on i.issuer_id = ss.issuer_id
                            where ss.current_ticker <> ''""").fetchall()
     ids_by_ticker: dict[str, set] = {}
     first: dict[str, tuple] = {}
     for row in rows:
         ids_by_ticker.setdefault(row['ticker'], set()).add(row['sid'])
-        if not row['eligible'] or row['version'] not in effective:
+        if not row['eligible'] or row['version'] not in effective or (scoped is not None and (row['version'], row['issuer']) not in scoped):
             continue
         key = (effective[row['version']], periods.get(row['version'], ''), row['version'])
         if row['sid'] not in first or key < first[row['sid']]:

@@ -22,6 +22,16 @@ from pathlib import Path
 
 from .sources import DB_PATH, ROOT
 
+DB_V2_PATH = ROOT / 'data' / 'db' / 'leadtrend_db_v2.sqlite'
+SCOPE_TOP50 = 'top50_v1'
+
+def _scope_members(conn, version_id, scope):
+    if scope is None: return None
+    if not conn.execute("select 1 from sqlite_master where type='table' and name='scope_members'").fetchone():
+        raise ValueError('database has no scope_members table')
+    if scope != SCOPE_TOP50: raise ValueError(f'unknown scope: {scope}')
+    return {r[0] for r in conn.execute('select issuer_id from scope_members where scope=? and version_id=?', (scope, version_id))}
+
 DTB3_PATH = ROOT / 'data' / 'v05' / 'raw' / 'external' / 'DTB3.csv'
 _CONN: dict[str, sqlite3.Connection] = {}
 _CONN_STAT: dict[str, tuple] = {}
@@ -84,9 +94,10 @@ def friday_signal_days(start: str, end: str, db_path: Path | str = DB_PATH) -> l
     return out
 
 
-def pool_at(day: str, db_path: Path | str = DB_PATH) -> dict:
+def pool_at(day: str, db_path: Path | str = DB_PATH, scope=None) -> dict:
     """Eligible securities and companies of the pool version effective on `day` (a NYSE session)."""
     conn = connect(db_path)
+    if scope is not None: _scope_members(conn, "", scope)
     windows = conn.execute("""select version_id, min(active_from) as first, max(active_to) as last
                               from price_quarter_coverage group by version_id""").fetchall()
     pick = None
@@ -109,6 +120,10 @@ def pool_at(day: str, db_path: Path | str = DB_PATH) -> dict:
         select issuer_id, historical_rank, current_ticker, resolved_current_issuer
         from strategy_companies where version_id = ? and strategy_eligible = 1
         order by historical_rank""", (pick,))]
+    members = _scope_members(conn, pick, scope)
+    if members is not None:
+        securities = [r for r in securities if r['issuer_id'] in members]
+        companies = [r for r in companies if r['issuer_id'] in members]
     window = next(r for r in windows if r['version_id'] == pick)
     return dict(version_id=pick, report_period=meta['report_period'], available_at_utc=meta['available_at_utc'],
                 effective_from=window['first'], effective_to=window['last'], securities=securities,
@@ -203,7 +218,7 @@ def pool_windows(start: str, end: str, db_path: Path | str = DB_PATH) -> list[di
     return out
 
 
-def pool_amounts(version_id: str, db_path: Path | str = DB_PATH) -> dict[str, dict]:
+def pool_amounts(version_id: str, db_path: Path | str = DB_PATH, scope=None) -> dict[str, dict]:
     """{security_id: {issuer_id, amount_cents}} of the eligible securities of one version."""
     conn = connect(db_path)
     rows = conn.execute("""select ts.security_id, ts.issuer_id, ts.amount_cents, ts.class_code
@@ -212,14 +227,16 @@ def pool_amounts(version_id: str, db_path: Path | str = DB_PATH) -> dict[str, di
                                                         and ss.security_id = ts.security_id
                            where ts.version_id = ? and ts.candidate_eligible = 1 and ss.strategy_eligible = 1
                            order by ts.amount_cents desc, ts.security_id""", (version_id,))
-    return {r['security_id']: dict(r) for r in rows}
+    members = _scope_members(conn, version_id, scope)
+    return {r['security_id']: dict(r) for r in rows if members is None or r['issuer_id'] in members}
 
 
-def pool_company_amounts(version_id: str, db_path: Path | str = DB_PATH) -> dict[str, int]:
+def pool_company_amounts(version_id: str, db_path: Path | str = DB_PATH, scope=None) -> dict[str, int]:
     """Historical ranking amounts, including qualifying classes that cannot be purchased."""
     conn = connect(db_path)
+    members = _scope_members(conn, version_id, scope)
     return {r['issuer_id']: r['amount_cents'] for r in conn.execute(
-        'select issuer_id, amount_cents from top200_companies where version_id = ?', (version_id,))}
+        'select issuer_id, amount_cents from top200_companies where version_id = ?', (version_id,)) if members is None or r['issuer_id'] in members}
 
 
 def issuer_continuity(db_path: Path | str = DB_PATH) -> list[dict]:

@@ -186,7 +186,7 @@ class Backtest:
     def _cache_key(self):
         family = ('trend' if self.mode == 'trend' else
                   'pool' if self.mode in POOL_MODES else ('voo' if self.mode == 'voo' else 'signal'))
-        key = (api.database_identity(self.db_path), self.start, self.end, family, self.protocol, self.L,
+        key = (api.database_identity(self.db_path), self.start, self.end, family, self.protocol, self.L, self.cfg.get('scope'),
                self.ranking, self.signal_name)
         return key + ((self.universe,) if self.mode == 'trend' else ())
 
@@ -284,8 +284,8 @@ class Backtest:
         elif self.mode in POOL_MODES:
             windows = [w for w in api.pool_windows(self.start, self.end, db) if w['effective_to'] >= self.start]
             for window in windows:
-                amounts = api.pool_amounts(window['version_id'], db)
-                company_amounts = api.pool_company_amounts(window['version_id'], db) if self.terra_r1 else None
+                amounts = api.pool_amounts(window['version_id'], db, self.cfg.get('scope'))
+                company_amounts = api.pool_company_amounts(window['version_id'], db, self.cfg.get('scope')) if self.terra_r1 else None
                 first_entry = next((d for d in self.calendar if d > self.start), self.start) if self.terra_r1 else self.start
                 day = max(window['effective_from'], first_entry)
                 if day > self.end:
@@ -302,13 +302,13 @@ class Backtest:
         else:
             amount_cache: dict[str, dict] = {}
             for day in self.signal_days:
-                pool = api.pool_at(day, db)
+                pool = api.pool_at(day, db, self.cfg.get('scope'))
                 version = pool['version_id']
                 if version not in amount_cache:
-                    amount_cache[version] = api.pool_amounts(version, db) if version else {}
+                    amount_cache[version] = api.pool_amounts(version, db, self.cfg.get('scope')) if version else {}
                 amounts = amount_cache[version]
                 if self.terra_r1:
-                    company_amounts = api.pool_company_amounts(version, db) if version else {}
+                    company_amounts = api.pool_company_amounts(version, db, self.cfg.get('scope')) if version else {}
                     pool['securities'] = self._representatives(amounts, company_amounts)
                 self.pools[day] = pool
                 self.amounts[day] = {}
@@ -339,7 +339,7 @@ class Backtest:
         self.closes[BENCH] = {d: b['close'] for d, b in bars.items()}
         if self.ranking == 'signal':
             from . import signals
-            self.signal_scores = signals.scores(self.signal_name, db)
+            self.signal_scores = signals.scores(self.signal_name, db, self.cfg.get('scope'))
         self._prepare_actions()
         self._preflight_targets()
 

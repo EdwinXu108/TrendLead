@@ -237,16 +237,22 @@ _MARKET: dict = {}
 
 
 def market_zone(db_path: str | None = None, quarter_n: int = DEFAULT_QUARTER_N,
-                width: float = DEFAULT_WIDTH, end: str = DEV_END) -> dict:
+                width: float = DEFAULT_WIDTH, end: str = DEV_END,
+                allow_holdout: bool = False, batch: str = 'boll_v1') -> dict:
     """The market's own zones: VOO weekly closes against its monthly and quarterly bands, same rules as a stock.
 
     This is the switch for *when* to look for buys; a stock's depth below its own quarterly mid then says *which*.
-    `level` maps every VOO week (last session of the week) to 3, 2 or 0.
+    `level` maps every VOO week (last session of the week) to 3, 2 or 0. Past 2024-06-28 the VOO closes come from
+    the bounded raw archive, which agrees with the stored bars on every overlapping session.
     """
     db = db_path or DEFAULT_DB
     key = (db, int(quarter_n), float(width), end)
     if key not in _MARKET:
-        bars = api.benchmark_bars('1900-01-01', end, db)
+        if allow_holdout:
+            ma_lab.check_holdout(end, db, batch=batch)
+            bars = api._bounded_benchmark_archive('1900-01-01', end)
+        else:
+            bars = api.benchmark_bars('1900-01-01', end, db)
         days = sorted(bars)
         values = [bars[d]['close'] for d in days]
         weeks, closes = weekly_closes(days, values)

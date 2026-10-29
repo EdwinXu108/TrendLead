@@ -32,16 +32,22 @@ HOLDOUT_RELEASE = 'tri_seam_v1'
 AUTHORIZATION = Path(__file__).resolve().parents[1] / 'research' / 'holdout' / 'authorization.json'
 
 
-def check_holdout(end: str, db_path=None, authorization_path=None) -> dict:
-    """Raise unless the window, the investor's authorization and the database release all allow the holdout."""
+def check_holdout(end: str, db_path=None, authorization_path=None, batch: str = 'wf_v2') -> dict:
+    """Raise unless the window, the investor's authorization and the database release all allow the holdout.
+
+    `batch` is the registered batch asking for the reserved segment. The authorization's `scope` may be a single
+    name (the original wf_v2 form) or a list of names; either way it has to cover this batch.
+    """
     if end > HOLDOUT_END:
         raise ValueError(f'end {end} is after {HOLDOUT_END}')
     path = Path(authorization_path) if authorization_path else AUTHORIZATION
     if not path.exists():
         raise ValueError(f'holdout authorization is missing: {path}')
     payload = json.loads(path.read_text(encoding='utf8'))
-    if payload.get('scope') != 'wf_v2':
-        raise ValueError(f"holdout authorization scope must be 'wf_v2', got {payload.get('scope')!r}")
+    scope = payload.get('scope')
+    covered = (scope == batch) if isinstance(scope, str) else (isinstance(scope, list) and batch in scope)
+    if not covered:
+        raise ValueError(f'holdout authorization does not cover {batch!r}, scope is {scope!r}')
     if payload.get('window') != HOLDOUT_WINDOW:
         raise ValueError(f'holdout authorization window must be {HOLDOUT_WINDOW}, '
                          f"got {payload.get('window')!r}")

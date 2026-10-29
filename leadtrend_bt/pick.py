@@ -89,10 +89,11 @@ def measures(returns, bench_returns, k: int, window: int) -> tuple[np.ndarray, n
     return beta, corr, vol
 
 
-def load(db_path=None, scope: str = SCOPE, start: str = START, end: str = END) -> dict:
+def load(db_path=None, scope: str = SCOPE, start: str = START, end: str = END,
+         allow_holdout: bool = False, batch: str = 'pick_v1') -> dict:
     """Weekly closes, candidates, the three measures for every W, and the forward returns for every H."""
     db_path = db_path or DEFAULT_DB
-    market = ma_pool.load_market(db_path, start, end, scope)
+    market = ma_pool.load_market(db_path, start, end, scope, allow_holdout=allow_holdout, batch=batch)
     weeks_all, rows = _week_index(market.days)
     closes = market.values[rows]
     returns = np.full(closes.shape, np.nan)
@@ -152,7 +153,8 @@ def load(db_path=None, scope: str = SCOPE, start: str = START, end: str = END) -
                 block[j] = bench_closes[k + h] / bench_closes[k] - 1
         voo_forward[h] = block
 
-    zone = boll_weekly.market_zone(db_path, quarter_n=8, width=0.5, end=end)
+    zone = boll_weekly.market_zone(db_path, quarter_n=8, width=0.5, end=end,
+                                   allow_holdout=allow_holdout, batch=batch)
     levels = [int(zone['level'].get(day, 0)) for day in signal]
 
     return dict(market=market, weeks=signal, cands=cands, measure=measure, forward=forward,

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from leadtrend_bt import boll_weekly, engine, ma_pool
+from leadtrend_bt import boll_weekly, engine, ma_lab, ma_pool
 from leadtrend_db import api
 
 SCOPE = 'top50_v1'
@@ -88,12 +88,17 @@ def concentrated(levels, window: int = HOLD_WEEKS) -> list[bool]:
     return out
 
 
-def voo_permission(weeks: list[str], db_path=None, end: str = END) -> list[bool]:
+def voo_permission(weeks: list[str], db_path=None, end: str = END,
+                   allow_holdout: bool = False, batch: str = 'boll_pf_v1') -> list[bool]:
     """Whether VOO's weekly mid line allows a buy each week: s >= 0, or a prediction point (s < 0, s + a >= 0).
 
     The same VOO price closes as `boll_weekly.market_zone`; a week with no VOO close of its own uses the last one.
     """
-    bars = api.benchmark_bars('1900-01-01', end, db_path or DEFAULT_DB)
+    if allow_holdout:
+        ma_lab.check_holdout(end, db_path, batch=batch)
+        bars = api._bounded_benchmark_archive('1900-01-01', end)
+    else:
+        bars = api.benchmark_bars('1900-01-01', end, db_path or DEFAULT_DB)
     days = sorted(bars)
     voo_weeks, closes = boll_weekly.weekly_closes(days, [bars[day]['close'] for day in days])
     s, a = boll_weekly.derivatives(boll_weekly.hann_mid(closes))
@@ -141,10 +146,11 @@ def runs(flags, weeks: list[str]) -> list[dict]:
     return out
 
 
-def load(db_path=None, scope: str = SCOPE, start: str = START, end: str = END) -> dict:
+def load(db_path=None, scope: str = SCOPE, start: str = START, end: str = END,
+         allow_holdout: bool = False, batch: str = 'boll_pf_v1') -> dict:
     """Weekly pools, the top ten of each week with their betas, and the market's zone level."""
     db_path = db_path or DEFAULT_DB
-    market = ma_pool.load_market(db_path, start, end, scope)
+    market = ma_pool.load_market(db_path, start, end, scope, allow_holdout=allow_holdout, batch=batch)
     weeks = [day for day in api.friday_signal_days(start, end, db_path) if day in market.index]
     rows = [market.index[day] for day in weeks]
     closes = market.values[rows]
@@ -247,14 +253,20 @@ def voo_line(market, start: str, capital: float = CAPITAL) -> dict:
 # -- results -----------------------------------------------------------------------------------------------------
 
 def run(db_path=None, scope: str = SCOPE, start: str = START, end: str = END, capital: float = CAPITAL,
-        lines=LINES) -> dict:
-    """All six lines (seven with `LINES_V2`): metrics, yearly returns and, for the two tilts, the concentrated segments."""
-    book = load(db_path, scope, start, end)
+        lines=LINES, allow_holdout: bool = False, batch: str = 'boll_pf_v1',
+        sim_start: str | None = None) -> dict:
+    """All six lines (seven with `LINES_V2`): metrics, yearly returns and, for the two tilts, the concentrated segments.
+
+    `sim_start` runs the portfolio from that close while every state is still built from `start` onwards, which is
+    how the reserved segment is measured without restarting the history.
+    """
+    book = load(db_path, scope, start, end, allow_holdout=allow_holdout, batch=batch)
     market = book['market']
     plans, applied = targets(book, lines)
-    simulations = {name: ma_pool.simulate(market, start, targets_week, capital)
+    begin = sim_start or start
+    simulations = {name: ma_pool.simulate(market, begin, targets_week, capital)
                    for name, targets_week in plans.items()}
-    simulations['VOO'] = voo_line(market, start, capital)
+    simulations['VOO'] = voo_line(market, begin, capital)
     rows = {name: ma_pool.portfolio_metrics(sim) for name, sim in simulations.items()}
     voo = rows['VOO']
     for name, row in rows.items():
@@ -299,6 +311,8 @@ def segment_rows(book: dict, simulations: dict, plans: dict, applied: dict) -> d
         rows = []
         for run_row in runs(flags, book['weeks']):
             start, end = run_row['start'], run_row['end']
+            if start not in equity[name] or end not in equity[name]:
+                continue                      # the run lies outside the simulated window
             first, last = equity[name][start], equity[name][end]
             base_first, base_last = equity['EW10'][start], equity['EW10'][end]
             ratio = (last / first) / (base_last / base_first) - 1

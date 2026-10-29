@@ -30,8 +30,10 @@ def picks(book: dict) -> dict[str, list[list[int]]]:
                 BETA5=[ordered[:5] if len(ordered) >= 5 else ew10[j] for j, ordered in enumerate(beta)])
 
 
-def run(db_path=None) -> dict:
-    book = pick.load(db_path)
+def run(db_path=None, end: str = pick.END, allow_holdout: bool = False, batch: str = 'boll_pf_v3',
+        sim_start: str | None = None) -> dict:
+    """Every line's metrics; `sim_start` runs the portfolio from that close while the states keep their history."""
+    book = pick.load(db_path, end=end, allow_holdout=allow_holdout, batch=batch)
     market = book['market']
     state = boll_pf.concentrated(book['levels'])
     chosen = picks(book)
@@ -44,8 +46,8 @@ def run(db_path=None) -> dict:
             weights = np.zeros(size)
             weights[columns] = 1.0 / len(columns)
             targets[market.index[day]] = weights
-        sims[name] = ma_pool.simulate(market, ma_pool.START, targets, ma_pool.CAPITAL)
-    sims['VOO'] = boll_pf.voo_line(market, ma_pool.START, ma_pool.CAPITAL)
+        sims[name] = ma_pool.simulate(market, sim_start or ma_pool.START, targets, ma_pool.CAPITAL)
+    sims['VOO'] = boll_pf.voo_line(market, sim_start or ma_pool.START, ma_pool.CAPITAL)
     rows = {name: ma_pool.portfolio_metrics(sim) for name, sim in sims.items()}
     for row in rows.values():
         row['excess_cagr'] = row['cagr'] - rows['VOO']['cagr']

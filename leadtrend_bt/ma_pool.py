@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from leadtrend_bt import engine, metrics, trend
+from leadtrend_bt import engine, ma_lab, metrics, trend
 from leadtrend_db import api
 
 LAST_ALLOWED_END = '2024-06-28'
@@ -56,9 +56,16 @@ class Market:
         self.diagnostics = diagnostics
 
 
-def load_market(db_path=None, start: str = START, end: str = LAST_ALLOWED_END, scope=None) -> Market:
-    """Pools per signal day, total-return matrix over the full stored history, and the SMA 50/200 flag."""
-    _check_end(end)
+def load_market(db_path=None, start: str = START, end: str = LAST_ALLOWED_END, scope=None,
+                allow_holdout: bool = False, batch: str = 'boll_pf_v1') -> Market:
+    """Pools per signal day, total-return matrix over the full stored history, and the SMA 50/200 flag.
+
+    `allow_holdout=True` is the only way past 2024-06-28; it needs the investor's authorization for `batch`.
+    """
+    if allow_holdout:
+        ma_lab.check_holdout(end, db_path, batch=batch)
+    else:
+        _check_end(end)
     signal_days = api.friday_signal_days(start, end, db_path)
     calendar = api.trading_days(FIRST_DAY, end, db_path)
     raw_pools, union = {}, set()

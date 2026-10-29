@@ -1,0 +1,99 @@
+ticker,company,first,last,quarters,development
+AAPL,Apple Inc.,2013-12-31,2026-06-30,52,True
+ABBV,AbbVie Inc.,2013-12-31,2026-06-30,52,True
+ABT,Abbott Laboratories,2017-09-30,2025-12-31,35,True
+ACN,Accenture plc Class A,2017-12-31,2025-06-30,30,True
+ADBE,Adobe Systems Inc.,2018-03-31,2025-03-31,30,True
+AIG,American International Group Inc.,2013-12-31,2014-09-30,3,True
+AMAT,Applied Materials Inc,2024-03-31,2026-06-30,5,True
+AMD,Advanced Micro Devices Inc,2022-03-31,2026-06-30,15,True
+AMGN,Amgen Inc.,2013-12-31,2025-03-31,35,True
+AMZN,Amazon.com Inc.,2013-12-31,2026-06-30,52,True
+APP,AppLovin Corp,2025-09-30,2025-09-30,1,False
+AVGO,Broadcom Ltd.,2017-03-31,2017-12-31,4,True
+AVGO,Broadcom Inc.,2018-09-30,2026-06-30,31,True
+AXP,American Express Co.,2013-12-31,2025-12-31,6,True
+BA,Boeing Co.,2013-12-31,2019-12-31,25,True
+BAC,Bank of America Corp.,2013-12-31,2026-06-30,52,True
+BIIB,Biogen Idec Inc.,2014-09-30,2015-06-30,3,True
+BKNG,Priceline Group Inc.,2017-03-31,2025-06-30,4,True
+BMY,Bristol-Myers Squibb Co.,2013-12-31,2023-03-31,29,True
+BRK.B,Berkshire Hathaway Inc. Class B,2013-12-31,2026-06-30,52,True
+C,Citigroup Inc.,2013-12-31,2025-12-31,28,True
+CAT,Caterpillar Inc,2023-09-30,2026-06-30,11,True
+CMCSA,Comcast Corp. Class A,2013-12-31,2024-03-31,43,True
+COP,ConocoPhillips,2013-12-31,2023-09-30,8,True
+COST,Costco Wholesale Corp.,2019-06-30,2026-06-30,30,True
+CRM,salesforce.com Inc.,2018-09-30,2025-12-31,31,True
+CSCO,Cisco Systems Inc.,2013-12-31,2026-06-30,52,True
+CVS,CVS Caremark Corp.,2013-12-31,2022-09-30,14,True
+CVX,Chevron Corp.,2013-12-31,2026-06-30,52,True
+DD,DowDuPont Inc.,2017-09-30,2019-03-31,7,True
+DHR,Danaher Corp,2020-06-30,2024-09-30,17,True
+DIS,Walt Disney Co.,2013-12-31,2018-12-31,21,True
+DIS,Walt Disney Co.,2019-03-31,2025-12-31,29,True
+GE,General Electric Co.,2013-12-31,2026-06-30,29,True
+GEV,GE Vernova Inc,2026-03-31,2026-06-30,2,False
+GILD,Gilead Sciences Inc.,2013-12-31,2017-09-30,16,True
+GOOGL,Google Inc. Class A,2013-12-31,2015-09-30,8,True
+GOOGL,Alphabet Inc. Class A,2015-12-31,2026-06-30,44,True
+GS,Goldman Sachs Group Inc.,2015-06-30,2026-06-30,9,True
+HD,Home Depot Inc.,2013-12-31,2026-06-30,52,True
+HON,Honeywell International Inc.,2015-12-31,2023-06-30,24,True
+IBM,International Business Machines Corp.,2013-12-31,2026-06-30,35,True
+INTC,Intel Corp.,2013-12-31,2026-06-30,42,True
+INTU,Intuit Inc,2021-09-30,2025-09-30,10,True
+ISRG,Intuitive Surgical Inc,2024-09-30,2025-12-31,5,False
+JNJ,Johnson & Johnson,2013-12-31,2026-06-30,52,True
+JPM,JPMorgan Chase & Co.,2013-12-31,2026-06-30,52,True
+KLAC,KLA Corp,2026-03-31,2026-06-30,2,False
+KO,Coca-Cola Co.,2013-12-31,2026-06-30,52,True
+LIN,Linde plc,2019-06-30,2026-06-30,24,True
+LLY,Eli Lilly & Co.,2015-09-30,2026-06-30,29,True
+LOW,Lowe's Cos Inc,2020-09-30,2021-12-31,2,True
+LRCX,Lam Research Corp,2025-12-31,2026-06-30,3,False
+MA,MasterCard Inc. Class A,2013-12-31,2026-06-30,50,True
+MCD,McDonald’s Corp.,2013-12-31,2026-03-31,51,True
+MDT,Medtronic plc,2015-03-31,2021-09-30,28,True
+META,Facebook Inc. Class A,2013-12-31,2026-06-30,52,True
+MMM,3M Co.,2013-12-31,2019-03-31,22,True
+MO,Altria Group Inc.,2013-12-31,2018-12-31,21,True
+MRK,Merck & Co. Inc.,2013-12-31,2026-06-30,52,True
+MRVL,Marvell Technology Inc,2026-06-30,2026-06-30,1,False
+MS,Morgan Stanley,2025-09-30,2026-06-30,4,False
+MSFT,Microsoft Corp.,2013-12-31,2026-06-30,52,True
+MU,Micron Technology Inc,2025-09-30,2026-06-30,4,False
+NEE,NextEra Energy Inc.,2019-09-30,2026-03-31,16,True
+NFLX,Netflix Inc.,2018-03-31,2026-06-30,32,True
+NKE,NIKE Inc. Class B,2015-09-30,2023-06-30,21,True
+NOW,ServiceNow Inc,2024-06-30,2025-09-30,5,False
+NVDA,NVIDIA Corp.,2017-06-30,2026-06-30,34,True
+ORCL,Oracle Corp.,2013-12-31,2026-06-30,40,True
+OXY,Occidental Petroleum Corp.,2013-12-31,2014-06-30,3,True
+PANW,Palo Alto Networks Inc,2026-06-30,2026-06-30,1,False
+PEP,PepsiCo Inc.,2013-12-31,2026-03-31,49,True
+PFE,Pfizer Inc.,2013-12-31,2023-12-31,42,True
+PG,Procter & Gamble Co.,2013-12-31,2026-06-30,52,True
+PLTR,Palantir Technologies Inc,2025-03-31,2026-06-30,6,False
+PM,Philip Morris International Inc.,2013-12-31,2026-06-30,43,True
+PYPL,PayPal Holdings Inc.,2018-12-31,2021-12-31,14,True
+QCOM,QUALCOMM Inc.,2013-12-31,2025-03-31,26,True
+RTX,United Technologies Corp.,2013-12-31,2026-06-30,26,True
+SBUX,Starbucks Corp.,2015-09-30,2017-03-31,6,True
+SLB,Schlumberger Ltd.,2013-12-31,2017-09-30,16,True
+SNDK,Sandisk Corp,2026-06-30,2026-06-30,1,False
+T,AT&T Inc.,2013-12-31,2026-03-31,41,True
+TMO,Thermo Fisher Scientific Inc.,2019-03-31,2025-12-31,27,True
+TSLA,Tesla Inc,2020-12-31,2026-06-30,23,True
+TXN,Texas Instruments Inc.,2017-12-31,2026-06-30,25,True
+UBER,Uber Technologies Inc,2024-03-31,2025-09-30,3,True
+UNH,UnitedHealth Group Inc.,2013-12-31,2026-06-30,52,True
+UNP,Union Pacific Corp.,2013-12-31,2023-12-31,30,True
+UPS,United Parcel Service Inc,2021-06-30,2022-06-30,2,True
+USB,US Bancorp,2014-03-31,2014-12-31,3,True
+V,Visa Inc. Class A,2013-12-31,2026-06-30,52,True
+VZ,Verizon Communications Inc.,2013-12-31,2026-03-31,48,True
+WDC,Western Digital Corp,2026-06-30,2026-06-30,1,False
+WFC,Wells Fargo & Co.,2013-12-31,2026-06-30,49,True
+WMT,Wal-Mart Stores Inc.,2013-12-31,2026-06-30,52,True
+XOM,Exxon Mobil Corp.,2013-12-31,2026-06-30,52,True

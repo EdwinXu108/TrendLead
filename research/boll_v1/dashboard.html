@@ -7,38 +7,56 @@
 <style>
   :root {
     --bg: #f6f7f9; --card: #ffffff; --line: #e3e6ea; --ink: #1f2328; --muted: #6b7280;
-    --good: #0072B2; --bad: #D55E00; --accent-soft: #e7f1f9;
-    --z3: #0B3C5D; --z2: #3A7CA5; --z1: #A9C6DA;
+    --good: #0072B2; --bad: #D55E00; --month: #CC79A7; --quarter: #009E73;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink);
          font: 13px/1.55 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
-  header { display: flex; align-items: center; gap: 8px 14px; padding: 10px 18px; background: var(--card);
+  header { display: flex; align-items: center; gap: 8px 20px; padding: 10px 18px; background: var(--card);
            border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20; flex-wrap: wrap; }
-  header h1 { font-size: 15px; margin: 0 8px 0 0; font-weight: 650; }
-  .ctrl { display: flex; align-items: center; gap: 6px; }
-  .ctrl label { color: var(--muted); font-size: 12px; white-space: nowrap; }
-  .hint { color: #9aa1ab; font-size: 11px; max-width: 250px; line-height: 1.35; }
+  header h1 { font-size: 15px; margin: 0 6px 0 0; font-weight: 650; }
+  .ctrl { display: flex; align-items: center; gap: 8px; }
+  .ctrl > label { color: var(--muted); font-size: 12px; white-space: nowrap; }
   select { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px;
-           background: #fff; color: var(--ink); }
-  #stock { width: 104px; text-transform: uppercase; }
-  .check { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11.5px;
-           cursor: pointer; white-space: nowrap; }
+           background: #fff; color: var(--ink); width: 104px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { font: inherit; font-size: 12px; border: 0; background: #fff; color: var(--muted); padding: 4px 11px;
+                cursor: pointer; border-left: 1px solid var(--line); }
+  .seg button:first-child { border-left: 0; }
+  .seg button.on { background: var(--ink); color: #fff; }
   main { padding: 16px 18px 30px; max-width: 1360px; margin: 0 auto; }
-  .lead { font-size: 17px; font-weight: 650; margin: 2px 0 14px; line-height: 1.45; }
+  .lead { font-size: 17px; font-weight: 650; margin: 2px 0 14px; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 12px; }
-  .card h2 { font-size: 12px; font-weight: 650; color: var(--muted); margin: 0; padding: 10px 14px 4px; }
-  .sub { color: var(--muted); font-size: 11.5px; font-weight: 400; }
-  .chart { position: relative; padding: 2px 10px 8px; }
+  .card h2 { font-size: 12.5px; font-weight: 650; color: var(--ink); margin: 0; padding: 11px 14px 4px; }
+  .sub { color: var(--muted); font-size: 11.5px; font-weight: 400; margin-left: 6px; }
+  .chart { position: relative; padding: 2px 10px 6px; }
   .chart svg { display: block; width: 100%; }
-  .legend { display: flex; gap: 14px; padding: 2px 14px 6px; color: var(--muted); font-size: 11.5px;
+  .legend { display: flex; gap: 6px 8px; padding: 4px 14px 6px; color: var(--muted); font-size: 11.5px;
             flex-wrap: wrap; align-items: center; }
-  .legend i { display: inline-block; width: 16px; height: 3px; border-radius: 2px; }
-  .legend .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
-  .legend .sw { display: inline-block; width: 14px; height: 10px; border-radius: 2px; }
-  .tip { position: absolute; pointer-events: none; background: rgba(31,35,40,.94); color: #fff; padding: 6px 8px;
-         border-radius: 6px; font-size: 11.5px; line-height: 1.5; white-space: nowrap; opacity: 0;
+  .legend .group { display: flex; gap: 6px; align-items: center; margin-right: 10px; }
+  .legend .title { color: #9aa1ab; margin-right: 2px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 11.5px; color: var(--ink);
+          background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; }
+  button.chip { cursor: pointer; }
+  button.chip.off { color: #a3a9b2; background: #f7f8fa; }
+  button.chip.off i { opacity: .35; }
+  .chip i { display: inline-block; width: 16px; height: 0; border-top: 2px solid; }
+  .chip i.dash { border-top-style: dashed; }
+  .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); border: 0; }
+  .chip .sw { width: 13px; height: 11px; border: 0; border-radius: 2px; }
+  .tip { position: absolute; pointer-events: none; background: rgba(31,35,40,.94); color: #fff; padding: 7px 9px;
+         border-radius: 6px; font-size: 11.5px; line-height: 1.55; white-space: nowrap; opacity: 0;
          transition: opacity .08s; z-index: 5; }
+  .tip .z { color: #ffb37a; }
+  .tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; padding: 6px 14px 14px; }
+  .tile { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+  .tile .name { color: var(--muted); font-size: 11.5px; display: flex; align-items: center; gap: 6px; }
+  .tile .name i { display: inline-block; width: 14px; height: 0; border-top: 2px solid; }
+  .tile .name i.dash { border-top-style: dashed; }
+  .tile .num { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .tile .cap { color: var(--muted); font-size: 11px; }
+  .tile.in { border-color: #f0b48a; background: #fdf3ec; }
+  .tile.in .cap { color: #a1460b; }
   table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
   th, td { padding: 5px 8px; text-align: right; }
   th { color: var(--muted); font-weight: 500; font-size: 11px; border-bottom: 1px solid var(--line); }
@@ -46,7 +64,7 @@
   td.left, th.left { text-align: left; }
   .scroll-y { max-height: 340px; overflow: auto; padding: 0 14px 12px; }
   .scroll-y thead th { position: sticky; top: 0; background: var(--card); }
-  .small { max-width: 480px; }
+  .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2.2fr); gap: 12px; }
   .note { color: var(--muted); font-size: 11.5px; padding: 2px 14px 10px; line-height: 1.6; }
   .bad { color: var(--bad); } .good { color: var(--good); }
   .state { margin: 0 0 12px; padding: 12px; border: 1px solid var(--line); background: #fff; border-radius: 8px;
@@ -58,54 +76,60 @@
   #loading { position: fixed; inset: 0; background: rgba(246,247,249,.5); display: none; align-items: center;
              justify-content: center; z-index: 50; font-size: 13px; color: var(--muted); }
   #loading.on { display: flex; }
-  @media (max-width: 1100px) { main { padding: 12px; } .hint { max-width: 200px; } }
+  @media (max-width: 1100px) {
+    main { padding: 12px; }
+    .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .two { grid-template-columns: minmax(0, 1fr); }
+  }
 </style>
 </head>
 <body>
 <header>
-  <h1>LeadTrend · 周线布林预判点与关注区</h1>
+  <h1>LeadTrend · 周线布林</h1>
   <div class="ctrl"><label>股票</label><select id="stock"></select></div>
-  <div class="ctrl"><label>附近的宽度 d</label><select id="width">
-    <option value="0">0</option><option value="0.5">0.5</option><option value="1">1</option>
-  </select><span class="hint">收盘在线上下 d 个标准差以内算关注区，0 就是碰到或跌破线</span></div>
-  <div class="ctrl"><label>季线期数</label><select id="quarter">
-    <option value="20">20</option><option value="8">8</option>
-  </select><span class="hint">20 期为标准，数据从 2012-12 开始，2017 年下半年以前没有值</span></div>
+  <div class="ctrl" title="周收盘在线上下 d 个标准差以内（或在线以下）算进入关注区；0 就是碰到或跌破这条线">
+    <label>“附近”的宽度</label><div class="seg" id="width"></div></div>
+  <div class="ctrl" title="20 期是标准；数据从 2012-12 开始，所以 20 期的季线到 2017 年下半年才有值">
+    <label>季线期数</label><div class="seg" id="quarter"></div></div>
 </header>
 
 <main>
-  <p class="lead">每只前 50 股票的周线中轨何时被预判止跌？现在离月线、季线的下轨和中轨有多近？</p>
+  <p class="lead">价格什么时候进入月线、季线的关注区？周线中轨什么时候被预判止跌？</p>
   <div id="pageState" class="state">正在读取…</div>
   <div id="pageBody" hidden>
     <div class="card">
-      <h2>周线价格、去噪中轨与月线季线 <span class="sub" id="priceMeta"></span></h2>
+      <h2>最新一周离各条线有多远 <span class="sub" id="tilesMeta"></span></h2>
+      <div class="tiles" id="tiles"></div>
+    </div>
+
+    <div class="card">
+      <h2>周线价格与关注区 <span class="sub" id="priceMeta"></span></h2>
       <div class="legend" id="priceLegend"></div>
       <div class="chart" id="priceChart"><div class="tip" id="priceTip"></div></div>
-      <div class="note">拖动可放大，双击复位；下面三条图共用横轴，缩放一起动。</div>
+      <div class="note">底色越深，这一周所处的关注区越强；线旁的浅色带就是“附近”的范围。拖动可放大，双击复位，下方导数图跟着一起缩放。</div>
     </div>
-    <div class="card">
-      <h2>关注区色带 <span class="sub" id="zoneMeta"></span></h2>
-      <div class="legend" id="zoneLegend"></div>
-      <div class="chart" id="zoneChart"><div class="tip" id="zoneTip"></div></div>
-    </div>
+
     <div class="card">
       <h2>中轨每周变化（%） <span class="sub" id="slopeMeta"></span></h2>
       <div class="legend" id="slopeLegend"></div>
       <div class="chart" id="slopeChart"><div class="tip" id="slopeTip"></div></div>
     </div>
+
     <div class="card">
       <h2>预判点明细 <span class="sub" id="tableMeta"></span></h2>
       <div class="scroll-y"><table id="pointsTable"></table></div>
-      <div class="note">回正 = 中轨的一阶导回到 0 或以上；期间最多再跌与回正那周比预判价都以预判那周的收盘价为基准。</div>
+      <div class="note">回正 = 中轨的一阶导回到 0 或以上；“期间最多再跌”与“回正那周比预判价”都以预判那周的收盘为基准。</div>
     </div>
-    <div class="card">
-      <h2>关注区小计 <span class="sub">连续处在同一种关注区的周算一段</span></h2>
-      <div class="scroll-y small"><table id="zoneSummary"></table></div>
-    </div>
-    <div class="card">
-      <h2>关注区明细 <span class="sub" id="zoneRowsMeta"></span></h2>
-      <div class="scroll-y"><table id="zoneTable"></table></div>
-      <div class="note">两列价格都是折算后的价格；同一段里最低周收盘可能低于开始那周的收盘。</div>
+
+    <div class="two">
+      <div class="card">
+        <h2>关注区小计 <span class="sub">连续几周算一段</span></h2>
+        <div class="scroll-y"><table id="zoneSummary"></table></div>
+      </div>
+      <div class="card">
+        <h2>关注区明细 <span class="sub" id="zoneRowsMeta"></span></h2>
+        <div class="scroll-y"><table id="zoneTable"></table></div>
+      </div>
     </div>
   </div>
   <details>
@@ -117,22 +141,19 @@
       去噪中轨：20 周余弦（Hann）加权平均，权重 w<sub>i</sub> = sin²(π(i+1)/21)，i = 0 是最老的一周、i = 19 是最新一周，
       再除以总和；不满 20 周的位置为空。<br>
       一阶导 s<sub>t</sub> = m<sub>t</sub> − m<sub>t−1</sub>，二阶导 a<sub>t</sub> = s<sub>t</sub> − s<sub>t−1</sub>。
-      下图画的是 s<sub>t</sub> ÷ m<sub>t−1</sub> × 100，即中轨每周变化的百分比。<br>
-      预判点：s<sub>t</sub> &lt; 0 且 s<sub>t</sub> + a<sub>t</sub> ≥ 0。意思是中轨还在下降，但按这一周的减速速度再推一周，
-      导数就会回到 0。图上画在中轨上，下图用蓝色竖线标出。<br>
-      预判点明细里的回正：从预判那周往后找第一个 s ≥ 0 的周；开发段结束前都没有回正，几格写 —。<br>
+      导数图画的是 s<sub>t</sub> ÷ m<sub>t−1</sub> × 100，即中轨每周变化的百分比。<br>
+      预判点：s<sub>t</sub> &lt; 0 且 s<sub>t</sub> + a<sub>t</sub> ≥ 0。中轨还在下降，但按这一周的减速速度再推一周，
+      导数就会回到 0。回正：从预判那周往后找第一个 s ≥ 0 的周；开发段结束前没有回正，几格写 —。<br>
       标准布林线：20 周简单平均为中轨，上下轨为中轨 ± 2 倍 20 周总体标准差，只作对照，默认不显示。<br>
-      <b>月 K 线与季 K 线：</b>月 K 线取每个自然月最后一个交易日的收盘，季 K 线取每个自然季度（1–3、4–6、7–9、10–12 月）
-      最后一个交易日的收盘。月线用最近 20 根月 K 线的简单平均为中轨，σ 为这 20 根的总体标准差，下轨 = 中轨 − 2σ；
-      季线同样算法，期数可以选 20 或 8。不满期数的位置为空。<br>
+      <b>月 K 线与季 K 线：</b>每个自然月（季度）最后一个交易日的收盘。月线用最近 20 根月 K 线的简单平均为中轨，
+      σ 为这 20 根的总体标准差，下轨 = 中轨 − 2σ；季线同样算法，期数可选 20 或 8；不满期数的位置为空。<br>
       <b>每周用哪根线：</b>第 t 周用“日期 ≤ 这一周的最近一根月 K 线（季 K 线）”算出的中轨、下轨和 σ，
-      所以线在一个月（季）内不变，画出来是台阶状；用的都是已经收完的那根 K 线，不偷看未来。<br>
+      所以线在一个月（季）内不变，画出来是台阶状，不偷看未来。<br>
       <b>关注区：</b>共四种——季线下轨、月线下轨、季线中轨、月线中轨。第 t 周的周收盘 ≤ 该线 + d × 该线所属周期的 σ，
-      就算处在那种关注区，意思是“在线附近（上下都算）或者在线以下”。d 取 0、0.5、1，0 就是收盘价碰到或跌破这条线；
-      线为空的周不算在关注区里。<br>
-      <b>强弱：</b>最强 = 季线下轨；次强 = 月线下轨或季线中轨（两者同级）；较弱 = 月线中轨。色带每周一格，
-      颜色取这一周所处的最强等级，不在关注区就留白；鼠标悬停能看到这一周满足的全部关注区。<br>
-      所有量只用当周及以前的数据算，不做任何事后重新拟合。
+      就算处在那种关注区；d 取 0、0.5、1，0 就是收盘碰到或跌破这条线；线为空的周不算。图上线旁的浅色带就是从线到线 + dσ 的范围。<br>
+      <b>强弱：</b>最强 = 季线下轨；次强 = 月线下轨或季线中轨（两者同级）；较弱 = 月线中轨。价格图的底色取这一周所处的最强等级。<br>
+      <b>最新一周：</b>开发段最后一周的周收盘比各条线高（正）或低（负）多少；卡片变色表示这一周处在那种关注区。<br>
+      纵轴按价格与去噪中轨定范围；离价格太远的线不硬塞进图里，会在图底部标出“在图下方”。
     </div>
   </details>
 </main>
@@ -141,19 +162,26 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const ZONE_COLORS = { 3: '#0B3C5D', 2: '#3A7CA5', 1: '#A9C6DA' };
-const ZONE_LABELS = { 3: '最强（季线下轨）', 2: '次强（月线下轨或季线中轨）', 1: '较弱（月线中轨）' };
-const state = { data: null, zoom: null, show: { m_mid: false, q_mid: false, band: false }, quarter: 20, width: 0.5 };
-let ribbonAnchor = null;
+const SHADE = { 3: 'rgba(213,94,0,0.30)', 2: 'rgba(213,94,0,0.17)', 1: 'rgba(213,94,0,0.07)' };
+const SHADE_LABEL = { 3: '最强：季线下轨', 2: '次强：月线下轨或季线中轨', 1: '较弱：月线中轨' };
+// zone lines in strength order; `sd` names the sigma line of the same period
+const ZONES = [
+  { key: 'q_lower', name: '季线下轨', color: '#009E73', dash: false, sd: 'q_sd' },
+  { key: 'm_lower', name: '月线下轨', color: '#CC79A7', dash: false, sd: 'm_sd' },
+  { key: 'q_mid',   name: '季线中轨', color: '#009E73', dash: true,  sd: 'q_sd' },
+  { key: 'm_mid',   name: '月线中轨', color: '#CC79A7', dash: true,  sd: 'm_sd' }
+];
+const state = { data: null, zoom: null, quarter: 20, width: 0.5,
+                show: { q_lower: true, m_lower: true, q_mid: false, m_mid: false, band: false } };
 const busy = (on) => $('loading').classList.toggle('on', on);
 const setState = (id, html, kind = '') => {
   const el = $(id); el.hidden = false; el.className = 'state ' + kind; el.innerHTML = html;
 };
-const money = (v) => (v === null || v === undefined) ? '—' : '$' + v.toFixed(2);
-const axisMoney = (v) => (v === null || v === undefined) ? '—' : '$' + (v >= 10 ? v.toFixed(0) : v.toFixed(2));
-const sgn = (v, d = 1) => (v === null || v === undefined) ? '—'
-  : (Math.abs(v) < 5e-9 ? '' : (v > 0 ? '+' : '')) + (v * 100).toFixed(d) + '%';
-const cls = (v) => (v === null || v === undefined || Math.abs(v) < 5e-9) ? '' : (v > 0 ? 'good' : 'bad');
+const ok = (v) => v !== null && v !== undefined && Number.isFinite(v);
+const money = (v) => ok(v) ? '$' + v.toFixed(2) : '—';
+const axisMoney = (v) => ok(v) ? '$' + (v >= 10 ? v.toFixed(0) : v.toFixed(2)) : '—';
+const sgn = (v, d = 1) => !ok(v) ? '—' : (Math.abs(v) < 5e-9 ? '' : (v > 0 ? '+' : '')) + (v * 100).toFixed(d) + '%';
+const cls = (v) => (!ok(v) || Math.abs(v) < 5e-9) ? '' : (v > 0 ? 'good' : 'bad');
 
 async function getJSON(url) {
   const response = await fetch(url);
@@ -176,8 +204,9 @@ function niceTicks(min, max, count) {
 
 function logTicks(lo, hi) {
   const out = [];
+  const steps = hi - lo < 0.5 ? [1, 1.5, 2, 3, 4, 5, 6, 8] : (hi - lo < 1.2 ? [1, 2, 3, 5] : [1, 2, 5]);
   for (let k = Math.floor(lo); k <= Math.ceil(hi); k++) {
-    for (const m of [1, 2, 5]) {
+    for (const m of steps) {
       const t = Math.log10(m) + k;
       if (t >= lo && t <= hi) out.push(Math.pow(10, t));
     }
@@ -185,33 +214,73 @@ function logTicks(lo, hi) {
   return out;
 }
 
+// points of one series, split where values are missing; step lines move only on the week the value changes
+function segments(values, X, Y, step) {
+  const out = [];
+  let current = null, previous = null;
+  values.forEach((v, i) => {
+    if (!ok(v)) { current = null; previous = null; return; }
+    if (!current) { current = []; out.push(current); current.push([X(i), Y(v), i]); }
+    else if (step) { current.push([X(i), Y(previous), i]); current.push([X(i), Y(v), i]); }
+    else current.push([X(i), Y(v), i]);
+    previous = v;
+  });
+  return out;
+}
+const pathOf = (pts) => pts.map((p, k) => (k ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+
 function drawChart(container, tip, cfg) {
   const box = container.getBoundingClientRect();
   const width = Math.max(320, box.width - 20);
   const height = cfg.height;
-  const pad = { l: 58, r: 12, t: 10, b: 22 };
+  const pad = { l: 58, r: 14, t: 10, b: 22 };
   const all = cfg.dates.length;
   const [z0, z1] = cfg.zoom ? [Math.max(0, cfg.zoom[0]), Math.min(all - 1, cfg.zoom[1])] : [0, all - 1];
-  const dates = cfg.dates.slice(z0, z1 + 1);
+  const cut = (arr) => arr ? arr.slice(z0, z1 + 1) : null;
+  const dates = cut(cfg.dates);
   const n = dates.length;
-  const series = (cfg.series || []).map(s => ({ ...s, values: s.values.slice(z0, z1 + 1) }));
-  const band = cfg.band ? { upper: cfg.band.upper.slice(z0, z1 + 1), lower: cfg.band.lower.slice(z0, z1 + 1) } : null;
-  const bars = cfg.bars ? cfg.bars.slice(z0, z1 + 1) : null;
-  const finite = series.flatMap(s => s.values).concat(band ? band.upper.concat(band.lower) : [])
-    .concat(bars || []).filter(v => v !== null && Number.isFinite(v));
-  const positive = finite.filter(v => v > 0);
-  const spread = positive.length ? Math.max(...positive) / Math.max(Math.min(...positive), 1e-9) : 1;
-  const useLog = !!cfg.log && positive.length > 0 && spread > 3;
-  const raw = useLog ? positive : finite;
+  const series = (cfg.series || []).map(s => ({ ...s, values: cut(s.values) }));
+  const ribbons = (cfg.ribbons || []).map(r => ({ ...r, lo: cut(r.lo), hi: cut(r.hi) }));
+  const bars = cut(cfg.bars);
+  const shade = cut(cfg.shade);
+  // the axis follows the price and the mid line; other lines may widen it a little but never squash the price
+  const core = series.filter(s => !s.extra).flatMap(s => s.values).concat(bars || []).filter(ok);
+  const positive = core.filter(v => v > 0);
+  const useLog = !!cfg.log && positive.length > 0;
+  const raw = useLog ? positive : core;
   if (!raw.length) { container.querySelectorAll('svg').forEach(s => s.remove()); return; }
   const T = (v) => useLog ? Math.log10(Math.max(v, 1e-9)) : v;
   let lo = Math.min(...raw.map(T)), hi = Math.max(...raw.map(T));
   if (cfg.zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
-  const padY = (hi - lo) * 0.06 || 1;
+  const extra = series.filter(s => s.extra).flatMap(s => s.values).filter(v => ok(v) && (!useLog || v > 0)).map(T);
+  if (extra.length) {
+    const span = hi - lo || 1, elo = Math.min(...extra), ehi = Math.max(...extra);
+    if (elo < lo && elo >= lo - 0.3 * span) lo = elo;
+    if (ehi > hi && ehi <= hi + 0.3 * span) hi = ehi;
+  }
+  const padY = (hi - lo) * 0.05 || 1;
   lo -= padY; hi += padY;
-  const X = (i) => pad.l + (n <= 1 ? 0 : (i / (n - 1)) * (width - pad.l - pad.r));
-  const Y = (v) => pad.t + (1 - (T(v) - lo) / (hi - lo)) * (height - pad.t - pad.b);
-  const parts = [`<svg viewBox="0 0 ${width} ${height}" height="${height}" preserveAspectRatio="none">`];
+  const plotW = width - pad.l - pad.r, plotH = height - pad.t - pad.b;
+  const X = (i) => pad.l + (n <= 1 ? 0 : (i / (n - 1)) * plotW);
+  const Y = (v) => pad.t + (1 - (T(v) - lo) / (hi - lo)) * plotH;
+  const clip = 'clip-' + container.id;
+  const parts = [`<svg viewBox="0 0 ${width} ${height}" height="${height}" preserveAspectRatio="none">`,
+                 `<defs><clipPath id="${clip}"><rect x="${pad.l}" y="${pad.t}" width="${plotW}" height="${plotH}"/></clipPath></defs>`];
+  // zone shading first, under everything
+  if (shade) {
+    const cell = plotW / Math.max(n - 1, 1);
+    let i = 0;
+    while (i < n) {
+      const level = shade[i];
+      let j = i;
+      while (j + 1 < n && shade[j + 1] === level) j++;
+      if (level) {
+        const x0 = Math.max(pad.l, X(i) - cell / 2), x1 = Math.min(width - pad.r, X(j) + cell / 2);
+        parts.push(`<rect x="${x0.toFixed(1)}" y="${pad.t}" width="${(x1 - x0).toFixed(1)}" height="${plotH}" fill="${SHADE[level]}"/>`);
+      }
+      i = j + 1;
+    }
+  }
   for (const tick of (useLog ? logTicks(lo, hi) : niceTicks(lo, hi, 5))) {
     const y = Y(tick);
     parts.push(`<line x1="${pad.l}" x2="${width - pad.r}" y1="${y}" y2="${y}" stroke="#eceef1"/>`);
@@ -219,33 +288,34 @@ function drawChart(container, tip, cfg) {
                cfg.yFormat(tick) + `</text>`);
   }
   const byMonth = n < 500;
-  let lastMark = '';
+  let lastMark = '', lastX = -1e9;
   for (let i = 0; i < n; i++) {
     const mark = byMonth ? dates[i].slice(0, 7) : dates[i].slice(0, 4);
     if (mark !== lastMark) {
       lastMark = mark;
-      parts.push(`<line x1="${X(i)}" x2="${X(i)}" y1="${pad.t}" y2="${height - pad.b}" stroke="#f4f5f7"/>`);
+      if (X(i) - lastX < 46) continue;
+      lastX = X(i);
+      parts.push(`<line x1="${X(i)}" x2="${X(i)}" y1="${pad.t}" y2="${height - pad.b}" stroke="#f1f2f4"/>`);
       parts.push(`<text x="${X(i)}" y="${height - 6}" font-size="10.5" fill="#8b929c">${mark}</text>`);
     }
   }
-  if (band) {
-    for (const [key, dash] of [['upper', '4 3'], ['lower', '4 3']]) {
-      let path = '', started = false;
-      for (let i = 0; i < n; i++) {
-        const v = band[key][i];
-        if (v === null || !Number.isFinite(v)) { started = false; continue; }
-        path += (started ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' ';
-        started = true;
-      }
-      parts.push(`<path d="${path}" fill="none" stroke="#b9c0ca" stroke-width="1.1" stroke-dasharray="${dash}"/>`);
+  parts.push(`<g clip-path="url(#${clip})">`);
+  for (const r of ribbons) {
+    // the "near" band: from the line up to line + d sigma, drawn with the same steps as the line
+    const tops = segments(r.hi.map((v, i) => ok(r.lo[i]) ? v : null), X, Y, true);
+    for (const top of tops) {
+      const a = top[0][2], b = top[top.length - 1][2];
+      const bottom = segments(r.lo.slice(a, b + 1), (k) => X(a + k), Y, true)[0] || [];
+      parts.push(`<path d="${pathOf(top.concat(bottom.slice().reverse()))} Z" fill="${r.color}" opacity="0.07"/>`);
+      parts.push(`<path d="${pathOf(top)}" fill="none" stroke="${r.color}" stroke-width="0.9" stroke-dasharray="2 3" opacity="0.8"/>`);
     }
   }
   if (bars) {
-    const barWidth = Math.max(1, (width - pad.l - pad.r) / Math.max(n - 1, 1) * 0.8);
+    const barWidth = Math.max(1, plotW / Math.max(n - 1, 1) * 0.8);
     const zero = Y(0);
     for (let i = 0; i < n; i++) {
       const v = bars[i];
-      if (v === null || !Number.isFinite(v)) continue;
+      if (!ok(v)) continue;
       const y = Y(v);
       parts.push(`<rect x="${(X(i) - barWidth / 2).toFixed(1)}" y="${Math.min(y, zero).toFixed(1)}" ` +
                  `width="${barWidth.toFixed(1)}" height="${Math.max(0.6, Math.abs(zero - y)).toFixed(1)}" ` +
@@ -254,24 +324,22 @@ function drawChart(container, tip, cfg) {
     parts.push(`<line x1="${pad.l}" x2="${width - pad.r}" y1="${zero}" y2="${zero}" stroke="#c9ced6"/>`);
   }
   for (const s of series) {
-    let path = '', started = false, previous = null;
-    for (let i = 0; i < n; i++) {
-      const v = s.values[i];
-      if (v === null || !Number.isFinite(v)) { started = false; previous = null; continue; }
-      if (!started) {
-        path += 'M' + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' ';
-        started = true;
-      } else if (s.step) {
-        // the line only moves on the week a new monthly or quarterly bar comes into force
-        path += 'L' + X(i).toFixed(1) + ' ' + Y(previous).toFixed(1) + ' L' + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' ';
-      } else {
-        path += 'L' + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' ';
-      }
-      previous = v;
+    for (const seg of segments(s.values, X, Y, s.step)) {
+      parts.push(`<path d="${pathOf(seg)}" fill="none" stroke="${s.color}" stroke-width="${s.width || 1.7}"` +
+                 `${s.dash ? ` stroke-dasharray="${s.dash}"` : ''} stroke-linejoin="round"/>`);
     }
-    parts.push(`<path d="${path}" fill="none" stroke="${s.color}" stroke-width="${s.width || 1.7}"` +
-               `${s.dash ? ` stroke-dasharray="${s.dash}"` : ''}/>`);
   }
+  parts.push('</g>');
+  // lines that sit entirely outside the visible range get a note instead of squashing the chart
+  const away = [];
+  for (const s of series.filter(s => s.extra)) {
+    const vis = s.values.filter(v => ok(v) && (!useLog || v > 0));
+    if (!vis.length) continue;
+    if (vis.every(v => T(v) < lo)) away.push(`↓ ${s.name}在图下方`);
+    else if (vis.every(v => T(v) > hi)) away.push(`↑ ${s.name}在图上方`);
+  }
+  away.forEach((text, k) => parts.push(`<text x="${pad.l + 8}" y="${height - pad.b - 8 - k * 15}" font-size="11" ` +
+                                       `fill="#6b7280">${text}</text>`));
   for (const date of (cfg.vlines || [])) {
     const i = dates.indexOf(date);
     if (i < 0) continue;
@@ -280,15 +348,15 @@ function drawChart(container, tip, cfg) {
   }
   for (const dot of (cfg.dots || [])) {
     const i = dates.indexOf(dot.date);
-    if (i < 0 || dot.value === null || !Number.isFinite(dot.value)) continue;
-    parts.push(`<circle cx="${X(i).toFixed(1)}" cy="${Y(dot.value).toFixed(1)}" r="3.6" fill="#0072B2" ` +
-               `stroke="#ffffff" stroke-width="1.2"/>`);
+    if (i < 0 || !ok(dot.value)) continue;
+    parts.push(`<circle cx="${X(i).toFixed(1)}" cy="${Y(dot.value).toFixed(1)}" r="4" fill="#0072B2" ` +
+               `stroke="#ffffff" stroke-width="1.4"/>`);
   }
-  parts.push(`<line id="cross" x1="0" x2="0" y1="${pad.t}" y2="${height - pad.b}" stroke="#b9c0ca" ` +
+  parts.push(`<line id="cross" x1="0" x2="0" y1="${pad.t}" y2="${height - pad.b}" stroke="#9aa1ab" ` +
              `stroke-dasharray="3 3" opacity="0"/>`);
-  parts.push(`<rect id="brush" x="${pad.l}" y="${pad.t}" width="0" height="${height - pad.t - pad.b}" ` +
+  parts.push(`<rect id="brush" x="${pad.l}" y="${pad.t}" width="0" height="${plotH}" ` +
              `fill="#0072B2" opacity="0" pointer-events="none"/>`);
-  parts.push(`<rect x="${pad.l}" y="${pad.t}" width="${width - pad.l - pad.r}" height="${height - pad.t - pad.b}" ` +
+  parts.push(`<rect x="${pad.l}" y="${pad.t}" width="${plotW}" height="${plotH}" ` +
              `fill="transparent" class="hover" style="cursor:crosshair"/></svg>`);
   container.querySelectorAll('svg').forEach(s => s.remove());
   container.insertAdjacentHTML('beforeend', parts.join(''));
@@ -296,39 +364,35 @@ function drawChart(container, tip, cfg) {
   const svg = container.querySelector('svg');
   const cross = svg.querySelector('#cross');
   const format = cfg.tipFormat || cfg.yFormat;
-  const tooltip = (i) => {
-    const lines = [`<b>${dates[i]}</b>`].concat(series.map(s => {
-      const v = s.values[i];
-      return `${s.name}：${v === null || !Number.isFinite(v) ? '—' : format(v)}`;
-    }));
-    if (bars) lines.push(`中轨变化：${bars[i] === null || !Number.isFinite(bars[i]) ? '—' : bars[i].toFixed(2) + '%'}`);
-    if ((cfg.dots || []).some(d => d.date === dates[i])) lines.push('预判点');
-    return lines.join('<br>');
+  const toIndex = (clientX) => {
+    const rect = svg.getBoundingClientRect();
+    const px = (clientX - rect.left) * (width / rect.width);
+    return Math.max(0, Math.min(n - 1, Math.round((px - pad.l) / plotW * (n - 1))));
   };
   svg.querySelector('.hover').addEventListener('mousemove', (event) => {
     const rect = svg.getBoundingClientRect();
-    const px = (event.clientX - rect.left) * (width / rect.width);
-    const i = Math.max(0, Math.min(n - 1, Math.round((px - pad.l) / (width - pad.l - pad.r) * (n - 1))));
+    const i = toIndex(event.clientX);
     cross.setAttribute('x1', X(i)); cross.setAttribute('x2', X(i)); cross.setAttribute('opacity', 1);
-    tip.innerHTML = tooltip(i);
+    const lines = [`<b>${dates[i]}</b>`].concat(series.filter(s => s.tip !== false).map(s =>
+      `${s.name}：${format(s.values[i])}`));
+    if (bars) lines.push(`中轨变化：${ok(bars[i]) ? bars[i].toFixed(2) + '%' : '—'}`);
+    if ((cfg.dots || []).some(d => d.date === dates[i])) lines.push('<b>预判点</b>');
+    if (cfg.tipExtra) lines.push(...cfg.tipExtra(z0 + i));
+    tip.innerHTML = lines.join('<br>');
     tip.style.opacity = 1;
-    tip.style.left = Math.min(rect.width - tip.offsetWidth - 8, Math.max(4, event.clientX - rect.left + 12)) + 'px';
+    const left = event.clientX - rect.left + 14;
+    tip.style.left = (left + tip.offsetWidth > rect.width ? left - tip.offsetWidth - 28 : left) + 'px';
     tip.style.top = Math.max(4, event.clientY - rect.top - 10) + 'px';
   });
   svg.querySelector('.hover').addEventListener('mouseleave', () => {
     cross.setAttribute('opacity', 0); tip.style.opacity = 0;
   });
   const brush = svg.querySelector('#brush');
-  const toIndex = (clientX) => {
-    const rect = svg.getBoundingClientRect();
-    const px = (clientX - rect.left) * (width / rect.width);
-    return Math.max(0, Math.min(n - 1, Math.round((px - pad.l) / (width - pad.l - pad.r) * (n - 1))));
-  };
   let anchor = null;
   svg.addEventListener('mousedown', (event) => {
     if (event.button !== 0) return;
     anchor = toIndex(event.clientX);
-    brush.setAttribute('x', X(anchor)); brush.setAttribute('width', 0); brush.setAttribute('opacity', 0.18);
+    brush.setAttribute('x', X(anchor)); brush.setAttribute('width', 0); brush.setAttribute('opacity', 0.15);
     event.preventDefault();
   });
   svg.addEventListener('mousemove', (event) => {
@@ -350,118 +414,92 @@ function drawChart(container, tip, cfg) {
   svg.addEventListener('dblclick', () => setZoom(null));
 }
 
-function drawRibbon(container, tip) {
-  const data = state.data;
-  if (!data) return;
-  const box = container.getBoundingClientRect();
-  const width = Math.max(320, box.width - 20);
-  const height = 34;
-  const pad = { l: 58, r: 12, t: 4, b: 4 };
-  const all = data.weeks.length;
-  const [z0, z1] = state.zoom ? [Math.max(0, state.zoom[0]), Math.min(all - 1, state.zoom[1])] : [0, all - 1];
-  const n = z1 - z0 + 1;
-  const X = (i) => pad.l + (n <= 1 ? 0 : (i / (n - 1)) * (width - pad.l - pad.r));
-  const cell = Math.max(1, (width - pad.l - pad.r) / Math.max(n - 1, 1) * 1.06);
-  const parts = [`<svg viewBox="0 0 ${width} ${height}" height="${height}" preserveAspectRatio="none">`,
-                 `<rect x="${pad.l}" y="${pad.t}" width="${width - pad.l - pad.r}" height="${height - pad.t - pad.b}" ` +
-                 `fill="#f2f4f6"/>`];
-  for (let i = 0; i < n; i++) {
-    const level = data.levels[z0 + i];
-    if (!level) continue;
-    parts.push(`<rect x="${(X(i) - cell / 2).toFixed(2)}" y="${pad.t}" width="${cell.toFixed(2)}" ` +
-               `height="${height - pad.t - pad.b}" fill="${ZONE_COLORS[level]}"/>`);
-  }
-  parts.push(`<rect x="${pad.l}" y="${pad.t}" width="${width - pad.l - pad.r}" height="${height - pad.t - pad.b}" ` +
-             `fill="transparent" class="hover" style="cursor:crosshair"/></svg>`);
-  container.querySelectorAll('svg').forEach(s => s.remove());
-  container.insertAdjacentHTML('beforeend', parts.join(''));
-
-  const svg = container.querySelector('svg');
-  const toIndex = (clientX) => {
-    const rect = svg.getBoundingClientRect();
-    const px = (clientX - rect.left) * (width / rect.width);
-    return Math.max(0, Math.min(n - 1, Math.round((px - pad.l) / (width - pad.l - pad.r) * (n - 1))));
-  };
-  svg.querySelector('.hover').addEventListener('mousemove', (event) => {
-    const rect = svg.getBoundingClientRect();
-    const week = z0 + toIndex(event.clientX);
-    const names = data.zone_weeks[week] || [];
-    tip.innerHTML = `<b>${data.weeks[week]}</b><br>` +
-      (names.length ? '满足：' + names.join('、') : '不在关注区');
-    tip.style.opacity = 1;
-    tip.style.left = Math.min(rect.width - tip.offsetWidth - 8, Math.max(4, event.clientX - rect.left + 12)) + 'px';
-    tip.style.top = Math.max(4, event.clientY - rect.top - 8) + 'px';
-  });
-  svg.querySelector('.hover').addEventListener('mouseleave', () => { tip.style.opacity = 0; });
-  svg.addEventListener('mousedown', (event) => {
-    ribbonAnchor = toIndex(event.clientX);
-    event.preventDefault();
-  });
-  svg.addEventListener('mouseup', (event) => {
-    if (ribbonAnchor === null) return;
-    const i = toIndex(event.clientX);
-    const a = Math.min(ribbonAnchor, i), b = Math.max(ribbonAnchor, i);
-    ribbonAnchor = null;
-    if (b - a < 3) return;
-    setZoom([z0 + a, z0 + b]);
-  });
-  svg.addEventListener('dblclick', () => setZoom(null));
-}
-
 function setZoom(range) { state.zoom = range; renderCharts(); }
 
 // -- render -------------------------------------------------------------------------------------------------------
+
+const near = (data, zone) => data.lines[zone.key].map((v, i) => {
+  const sd = data.lines[zone.sd][i];
+  return ok(v) && ok(sd) ? v + state.width * sd : null;
+});
+
+function renderTiles() {
+  const data = state.data;
+  let k = data.close.length - 1;
+  while (k > 0 && !ok(data.close[k])) k--;
+  const close = data.close[k];
+  $('tilesMeta').textContent = `${data.weeks[k]} · 周收盘 ${money(close)} · 正数 = 价格在线上方`;
+  const names = data.zone_weeks[k] || [];
+  const tiles = ZONES.map(zone => {
+    const line = data.lines[zone.key][k];
+    const top = near(data, zone)[k];
+    const inside = ok(line) && ok(top) && close <= top;
+    const value = ok(line) ? close / line - 1 : null;
+    return `<div class="tile${inside ? ' in' : ''}"><div class="name"><i class="${zone.dash ? 'dash' : ''}" ` +
+      `style="border-color:${zone.color}"></i>离${zone.name}</div>` +
+      `<div class="num">${ok(value) ? sgn(value) : '—'}</div>` +
+      `<div class="cap">${!ok(line) ? '这条线还没有值' : (inside ? '处在关注区' : '线 ' + money(line))}</div></div>`;
+  });
+  tiles.push(`<div class="tile${names.length ? ' in' : ''}"><div class="name">这一周的关注区</div>` +
+    `<div class="num" style="font-size:15px;padding-top:4px">${names.length ? names[0] : '不在关注区'}</div>` +
+    `<div class="cap">${names.length > 1 ? '另有 ' + names.slice(1).join('、') : (names.length ? '最强的一种' : '')}</div></div>`);
+  $('tiles').innerHTML = tiles.join('');
+}
 
 function renderCharts() {
   const data = state.data;
   if (!data) return;
   const marks = new Set(data.marks.map(m => m.date));
-  $('priceMeta').textContent = `${data.meta.ticker} · ${data.meta.weeks} 周`;
+  $('priceMeta').textContent = `${data.meta.ticker} · ${data.meta.weeks} 周 · ${data.marks.length} 个预判点`;
+  const chip = (key, zone) =>
+    `<button class="chip${state.show[key] ? '' : ' off'}" data-key="${key}"><i class="${zone.dash ? 'dash' : ''}" ` +
+    `style="border-color:${zone.color}"></i>${zone.name}</button>`;
   $('priceLegend').innerHTML =
-    `<span><i style="background:#9aa1ab"></i>周收盘价</span>` +
-    `<span><i style="background:#1f2328;height:4px"></i>去噪中轨</span>` +
-    `<span><i style="background:#CC79A7"></i>月线下轨</span>` +
-    `<span><i style="background:#009E73"></i>季线下轨</span>` +
-    `<label class="check"><input type="checkbox" id="show-mm"${state.show.m_mid ? ' checked' : ''}> 月线中轨（紫色虚线）</label>` +
-    `<label class="check"><input type="checkbox" id="show-qm"${state.show.q_mid ? ' checked' : ''}> 季线中轨（绿色虚线）</label>` +
-    `<label class="check"><input type="checkbox" id="show-band"${state.show.band ? ' checked' : ''}> 标准布林上下轨</label>` +
-    `<span><span class="dot"></span>预判点</span>` +
-    `<span>${data.marks.length} 个预判点</span>`;
-  $('show-mm').onchange = (e) => { state.show.m_mid = e.target.checked; renderCharts(); };
-  $('show-qm').onchange = (e) => { state.show.q_mid = e.target.checked; renderCharts(); };
-  $('show-band').onchange = (e) => { state.show.band = e.target.checked; renderCharts(); };
+    `<span class="group"><span class="chip"><i style="border-color:#9aa1ab"></i>周收盘价</span>` +
+    `<span class="chip"><i style="border-color:#1f2328;border-top-width:3px"></i>去噪中轨</span>` +
+    `<span class="chip"><i class="dot"></i>预判点</span></span>` +
+    `<span class="group"><span class="title">线（点击开关）</span>` + ZONES.map(z => chip(z.key, z)).join('') +
+    chip('band', { name: '标准布林上下轨', color: '#b9c0ca', dash: true }) + `</span>` +
+    `<span class="group"><span class="title">底色</span>` + [3, 2, 1].map(level =>
+      `<span class="chip"><i class="sw" style="background:${SHADE[level]}"></i>${SHADE_LABEL[level]}</span>`).join('') +
+    `</span>`;
+  $('priceLegend').querySelectorAll('button.chip').forEach(btn => {
+    btn.onclick = () => { state.show[btn.dataset.key] = !state.show[btn.dataset.key]; renderCharts(); };
+  });
 
   const series = [
     { name: '周收盘价', values: data.close, color: '#9aa1ab', width: 1.1 },
-    { name: '去噪中轨', values: data.mid, color: '#1f2328', width: 2.4 },
-    { name: '月线下轨', values: data.lines.m_lower, color: '#CC79A7', width: 1.6, step: true },
-    { name: '季线下轨', values: data.lines.q_lower, color: '#009E73', width: 1.6, step: true }
+    { name: '去噪中轨', values: data.mid, color: '#1f2328', width: 2.4 }
   ];
-  if (state.show.m_mid) series.push({ name: '月线中轨', values: data.lines.m_mid, color: '#CC79A7', width: 1.4, dash: '5 3', step: true });
-  if (state.show.q_mid) series.push({ name: '季线中轨', values: data.lines.q_mid, color: '#009E73', width: 1.4, dash: '5 3', step: true });
+  const ribbons = [];
+  for (const zone of ZONES) {
+    if (!state.show[zone.key]) continue;
+    series.push({ name: zone.name, values: data.lines[zone.key], color: zone.color, width: 1.6,
+                  dash: zone.dash ? '6 4' : null, step: true, extra: true });
+    if (state.width > 0) ribbons.push({ lo: data.lines[zone.key], hi: near(data, zone), color: zone.color });
+  }
+  if (state.show.band) {
+    series.push({ name: '标准布林上轨', values: data.band.upper, color: '#b9c0ca', width: 1.1, dash: '4 3', extra: true });
+    series.push({ name: '标准布林下轨', values: data.band.lower, color: '#b9c0ca', width: 1.1, dash: '4 3', extra: true });
+  }
   drawChart($('priceChart'), $('priceTip'), {
-    dates: data.weeks, height: 360, log: true, zoom: state.zoom,
-    band: state.show.band ? data.band : null,
-    series: series,
+    dates: data.weeks, height: 400, log: true, zoom: state.zoom,
+    series: series, ribbons: ribbons, shade: data.levels,
     dots: data.marks.map(m => ({ date: m.date, value: m.mid })),
-    yFormat: axisMoney, tipFormat: money
+    yFormat: axisMoney, tipFormat: money,
+    tipExtra: (i) => {
+      const names = data.zone_weeks[i] || [];
+      return [names.length ? `<span class="z">关注区：${names.join('、')}</span>` : '不在关注区'];
+    }
   });
 
-  const counts = [3, 2, 1].map(level => data.levels.filter(v => v === level).length);
-  $('zoneMeta').textContent = `季线 ${data.params.quarter_n} 期 · d = ${data.params.width} · ` +
-    `最强 ${counts[0]} 周，次强 ${counts[1]} 周，较弱 ${counts[2]} 周`;
-  $('zoneLegend').innerHTML = [3, 2, 1].map(level =>
-    `<span><i class="sw" style="background:${ZONE_COLORS[level]}"></i>${ZONE_LABELS[level]}</span>`).join('') +
-    `<span><i class="sw" style="background:#f2f4f6;border:1px solid #e3e6ea"></i>不在关注区</span>`;
-  drawRibbon($('zoneChart'), $('zoneTip'));
-
-  $('slopeMeta').textContent = `${data.meta.ticker} · 正值 ${data.s_pct.filter(v => v > 0).length} 周，负值 ${data.s_pct.filter(v => v < 0).length} 周`;
+  $('slopeMeta').textContent = `正值 ${data.s_pct.filter(v => v > 0).length} 周，负值 ${data.s_pct.filter(v => v < 0).length} 周`;
   $('slopeLegend').innerHTML =
-    `<span><i style="background:#56B4E9"></i>中轨上升</span>` +
-    `<span><i style="background:#E69F00"></i>中轨下降</span>` +
-    `<span><i style="background:#0072B2;width:2px"></i>预判点那一周</span>`;
+    `<span class="chip"><i class="sw" style="background:#56B4E9"></i>中轨上升</span>` +
+    `<span class="chip"><i class="sw" style="background:#E69F00"></i>中轨下降</span>` +
+    `<span class="chip"><i style="border-color:#0072B2;width:2px;height:11px;border-top:0;border-left:2px solid #0072B2"></i>预判点那一周</span>`;
   drawChart($('slopeChart'), $('slopeTip'), {
-    dates: data.weeks, height: 170, zoom: state.zoom, zero: true,
+    dates: data.weeks, height: 160, zoom: state.zoom, zero: true,
     bars: data.s_pct, vlines: [...marks],
     yFormat: (v) => v.toFixed(1) + '%'
   });
@@ -479,8 +517,8 @@ function renderTables() {
     (rows || '<tr><td colspan="6">这只股票在开发段内没有预判点</td></tr>') + '</tbody>';
   $('tableMeta').textContent = `${data.points.length} 个`;
 
-  const summary = ['q_lower', 'm_lower', 'q_mid', 'm_mid'].map(key => {
-    const item = data.zone_summary[key];
+  const summary = ZONES.map(zone => {
+    const item = data.zone_summary[zone.key];
     return `<tr><td class="left">${item.name}</td><td>${item.segments}</td><td>${item.weeks}</td></tr>`;
   }).join('');
   $('zoneSummary').innerHTML = '<thead><tr><th class="left">关注区</th><th>段数</th><th>周数</th></tr></thead>' +
@@ -492,7 +530,7 @@ function renderTables() {
   $('zoneTable').innerHTML = '<thead><tr><th class="left">关注区</th><th class="left">开始周</th>' +
     '<th class="left">结束周</th><th>周数</th><th>开始那周收盘</th><th>期间最低周收盘</th></tr></thead><tbody>' +
     (zoneRows || '<tr><td colspan="6">这只股票在开发段内没有进入任何一种关注区</td></tr>') + '</tbody>';
-  $('zoneRowsMeta').textContent = `${data.zone_rows.length} 段`;
+  $('zoneRowsMeta').textContent = `季线 ${data.params.quarter_n} 期 · d = ${data.params.width} · ${data.zone_rows.length} 段`;
 }
 
 function syncUrl() {
@@ -503,9 +541,18 @@ function syncUrl() {
   history.replaceState(null, '', url);
 }
 
+function segmented(id, values, current, onPick) {
+  $(id).innerHTML = values.map(v => `<button data-v="${v}" class="${v === current ? 'on' : ''}">${v}</button>`).join('');
+  $(id).querySelectorAll('button').forEach(btn => {
+    btn.onclick = () => {
+      $(id).querySelectorAll('button').forEach(b => b.classList.toggle('on', b === btn));
+      onPick(Number(btn.dataset.v));
+    };
+  });
+}
+
 async function loadStock(keepZoom = false) {
   busy(true);
-  setState('pageState', '正在读取…');
   try {
     const ticker = $('stock').value;
     const data = await getJSON(`/api/boll?security=${encodeURIComponent(ticker)}` +
@@ -515,6 +562,7 @@ async function loadStock(keepZoom = false) {
     $('pageState').hidden = true;
     $('pageBody').hidden = false;
     syncUrl();
+    renderTiles();
     renderCharts();
     renderTables();
   } catch (error) {
@@ -527,19 +575,15 @@ async function boot() {
   try {
     const info = await getJSON('/api/stocks');
     $('stock').innerHTML = info.stocks.map(s => `<option value="${s.ticker}">${s.ticker}</option>`).join('');
-    $('width').innerHTML = info.widths.map(v => `<option value="${v}">${v}</option>`).join('');
-    $('quarter').innerHTML = info.quarters.map(v => `<option value="${v}">${v}</option>`).join('');
     const params = new URLSearchParams(location.search);
     const asked = (params.get('security') || '').toUpperCase();
     $('stock').value = info.stocks.some(s => s.ticker === asked) ? asked : info.default;
     state.width = info.widths.includes(Number(params.get('d'))) ? Number(params.get('d')) : info.default_width;
     state.quarter = info.quarters.includes(Number(params.get('quarter')))
       ? Number(params.get('quarter')) : info.default_quarter;
-    $('width').value = String(state.width);
-    $('quarter').value = String(state.quarter);
+    segmented('width', info.widths, state.width, (v) => { state.width = v; loadStock(true); });
+    segmented('quarter', info.quarters, state.quarter, (v) => { state.quarter = v; loadStock(true); });
     $('stock').onchange = () => loadStock(false);
-    $('width').onchange = () => { state.width = Number($('width').value); loadStock(true); };
-    $('quarter').onchange = () => { state.quarter = Number($('quarter').value); loadStock(true); };
     await loadStock(false);
   } catch (error) {
     setState('pageState', error.message, 'err');

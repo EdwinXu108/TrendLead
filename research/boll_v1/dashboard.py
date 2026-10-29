@@ -99,15 +99,29 @@ class Store:
             self.depths.clear()
             self.module_mtime = mtime
 
-    def rank(self, week: str, quarter_n: int) -> dict:
-        """Every stock's depth below its own quarterly mid line in one week, deepest first."""
+    def _depth_table(self, quarter_n: int) -> dict:
+        """{ticker: depth series} plus {week: every stock's depth that week}, built once per quarter length."""
+        key = int(quarter_n)
+        if key not in self.depths:
+            table = {row['ticker']: boll_weekly.depth_series(row['ticker'], self.db, quarter_n=key)
+                     for row in self.stocks()}
+            by_week: dict[str, list] = {}
+            for item in table.values():
+                for week, value in zip(item['weeks'], item['depth']):
+                    by_week.setdefault(week, []).append(value)
+            self.depths[key] = dict(table=table, by_week=by_week)
+        return self.depths[key]
+
+    def rank(self, week: str, quarter_n: int, width: float = boll_weekly.DEFAULT_WIDTH) -> dict:
+        """Every stock's depth and 关注度 in one week, deepest first."""
         key = int(quarter_n)
         with self.lock:
             self._fresh()
-            if key not in self.depths:
-                self.depths[key] = {row['ticker']: boll_weekly.depth_series(row['ticker'], self.db, quarter_n=key)
-                                    for row in self.stocks()}
-            table = self.depths[key]
+            depths = self._depth_table(key)
+            market = boll_weekly.market_zone(self.db, key, float(width))
+        table = depths['table']
+        level = market['level'].get(week, 0)
+        week_values = depths['by_week'].get(week, [])
         rows = []
         for row in self.stocks():
             item = table[row['ticker']]
@@ -119,11 +133,13 @@ class Store:
                 continue
             rows.append(dict(ticker=row['ticker'], name=row['name'], depth=round(item['depth'][k], 4),
                              gap=None if item['gap'][k] is None else round(item['gap'][k], 6),
-                             trend=item['trend'][k]))
+                             trend=item['trend'][k],
+                             attention=round(boll_weekly.attention(item['depth'][k], week_values, level), 1)))
         rows.sort(key=lambda r: (r['depth'], r['ticker']))
         for k, row in enumerate(rows, 1):
             row['rank'] = k
-        return dict(week=week, quarter_n=key, count=len(rows), rows=rows)
+        return dict(week=week, quarter_n=key, count=len(rows), rows=rows, market_level=level,
+                    market_names=market['names'].get(week, []))
 
     def stocks(self) -> list[dict]:
         if self._stocks is None:
@@ -157,6 +173,9 @@ class Store:
                 for row in data['zone_rows']:
                     row['start_close'] = round(row['start_close'], 6)
                     row['min_close'] = round(row['min_close'], 6)
+                by_week = self._depth_table(int(quarter_n))['by_week']
+                data['attention'] = [round(boll_weekly.attention(d, by_week.get(w, []), m), 1)
+                                     for w, d, m in zip(data['weeks'], data['depth'], data['market_level'])]
                 self.cache[key] = data
             return self.cache[key]
 
@@ -198,7 +217,8 @@ class Handler(BaseHTTPRequestHandler):
                                       int(query.get('quarter', boll_weekly.DEFAULT_QUARTER_N)),
                                       float(query.get('d', boll_weekly.DEFAULT_WIDTH))))
             elif parsed.path == '/api/rank':
-                self._json(STORE.rank(query['week'], int(query.get('quarter', boll_weekly.DEFAULT_QUARTER_N))))
+                self._json(STORE.rank(query['week'], int(query.get('quarter', boll_weekly.DEFAULT_QUARTER_N)),
+                                      float(query.get('d', boll_weekly.DEFAULT_WIDTH))))
             elif parsed.path == '/api/version':
                 self._json(dict(version=VERSION))
             elif parsed.path == '/api/shutdown':

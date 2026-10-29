@@ -126,6 +126,20 @@ def test_api_returns_meta_and_both_quarter_lengths():
     assert status == 200 and rank['count'] == 83
     depths = [row['depth'] for row in rank['rows']]
     assert depths == sorted(depths) and [row['rank'] for row in rank['rows']] == list(range(1, 84))
+    # 关注度 in a market-zone week: the deepest stock 100, the shallowest 0
+    assert rank['market_level'] >= 2
+    assert rank['rows'][0]['attention'] == 100.0 and rank['rows'][-1]['attention'] == 0.0
+    # outside the market's zones every week scores 0
+    assert all(score == 0 for score, level in zip(q8['attention'], q8['market_level']) if level < 2)
+
+
+def test_attention_is_the_depth_rank_only_when_the_market_is_in_a_zone():
+    week = [-2.0, -1.0, 0.0, 1.0, None]
+    assert boll_weekly.attention(-2.0, week, 2) == 100.0
+    assert boll_weekly.attention(1.0, week, 3) == 0.0
+    assert boll_weekly.attention(-1.0, week, 2) == pytest.approx(200 / 3)
+    assert boll_weekly.attention(-2.0, week, 0) == 0.0           # market outside its zones
+    assert boll_weekly.attention(None, week, 2) == 0.0
 
 
 def _synthetic_months(n_months: int = 72):

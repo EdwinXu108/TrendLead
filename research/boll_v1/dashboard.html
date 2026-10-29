@@ -94,7 +94,7 @@
 </header>
 
 <main>
-  <p class="lead">市场（VOO）什么时候进入关注区？那时哪些股票跌得最深？</p>
+  <p class="lead">这只股票现在值得多大关注？市场在关注区时，跌得越深关注度越高。</p>
   <div id="pageState" class="state">正在读取…</div>
   <div id="pageBody" hidden>
     <div class="card">
@@ -103,17 +103,17 @@
     </div>
 
     <div class="card">
-      <h2>周线价格与关注区 <span class="sub" id="priceMeta"></span></h2>
+      <h2>周线价格 <span class="sub" id="priceMeta"></span></h2>
       <div class="legend" id="priceLegend"></div>
       <div class="chart" id="priceChart"><div class="tip" id="priceTip"></div></div>
-      <div class="note">橙色底色 = 市场（VOO）在关注区，这是找买点的总开关；灰色底色 = 只有这只股票自己跌进关注区、市场正常，统计上和平常差不多，要看基本面。线旁的浅色带是“附近”的范围。拖动可放大，双击复位，下方两张图跟着一起缩放。</div>
+      <div class="note">线旁的浅色带是“附近”的范围。拖动可放大，双击复位，下方两张图跟着一起缩放。</div>
     </div>
 
     <div class="card">
-      <h2>离自己季线中轨多远（σ） <span class="sub" id="depthMeta"></span></h2>
+      <h2>关注度（0–100） <span class="sub" id="depthMeta"></span></h2>
       <div class="legend" id="depthLegend"></div>
       <div class="chart" id="depthChart"><div class="tip" id="depthTip"></div></div>
-      <div class="note">负数 = 价格在自己季线中轨下方，越负跌得越深。市场在关注区时，越深的股票之后表现越好（统计见“这页怎么读”）。</div>
+      <div class="note">市场（VOO）不在关注区时关注度为 0；在关注区时，等于这只股票当周在 83 只里的深度排名，最深 100、最浅 0。灰色底色 = 市场正常、只有这只股票自己跌进关注区，不给分，需要你看基本面。</div>
     </div>
 
     <div class="card">
@@ -174,7 +174,7 @@
       最差的几次多是公司自己出了问题（PYPL 2021、GE 2017、BA 2019），或者比大盘先跌（META、AMZN、NFLX 2022 年 1 月）。用价格分不出好坏，要看基本面。<br>
       <b>离自己季线中轨多远：</b>（周收盘 − 季线中轨）÷ 季线 σ，用的是当周有效的季线。市场在关注区时，季线中轨下方 1σ 以上的股票，
       12 个月比平常多 24.7 个百分点；在中轨上方的只多 1–3 个百分点。排序表就是按这个数从深到浅排。<br>
-      <b>最新一周：</b>开发段最后一周的市场状态、这只股票离各条线有多远、在 83 只里的深度排名。<br>
+      <b>关注度：</b>市场（VOO）不在关注区 → 0；在关注区 → 这只股票当周离自己季线中轨的深度，在 83 只里的排名换算成 0–100（最深 100、最浅 0）。没有任何拟合出来的权重。2026-10-29 试过用数据拟合“市场深度、个股深度”的加权公式：权重逐年变号，按年留一检验 6 个月的效果甚至反过来，所以不用；而“市场在关注区时按个股深度排名”在每一段持续多周的市场关注区里都成立（最深五分之一减最浅五分之一，12 个月平均多 13.5 个百分点，83% 的周为正）。市场正常时这个排名不可靠（只有 58% 的周为正，逐年来回翻），所以不给分。<br><b>最新一周：</b>开发段最后一周的关注度、市场状态、这只股票离各条线有多远。<br>
       纵轴按价格与去噪中轨定范围；离价格太远的线不硬塞进图里，会在图底部标出“在图下方”。<br>
       <b>下轨为什么会是负数：</b>下轨 = 中轨 − 2σ。如果一只股票 20 个月（季）里涨了好几倍，这 20 个收盘价差得很远，σ 会超过中轨的一半，
       下轨就算到 0 以下。这是布林线公式本身的结果，看盘软件用同样的公式也会这样；负的下轨意味着价格不可能碰到它，所以那几周不算进这种关注区。
@@ -277,7 +277,7 @@ function drawChart(container, tip, cfg) {
   const core = series.filter(s => !s.extra).flatMap(s => s.values).concat(bars || []).filter(ok);
   const positive = core.filter(v => v > 0);
   const useLog = !!cfg.log && positive.length > 0;
-  const raw = useLog ? positive : core;
+  const raw = cfg.range ? cfg.range : (useLog ? positive : core);       // a fixed range draws even with no data
   if (!raw.length) { container.querySelectorAll('svg').forEach(s => s.remove()); return; }
   const T = (v) => useLog ? Math.log10(Math.max(v, 1e-9)) : v;
   let lo = Math.min(...raw.map(T)), hi = Math.max(...raw.map(T));
@@ -499,6 +499,10 @@ function shadeOf(data) {
   return data.market_level.map((m, i) => m >= 3 ? 'm3' : (m >= 2 ? 'm2' : (data.stock_only[i] ? 's' : 0)));
 }
 
+const attentionCap = (data, i) => data.market_level[i] >= 2
+  ? `市场在关注区 · 离自己季线中轨 ${sigma(data.depth[i])}`
+  : (data.stock_only[i] ? '市场正常；这只股票自己跌进了关注区，不给分，需看基本面' : '市场不在关注区');
+
 async function renderTiles() {
   const data = state.data;
   let k = data.close.length - 1;
@@ -508,14 +512,17 @@ async function renderTiles() {
   $('tilesMeta').textContent = `${week} · 周收盘 ${money(close)} · 百分比为正 = 价格在线上方`;
   const market = data.market_level[k] >= 2;
   const mNames = data.market_names[k] || [];
+  const score = data.attention[k];
   const tiles = [
+    `<div class="tile${score > 0 ? ' in' : ''}"><div class="name">关注度</div>` +
+    `<div class="num">${ok(score) ? score.toFixed(0) : '—'}</div><div class="cap">${attentionCap(data, k)}</div></div>`,
     `<div class="tile${market ? ' in' : ''}"><div class="name">市场（VOO）</div>` +
     `<div class="num" style="font-size:15px;padding-top:4px">${market ? '在关注区' : '不在关注区'}</div>` +
     `<div class="cap">${market ? mNames.join('、') : '总开关关着'}</div></div>`,
     `<div class="tile"><div class="name">离自己季线中轨</div><div class="num">${sigma(data.depth[k])}</div>` +
     `<div class="cap" id="tileRank">83 只里的深度排名：读取中…</div></div>`
   ];
-  tiles.push(...ZONES.filter(z => z.key !== 'q_mid').map(zone => {
+  tiles.push(...ZONES.filter(z => z.key === 'q_lower').map(zone => {
     const line = data.lines[zone.key][k];
     const top = near(data, zone)[k];
     const inside = ok(line) && ok(top) && close <= top;
@@ -528,12 +535,12 @@ async function renderTiles() {
       `<div class="num">${ok(value) ? sgn(value) : '—'}</div><div class="cap">${cap}</div></div>`;
   }));
   const names = data.zone_weeks[k] || [];
-  tiles.push(`<div class="tile${names.length ? ' in' : ''}"><div class="name">这只股票自己的关注区</div>` +
+  tiles.push(`<div class="tile"><div class="name">这只股票自己的关注区</div>` +
     `<div class="num" style="font-size:15px;padding-top:4px">${names.length ? names[0] : '不在关注区'}</div>` +
     `<div class="cap">${names.length > 1 ? '另有 ' + names.slice(1).join('、') : (names.length ? '最强的一种' : '')}</div></div>`);
   $('tiles').innerHTML = tiles.join('');
   try {
-    const rank = await getJSON(`/api/rank?week=${week}&quarter=${state.quarter}`);
+    const rank = await getJSON(`/api/rank?week=${week}&quarter=${state.quarter}&d=${state.width}`);
     const row = rank.rows.find(r => r.ticker === data.meta.ticker);
     $('tileRank').textContent = row ? `83 只里第 ${row.rank} 深（共 ${rank.count} 只有值）` : '这一周没有值';
   } catch (error) { $('tileRank').textContent = '排名读取失败：' + error.message; }
@@ -544,13 +551,14 @@ async function renderRank() {
   if (!week) return;
   state.rankWeek = week;
   try {
-    const rank = await getJSON(`/api/rank?week=${week}&quarter=${state.quarter}`);
-    $('rankMeta').textContent = `${week} · 季线 ${rank.quarter_n} 期 · ${rank.count} 只有值 · 从深到浅`;
+    const rank = await getJSON(`/api/rank?week=${week}&quarter=${state.quarter}&d=${state.width}`);
+    $('rankMeta').textContent = `${week} · 市场${rank.market_level >= 2 ? '在关注区' : '不在关注区，关注度全为 0'} · ` +
+      `季线 ${rank.quarter_n} 期 · ${rank.count} 只有值 · 从深到浅`;
     const mine = state.data ? state.data.meta.ticker : '';
-    $('rankTable').innerHTML = '<thead><tr><th>排名</th><th class="left">代码</th><th class="left">公司</th>' +
+    $('rankTable').innerHTML = '<thead><tr><th>排名</th><th>关注度</th><th class="left">代码</th><th class="left">公司</th>' +
       '<th>离季线中轨（σ）</th><th>比季线中轨</th><th class="left">周线中轨</th></tr></thead><tbody>' +
       rank.rows.map(r => `<tr data-t="${r.ticker}" style="cursor:pointer${r.ticker === mine ? ';background:#FFF0CF;font-weight:600' : ''}">` +
-        `<td>${r.rank}</td><td class="left">${r.ticker}</td><td class="left">${r.name}</td>` +
+        `<td>${r.rank}</td><td><b>${r.attention.toFixed(0)}</b></td><td class="left">${r.ticker}</td><td class="left">${r.name}</td>` +
         `<td class="${r.depth < 0 ? 'bad' : ''}">${sigma(r.depth)}</td><td>${sgn(r.gap)}</td>` +
         `<td class="left">${TREND[r.trend] || '—'}</td></tr>`).join('') + '</tbody>';
     $('rankTable').querySelectorAll('tr[data-t]').forEach(tr => {
@@ -590,10 +598,7 @@ function renderCharts() {
     `<span class="chip"><i style="border-color:#1f2328;border-top-width:3px"></i>去噪中轨</span>` +
     `<span class="chip"><i class="dot"></i>预判点</span></span>` +
     `<span class="group"><span class="title">线（点击开关）</span>` + LINES.map(z => chip(z.key, z)).join('') +
-    chip('band', { name: '标准布林上下轨', color: '#b9c0ca', dash: true }) + `</span>` +
-    `<span class="group"><span class="title">底色</span>` + ['m3', 'm2', 's'].map(level =>
-      `<span class="chip"><i class="sw" style="background:${SHADE[level]}"></i>${SHADE_LABEL[level]}</span>`).join('') +
-    `</span>`;
+    chip('band', { name: '标准布林上下轨', color: '#b9c0ca', dash: true }) + `</span>`;
   $('priceLegend').querySelectorAll('button.chip').forEach(btn => {
     btn.onclick = () => { state.show[btn.dataset.key] = !state.show[btn.dataset.key]; renderCharts(); };
   });
@@ -617,28 +622,24 @@ function renderCharts() {
   }
   drawChart($('priceChart'), $('priceTip'), {
     dates: data.weeks, height: 400, log: true, zoom: state.zoom,
-    series: series, ribbons: ribbons, shade: shadeOf(data),
+    series: series, ribbons: ribbons,
     dots: data.marks.map(m => ({ date: m.date, value: m.mid })),
     yFormat: axisMoney, tipFormat: money,
-    tipExtra: (i) => {
-      const names = data.zone_weeks[i] || [];
-      const mNames = data.market_names[i] || [];
-      return [data.market_level[i] >= 2 ? `<span class="z">市场在关注区：VOO ${mNames.join('、')}</span>` : '市场不在关注区',
-              names.length ? `这只股票：${names.join('、')}` : '这只股票不在关注区',
-              `离自己季线中轨：${sigma(data.depth[i])}`, `周线中轨：${TREND[data.trend[i]] || '—'}`];
-    }
+    tipExtra: (i) => [`<span class="z">关注度：${ok(data.attention[i]) ? data.attention[i].toFixed(0) : '—'}</span>`,
+                      attentionCap(data, i), `周线中轨：${TREND[data.trend[i]] || '—'}`]
   });
 
-  $('depthMeta').textContent = `${data.meta.ticker} · 季线 ${data.params.quarter_n} 期 · 底色同上图`;
+  const scored = data.attention.filter(v => v > 0).length;
+  $('depthMeta').textContent = `${data.meta.ticker} · ${scored} 周有分（市场在关注区的周） · 季线 ${data.params.quarter_n} 期`;
   $('depthLegend').innerHTML =
-    `<span class="chip"><i class="sw" style="background:#7A3E00"></i>在季线中轨下方</span>` +
-    `<span class="chip"><i class="sw" style="background:#B8BEC7"></i>在季线中轨上方</span>`;
+    `<span class="chip"><i class="sw" style="background:#B85C00"></i>关注度（市场在关注区时的深度排名）</span>` +
+    `<span class="chip"><i class="sw" style="background:${SHADE.s}"></i>只有这只股票在关注区（不给分，需看基本面）</span>`;
   drawChart($('depthChart'), $('depthTip'), {
-    dates: data.weeks, height: 170, zoom: state.zoom, zero: true, shade: shadeOf(data),
-    bars: data.depth, barColor: (v) => v < 0 ? '#7A3E00' : '#B8BEC7',
-    yFormat: (v) => (v > 0 ? '+' : '') + v.toFixed(1) + 'σ',
-    tipExtra: (i) => [`离自己季线中轨：${sigma(data.depth[i])}`,
-                      data.market_level[i] >= 2 ? '<span class="z">市场在关注区</span>' : '市场不在关注区']
+    dates: data.weeks, height: 180, zoom: state.zoom, range: [0, 100],
+    shade: data.stock_only.map(v => v ? 's' : 0),
+    bars: data.attention.map(v => v > 0 ? v : null), barColor: () => '#B85C00',
+    yFormat: (v) => v.toFixed(0),
+    tipExtra: (i) => [`关注度：${ok(data.attention[i]) ? data.attention[i].toFixed(0) : '—'}`, attentionCap(data, i)]
   });
 
   $('slopeMeta').textContent = `正值 ${data.s_pct.filter(v => v > 0).length} 周，负值 ${data.s_pct.filter(v => v < 0).length} 周`;

@@ -309,6 +309,23 @@ def depth_series(security: str, db_path: str | None = None, quarter_n: int = DEF
                 trend=[states[i] for i in keep])
 
 
+def attention(depth_value, week_depths, market_level: int) -> float:
+    """关注度 of one stock in one week, 0 to 100, with no fitted weight.
+
+    0 while the market (VOO) is outside its zones. With the market in a zone it is the stock's depth rank among
+    all stocks that week: 100 for the deepest below its own quarterly mid line, 0 for the shallowest. The
+    2026-10-29 statistics found exactly this ranking held in every multi-week market zone, while fitted weights
+    on market and stock depth changed sign from year to year.
+    """
+    if market_level < 2 or depth_value is None or not np.isfinite(depth_value):
+        return 0.0
+    values = np.asarray([v for v in week_depths if v is not None and np.isfinite(v)], dtype=float)
+    if values.size < 2:
+        return 0.0
+    shallower = int(np.sum(values > depth_value))
+    return 100.0 * shallower / (values.size - 1)
+
+
 def series(security: str, db_path: str | None = None, end: str = DEV_END, start: str = DEV_START,
            quarter_n: int = DEFAULT_QUARTER_N, width: float = DEFAULT_WIDTH) -> dict:
     """One security's weekly closes, mid line, prediction points and the four zone lines.

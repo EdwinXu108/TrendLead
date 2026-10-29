@@ -9,10 +9,11 @@ from .pool_exclusion_release import file_hash
 
 BASE = '4e46f93f6c7e836dbd5e30dfe3ecfd8ebbb076180ac2d0397c4f8789381862bc'
 
-def migrate(base, out, manifest):
+def migrate(base, out, manifest, base_sha256=BASE):
+    """Copy `base`, add the top50 membership, and check the counts. The base file itself is never touched."""
     base, out, manifest = map(Path, (base, out, manifest))
     if base.resolve() == out.resolve() or out.exists(): raise ValueError('output must be a new database')
-    if file_hash(base) != BASE: raise ValueError('base hash mismatch')
+    if file_hash(base) != base_sha256: raise ValueError('base hash mismatch')
     out.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(base, out)
     c = sqlite3.connect(out)
@@ -29,11 +30,13 @@ def migrate(base, out, manifest):
         digest=content_hash(c)
         c.execute("insert or replace into meta values ('content_sha256',?)",(digest,));c.commit()
     finally: c.close()
-    result=dict(base_sha256=BASE,file_sha256=file_hash(out),content_sha256=digest,versions=52,empty_slots=19,development_companies=85,companies=98,integrity='ok')
+    result=dict(base_sha256=base_sha256,file_sha256=file_hash(out),content_sha256=digest,versions=52,empty_slots=19,development_companies=85,companies=98,integrity='ok')
     manifest.write_text(json.dumps(result,indent=2)+'\n',encoding='utf8')
     return result
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--base',required=True);p.add_argument('--out',required=True);p.add_argument('--manifest',required=True);a=p.parse_args()
-    print(json.dumps(migrate(a.base,a.out,a.manifest),indent=2))
+    p=argparse.ArgumentParser();p.add_argument('--base',required=True);p.add_argument('--out',required=True);p.add_argument('--manifest',required=True)
+    p.add_argument('--base-sha256',default=BASE,help='expected sha256 of the base file; full_v1 is not the v1 base')
+    a=p.parse_args()
+    print(json.dumps(migrate(a.base,a.out,a.manifest,a.base_sha256),indent=2))
 if __name__=='__main__': main()

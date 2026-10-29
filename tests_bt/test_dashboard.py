@@ -155,6 +155,22 @@ def test_the_pool_endpoint_and_the_removed_wf_v1_endpoints():
     assert results['wf'][0] == 404 and results['wfboard'][0] == 404
     assert results['wf2board'][0] == 404 and results['wf2'][0] == 404
     assert results['scope'][0] == 200 and len(results['scope'][1]['quarters']) == 52
+    scope = results['scope'][1]
+    assert (scope['total_companies'], scope['eligible_companies'], scope['development_companies']) == (100, 98, 85)
+    assert {r['ticker'] for r in scope['all_members'] if not r['eligible']} == {'CELG', 'AGN'}
     html = (ROOT / 'research/ma_lab_v1/dashboard.html').read_text(encoding='utf8')
     for view in ('scope','pool','single','board'): assert f'id="view-{view}"' in html
     for view in ('wf2','wf2board'): assert f'id="view-{view}"' not in html
+
+
+def test_combo_exposes_trade_dates_and_buy_hold_comparison():
+    from leadtrend_db import api
+    if not api.DB_V2_PATH.exists(): pytest.skip('scope database not present')
+    lab = dashboard.Lab('MSFT', '2014-02-28', '2024-06-28', 'zero', str(api.DB_V2_PATH), 'daily')
+    result = lab.combo('wma', 50, 300)
+    assert result['trades'] and all(t['date'] in result['dates'] and t['tri'] > 0 for t in result['trades'])
+    assert {t['side'] for t in result['trades']} == {'buy', 'sell'}
+    for field in ('cagr','total_return','max_drawdown'):
+        assert result['hold_metrics'][field] == pytest.approx(lab.hold[field], abs=1e-6)
+    assert result['metrics']['average_holding_weeks'] == pytest.approx(
+        sum(s['bars'] for s in result['segments']) * 0.2 / result['metrics']['buys'], abs=0.3)

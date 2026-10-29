@@ -176,7 +176,7 @@ class Lab:
         metrics = ma_lab.statistics(days, equity, self.rf)
         buys = sum(1 for k, on in enumerate(state) if on and (k == 0 or not state[k - 1]))
         metrics.update(invested_share=sum(state) / len(state), buys=buys,
-                       average_holding_weeks=(sum(state) / buys if buys else 0.0))
+                       average_holding_weeks=((sum(state) / buys) * (0.2 if self.frequency == 'daily' else 1.0) if buys else 0.0))
         raw = winrate.segment_returns(self.days, self.values, self.signal_days, state)
         metrics.update(winrate.stats(raw))
         segments, trades = self._segments(state)
@@ -188,7 +188,8 @@ class Lab:
                     slow_line=_round(line_slow[offset:] / self.window_values[0]),
                     trades=trades, segments=segments,
                     annual=annual_returns(days, equity), annual_hold=annual_returns(hold_days, hold_equity),
-                    metrics={k: _metric(v) for k, v in metrics.items()})
+                    metrics={k: _metric(v) for k, v in metrics.items()},
+                    hold_metrics={k: _metric(v) for k, v in ma_lab.statistics(hold_days, hold_equity, self.rf).items()})
 
     def _segments(self, state: list[bool]) -> tuple[list[dict], list[dict]]:
         """Holding periods and the buy/sell markers that bound them."""
@@ -321,7 +322,27 @@ class Handler(BaseHTTPRequestHandler):
                 selected = query.get('version') or next((x['version_id'] for x in quarters if x['quarter'] == day), '')
                 conn = api.connect(STORE.db)
                 rows = [dict(r) for r in conn.execute("""select sm.historical_rank as rank, sc.current_ticker as ticker, tc.issuer_name_at_period as company, tc.amount_cents/10000000000.0 as amount, tc.fund_weight_raw as weight from scope_members sm join pool_versions pv on pv.version_id=sm.version_id join strategy_companies sc on sc.version_id=sm.version_id and sc.issuer_id=sm.issuer_id join top200_companies tc on tc.version_id=sm.version_id and tc.issuer_id=sm.issuer_id where sm.scope='top50_v1' and pv.version_id=? order by sm.historical_rank""",(selected,))]
-                self._json(dict(quarters=quarters, selected=selected, members=rows))
+                history = {}
+                records = conn.execute("""select sc.issuer_id, sc.current_ticker, sc.strategy_eligible,
+                    pv.report_period, tc.issuer_name_at_period, coverage.effective
+                    from strategy_companies sc
+                    join pool_versions pv on pv.version_id=sc.version_id
+                    join top200_companies tc on tc.version_id=sc.version_id and tc.issuer_id=sc.issuer_id
+                    join (select version_id, min(active_from) as effective from price_quarter_coverage group by version_id) coverage
+                      on coverage.version_id=sc.version_id
+                    where sc.historical_rank between 1 and 50 order by coverage.effective, sc.version_id""")
+                for record in records:
+                    sid = record['issuer_id']
+                    item = history.setdefault(sid, dict(ticker=record['current_ticker'], company=record['issuer_name_at_period'],
+                        first=record['report_period'], last=record['report_period'], quarters=0, eligible=False, development=False))
+                    item.update(ticker=record['current_ticker'], company=record['issuer_name_at_period'], last=record['report_period'])
+                    item['quarters'] += 1
+                    item['eligible'] = item['eligible'] or bool(record['strategy_eligible'])
+                    item['development'] = item['development'] or (bool(record['strategy_eligible']) and record['effective'] <= '2024-06-28')
+                all_members = sorted(history.values(), key=lambda r: (r['ticker'], r['company']))
+                self._json(dict(quarters=quarters, selected=selected, members=rows, all_members=all_members,
+                    total_companies=len(all_members), eligible_companies=sum(x['eligible'] for x in all_members),
+                    development_companies=sum(x['development'] for x in all_members)))
             elif parsed.path == '/api/pool_ma':
                 summary_path = ROOT / 'research' / 'scope_top50_v1' / 'summary.json'
                 curves_path = ROOT / 'work' / 'scope_top50_v1' / 'curves.json'

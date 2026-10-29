@@ -1,4 +1,7 @@
-"""The weekly Bollinger mid line: weights, the prediction condition, and no look-ahead."""
+"""The weekly Bollinger mid line: weights, the prediction condition, and no look-ahead.
+
+Also the monthly and quarterly zone lines: the width-0 boundary and the same no-look-ahead property.
+"""
 from __future__ import annotations
 
 import importlib.util
@@ -65,7 +68,8 @@ def test_appending_weeks_does_not_change_earlier_values():
         boll_weekly.is_prediction(s_full, a_full).tolist()
 
 
-def _serve(db):
+def _serve(db, paths: dict):
+    """Start the dashboard once and fetch several paths; returns {name: (status, body)}."""
     dashboard.STORE = dashboard.Store(str(db))
     from http.server import HTTPServer
     server = HTTPServer(('127.0.0.1', 0), dashboard.Handler)
@@ -76,21 +80,86 @@ def _serve(db):
         import json
         import urllib.request
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        with opener.open(f'http://127.0.0.1:{port}/api/boll?security=META', timeout=120) as response:
-            return response.status, json.loads(response.read().decode('utf8'))
+        out = {}
+        for name, path in paths.items():
+            with opener.open(f'http://127.0.0.1:{port}{path}', timeout=120) as response:
+                out[name] = (response.status, json.loads(response.read().decode('utf8')))
+        return out
     finally:
         server.shutdown()
         server.server_close()
 
 
-def test_api_returns_meta():
+def test_api_returns_meta_and_both_quarter_lengths():
     from leadtrend_db import api
     if not Path(api.DB_V2_PATH).exists():
         pytest.skip('scope database is not present')
-    status, data = _serve(api.DB_V2_PATH)
+    results = _serve(api.DB_V2_PATH, {
+        'default': '/api/boll?security=META',
+        'q20': '/api/boll?security=META&quarter=20&d=0.5',
+        'q8': '/api/boll?security=META&quarter=8&d=0.5'})
+    status, data = results['default']
     assert status == 200
     assert data['meta']['ticker'] == 'META' and data['meta']['weeks'] == len(data['weeks'])
     assert len(data['close']) == len(data['mid']) == len(data['s_pct']) == len(data['weeks'])
     assert [p['date'] for p in data['points']] == ['2014-07-03', '2017-02-10', '2018-06-08', '2019-02-15',
                                                    '2019-11-22', '2020-05-29', '2021-04-01', '2023-01-27']
     assert [m['date'] for m in data['marks']] == [p['date'] for p in data['points']]
+    assert (data['params']['quarter_n'], data['params']['width']) == (20, 0.5)
+    # the four zones over the 540-week development window, checked against the reference table
+    for name, expected in (('q20', {'q_lower': 6, 'm_lower': 52, 'q_mid': 75, 'm_mid': 119}),
+                           ('q8', {'q_lower': 39, 'm_lower': 52, 'q_mid': 112, 'm_mid': 119})):
+        assert results[name][0] == 200
+        zones = results[name][1]['zone_summary']
+        assert {key: item['weeks'] for key, item in zones.items()} == expected
+        assert results[name][1]['params']['quarter_n'] == int(name[1:])
+
+
+def _synthetic_months(n_months: int = 72):
+    """Month-end closes with a slow cycle plus drift, and every Friday inside the same span."""
+    import calendar
+    from datetime import date, timedelta
+    days, values = [], []
+    for k in range(n_months):
+        year, month = 2014 + k // 12, k % 12 + 1
+        days.append(f'{year}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}')
+        values.append(100 + 8 * np.sin(k / 2.5) + 0.6 * k)
+    start, weeks = date(2014, 1, 3), []
+    while (start + timedelta(days=7 * len(weeks))).isoformat() <= days[-1]:
+        weeks.append((start + timedelta(days=7 * len(weeks))).isoformat())
+    return days, values, weeks
+
+
+def test_width_zero_counts_only_at_or_below_the_line():
+    line = np.array([10.0, 10.0, 10.0, np.nan])
+    sd = np.array([1.0, 1.0, 1.0, 1.0])
+    close = np.array([10.0, 10.001, 9.999, 5.0])
+    assert boll_weekly.in_zone(close, line, sd, 0.0).tolist() == [True, False, True, False]
+    assert boll_weekly.in_zone(close, line, sd, 0.5).tolist() == [True, True, True, False]
+    assert boll_weekly.in_zone(close, line, sd, 1.0).tolist() == [True, True, True, False]
+    assert boll_weekly.in_zone(close, line, sd, 0.0).tolist() == [True, False, True, False]
+
+
+def test_appending_months_does_not_change_earlier_lines_or_zones():
+    days, values, weeks = _synthetic_months()
+    cut = next(i for i, day in enumerate(days) if day > '2018-12-31')
+    head_weeks = [week for week in weeks if week <= '2018-12-31']
+    month = dict(days=days, **boll_weekly.band_stats(values, 20))
+    quarter = dict(zip(('days', 'values'),
+                       boll_weekly.period_closes(days, values, 'quarter')))
+    quarter.update(boll_weekly.band_stats(quarter.pop('values'), 8))
+    head_month = dict(days=days[:cut], **boll_weekly.band_stats(values[:cut], 20))
+    head_quarter = dict(zip(('days', 'values'),
+                            boll_weekly.period_closes(days[:cut], values[:cut], 'quarter')))
+    head_quarter.update(boll_weekly.band_stats(head_quarter.pop('values'), 8))
+    close = np.asarray([values[days.index(week)] if week in days else values[
+        next(i for i, day in enumerate(days) if day >= week)] for week in head_weeks])
+    for key in ('mid', 'lower'):
+        assert np.allclose(boll_weekly.line_for(head_weeks, head_month['days'], head_month)[key],
+                           boll_weekly.line_for(head_weeks, month['days'], month)[key], atol=1e-12, equal_nan=True)
+        assert np.allclose(boll_weekly.line_for(head_weeks, head_quarter['days'], head_quarter)[key],
+                           boll_weekly.line_for(head_weeks, quarter['days'], quarter)[key], atol=1e-12, equal_nan=True)
+    full = boll_weekly.zone_flags(head_weeks, close, month, quarter, 0.5)
+    head = boll_weekly.zone_flags(head_weeks, close, head_month, head_quarter, 0.5)
+    for key in full:
+        assert head[key].tolist() == full[key].tolist()

@@ -228,7 +228,7 @@ def series(security: str, db_path: str | None = None, end: str = DEV_END, start:
            quarter_n: int = DEFAULT_QUARTER_N, width: float = DEFAULT_WIDTH) -> dict:
     """One security's weekly closes, mid line, prediction points and the four zone lines.
 
-    Prices are the total-return index rescaled so the first week of the window shows that week's real close;
+    Prices are the total-return index rescaled so the last week of the window shows that week's real close;
     `meta['price_scale']` is the factor. Dates, derivatives and ratios are unaffected. The zones are decided
     on the raw index, which gives exactly the same weeks because the factor is positive and shared.
     """
@@ -256,10 +256,13 @@ def series(security: str, db_path: str | None = None, end: str = DEV_END, start:
         return [float(values[i]) if np.isfinite(values[i]) else None for i in keep]
 
     close = cut(closes_all)
-    # the index is an abstract level; rescale it so the first week shows that week's real close, the same
-    # convention the moving-average dashboard uses. Ratios and dates do not change.
+    # the index is an abstract level; rescale it so the last week of the window shows that week's real close,
+    # like the forward-adjusted prices of a trading app. Anchoring on the first week instead would show a
+    # split stock at a multiple of its quoted price (NVDA in 2024 at about 42 times). Ratios and dates do not
+    # change; only the displayed level does.
     closes = api.close_series([sid], start, end, db)[sid]
-    anchor = next(((k, closes[week]) for k, week in enumerate(weeks) if closes.get(week) and close[k]), None)
+    anchor = next(((k, closes[week]) for k, week in reversed(list(enumerate(weeks)))
+                   if closes.get(week) and close[k]), None)
     factor = anchor[1] / close[anchor[0]] if anchor else 1.0
 
     def scaled(values):

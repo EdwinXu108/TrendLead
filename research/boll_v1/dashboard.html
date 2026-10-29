@@ -136,7 +136,7 @@
     <summary>这页怎么读</summary>
     <div class="body">
       数据：正式库 v2 的前 50 名单，共 83 只股票；价格用含分红的总回报指数，开发段 2014-02-28 至 2024-06-28，
-      绘图前从库里最早的日期取数，只用于预热。图上与表里的价格按开发段第一周的实际收盘价折算过，形状与指数完全一致。<br>
+      绘图前从库里最早的日期取数，只用于预热。图上与表里的价格按开发段最后一周（2024-06-28）的实际收盘价折算，和看盘软件的前复权价格同一个量级；拆股前的价格也已按拆股折算，形状与指数完全一致。<br>
       周线收盘：每周最后一个交易日的收盘，周五休市时用该周最后一个交易日，横轴标实际日期。<br>
       去噪中轨：20 周余弦（Hann）加权平均，权重 w<sub>i</sub> = sin²(π(i+1)/21)，i = 0 是最老的一周、i = 19 是最新一周，
       再除以总和；不满 20 周的位置为空。<br>
@@ -153,7 +153,10 @@
       就算处在那种关注区；d 取 0、0.5、1，0 就是收盘碰到或跌破这条线；线为空的周不算。图上线旁的浅色带就是从线到线 + dσ 的范围。<br>
       <b>强弱：</b>最强 = 季线下轨；次强 = 月线下轨或季线中轨（两者同级）；较弱 = 月线中轨。价格图的底色取这一周所处的最强等级。<br>
       <b>最新一周：</b>开发段最后一周的周收盘比各条线高（正）或低（负）多少；卡片变色表示这一周处在那种关注区。<br>
-      纵轴按价格与去噪中轨定范围；离价格太远的线不硬塞进图里，会在图底部标出“在图下方”。
+      纵轴按价格与去噪中轨定范围；离价格太远的线不硬塞进图里，会在图底部标出“在图下方”。<br>
+      <b>下轨为什么会是负数：</b>下轨 = 中轨 − 2σ。如果一只股票 20 个月（季）里涨了好几倍，这 20 个收盘价差得很远，σ 会超过中轨的一半，
+      下轨就算到 0 以下。这是布林线公式本身的结果，看盘软件用同样的公式也会这样；负的下轨意味着价格不可能碰到它，所以那几周不算进这种关注区。
+      对数刻度画不出负数，这时线会从图上消失。
     </div>
   </details>
 </main>
@@ -178,7 +181,7 @@ const setState = (id, html, kind = '') => {
   const el = $(id); el.hidden = false; el.className = 'state ' + kind; el.innerHTML = html;
 };
 const ok = (v) => v !== null && v !== undefined && Number.isFinite(v);
-const money = (v) => ok(v) ? '$' + v.toFixed(2) : '—';
+const money = (v) => !ok(v) ? '—' : (v < 0 ? '−$' + (-v).toFixed(2) : '$' + v.toFixed(2));
 const axisMoney = (v) => ok(v) ? '$' + (v >= 10 ? v.toFixed(0) : v.toFixed(2)) : '—';
 const sgn = (v, d = 1) => !ok(v) ? '—' : (Math.abs(v) < 5e-9 ? '' : (v > 0 ? '+' : '')) + (v * 100).toFixed(d) + '%';
 const cls = (v) => (!ok(v) || Math.abs(v) < 5e-9) ? '' : (v > 0 ? 'good' : 'bad');
@@ -334,7 +337,10 @@ function drawChart(container, tip, cfg) {
   const away = [];
   for (const s of series.filter(s => s.extra)) {
     const vis = s.values.filter(v => ok(v) && (!useLog || v > 0));
-    if (!vis.length) continue;
+    if (!vis.length) {
+      if (s.values.some(ok)) away.push(`↓ ${s.name}在 0 以下，对数刻度画不出`);
+      continue;
+    }
     if (vis.every(v => T(v) < lo)) away.push(`↓ ${s.name}在图下方`);
     else if (vis.every(v => T(v) > hi)) away.push(`↑ ${s.name}在图上方`);
   }
@@ -434,11 +440,13 @@ function renderTiles() {
     const line = data.lines[zone.key][k];
     const top = near(data, zone)[k];
     const inside = ok(line) && ok(top) && close <= top;
-    const value = ok(line) ? close / line - 1 : null;
+    // a lower band at or below zero has no meaningful percentage distance: say so instead of printing one
+    const value = ok(line) && line > 0 ? close / line - 1 : null;
+    const cap = !ok(line) ? '这条线还没有值' : (line <= 0 ? '线在 0 以下（' + money(line) + '）'
+      : (inside ? '处在关注区' : '线 ' + money(line)));
     return `<div class="tile${inside ? ' in' : ''}"><div class="name"><i class="${zone.dash ? 'dash' : ''}" ` +
       `style="border-color:${zone.color}"></i>离${zone.name}</div>` +
-      `<div class="num">${ok(value) ? sgn(value) : '—'}</div>` +
-      `<div class="cap">${!ok(line) ? '这条线还没有值' : (inside ? '处在关注区' : '线 ' + money(line))}</div></div>`;
+      `<div class="num">${ok(value) ? sgn(value) : '—'}</div><div class="cap">${cap}</div></div>`;
   });
   tiles.push(`<div class="tile${names.length ? ' in' : ''}"><div class="name">这一周的关注区</div>` +
     `<div class="num" style="font-size:15px;padding-top:4px">${names.length ? names[0] : '不在关注区'}</div>` +

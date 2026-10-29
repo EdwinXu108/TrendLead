@@ -179,12 +179,13 @@ def resolve_security(security: str, db_path=None) -> str:
         if row is None:
             raise ValueError(f'unknown security_id: {security}')
         return security
-    rows = conn.execute("""select distinct ss.security_id, coalesce(i.name, '')
+    rows = conn.execute("""select distinct ss.security_id, coalesce(i.name, ''),
+                                  coalesce(nullif(ss.current_security_id,''),ss.security_id) as current_sid
                            from strategy_securities ss left join issuers i on i.issuer_id = ss.issuer_id
-                           where ss.current_ticker = ? order by 1""", (security,)).fetchall()
-    ids = sorted({r[0] for r in rows})
+                           where ss.current_ticker = ? and ss.strategy_eligible=1 order by 1""", (security,)).fetchall()
+    ids = sorted({r['current_sid'] for r in rows})
     if not ids:
-        raise ValueError(f'no security with ticker {security}')
+        raise ValueError(f'no eligible security with ticker {security}')
     if len(ids) > 1:
         detail = ', '.join(f'{r[0]} ({r[1]})' for r in rows)
         raise ValueError(f'ambiguous ticker {security}: {detail}')

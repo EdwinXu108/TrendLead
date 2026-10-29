@@ -47,9 +47,9 @@ def clean(value):
 
 
 def job(args):
-    ticker, cash, frequency = args
+    ticker, cash, frequency, db = args
     try:
-        lab = dashboard.Lab(ticker, START, END, cash, DB, frequency)
+        lab = dashboard.Lab(ticker, START, END, cash, db, frequency)
         rows = lab.rows_with_winrate()
     except ValueError as error:          # an ambiguous or unusable ticker must not stop the build
         return dict(ticker=ticker, error=str(error))
@@ -83,21 +83,26 @@ def main():
     parser.add_argument('--freq', default='daily', choices=('daily', 'weekly'))
     parser.add_argument('--cash', default='zero,dtb3')
     parser.add_argument('--limit', type=int, default=0)
+    parser.add_argument('--tickers', help='comma-separated explicit tickers')
+    parser.add_argument('--out', help='output directory for leaderboard files')
     args = parser.parse_args()
     # the same eligible, unambiguous ticker list the dashboard and the walk-forward batch use
-    tickers = [row['ticker'] for row in ma_walk.stock_list(DB, as_of='2024-06-28')]
+    db = str(ROOT / 'data/db/leadtrend_db_v2.sqlite') if args.tickers else DB
+    tickers = [x.strip().upper() for x in args.tickers.split(',') if x.strip()] if args.tickers else [row['ticker'] for row in ma_walk.stock_list(DB, as_of='2024-06-28')]
+    if args.tickers and not args.out: raise ValueError('--tickers requires --out to protect existing leaderboard files')
     if args.limit:
         tickers = tickers[:args.limit]
     combos = len(TYPES) * len([1 for f in FASTS for s in SLOWS if f < s])
     print(f'{len(tickers)} tickers x {combos} combos x {len(args.cash.split(","))} cash rates', flush=True)
     for cash in args.cash.split(','):
         started = time.time()
-        jobs = [(t, cash, args.freq) for t in tickers]
+        jobs = [(t, cash, args.freq, db) for t in tickers]
         with Pool(min(10, os.cpu_count() or 4)) as pool:
             out = []
             for i, item in enumerate(pool.imap_unordered(job, jobs, chunksize=2), 1):
-                if 'error' not in item:
-                    out.append(item)
+                if 'error' in item:
+                    raise ValueError(f"{item['ticker']}: {item['error']}")
+                out.append(item)
                 if i % 40 == 0:
                     print(f'  {cash} {i}/{len(jobs)} {time.time() - started:.0f}s', flush=True)
         out.sort(key=lambda r: r['ticker'])
@@ -105,7 +110,10 @@ def main():
                        start=START, end=END, combos=combos, win_rate_min_segments=WIN_MIN_SEGMENTS,
                        grid=dict(types=list(TYPES), fasts=list(FASTS), slows=list(SLOWS)),
                        stocks=out)
-        path = HERE / f'leaderboard_{args.freq}_{cash}.json'
+        target = Path(args.out) if args.out else HERE
+        target.mkdir(parents=True, exist_ok=True)
+        prefix = 'leaderboard_extra' if args.tickers else 'leaderboard'
+        path = target / f'{prefix}_{args.freq}_{cash}.json'
         path.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf8')
         print(f'  {cash}: {len(out)} stocks -> {path.name} ({path.stat().st_size / 1024:.0f} KB) '
               f'{time.time() - started:.0f}s', flush=True)

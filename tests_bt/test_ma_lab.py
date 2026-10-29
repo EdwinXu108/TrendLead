@@ -236,13 +236,15 @@ def test_start_before_the_first_stored_day_is_rejected():
         ma_lab.run_lab('MSFT', start='2012-12-02', end='2024-06-28', types=['sma'], fasts=[50], slows=[200])
 
 
-def test_ambiguous_ticker_lists_the_candidates():
-    if not api.DB_PATH.exists():
-        pytest.skip('released database is not present')
-    with pytest.raises(ValueError) as error:
-        ma_lab.resolve_security('GOOG')
-    message = str(error.value)
-    assert 'ambiguous' in message and 'CUSIP:02079K107' in message
+def test_ambiguous_ticker_lists_the_candidates(monkeypatch):
+    import sqlite3
+    conn=sqlite3.connect(':memory:'); conn.row_factory=sqlite3.Row
+    conn.executescript("create table issuers(issuer_id text,name text); create table strategy_securities(security_id text,issuer_id text,current_ticker text,current_security_id text,strategy_eligible integer);")
+    conn.executemany('insert into strategy_securities values (?,?,?,?,?)', [('A','I','DUP','A',1),('B','I','DUP','B',1)])
+    monkeypatch.setattr(api,'connect',lambda *args:conn)
+    with pytest.raises(ValueError,match='ambiguous ticker DUP'):
+        ma_lab.resolve_security('DUP')
+    conn.close()
 
 
 def test_unknown_ticker_is_rejected():

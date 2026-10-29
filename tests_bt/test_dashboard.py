@@ -156,7 +156,7 @@ def test_the_pool_endpoint_and_the_removed_wf_v1_endpoints():
     assert results['wf2board'][0] == 404 and results['wf2'][0] == 404
     assert results['scope'][0] == 200 and len(results['scope'][1]['quarters']) == 52
     scope = results['scope'][1]
-    assert (scope['total_companies'], scope['eligible_companies'], scope['development_companies']) == (100, 98, 85)
+    assert (scope['total_companies'], scope['eligible_companies'], scope['development_companies']) == (97, 95, 82)
     assert {r['ticker'] for r in scope['all_members'] if not r['eligible']} == {'CELG', 'AGN'}
     html = (ROOT / 'research/ma_lab_v1/dashboard.html').read_text(encoding='utf8')
     for view in ('scope','pool','single','board'): assert f'id="view-{view}"' in html

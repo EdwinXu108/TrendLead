@@ -42,7 +42,7 @@ def stock_list(db_path=None, as_of: str = LAST_ALLOWED_END, legacy_union: bool =
     behaviour of taking any version at all; that is the flawed convention the committed wf_v1 and wf_v2
     results were produced under, kept only so those results can be reproduced.
 
-    A ticker that maps to more than one security_id is skipped, as before. Each row carries
+    Eligible IDs sharing a current security are merged; genuinely ambiguous tickers are skipped. Each row carries
     `first_effective` (the effective date of the first version the security was eligible in) and
     `first_report_period` (that version's report period).
     """
@@ -54,10 +54,14 @@ def stock_list(db_path=None, as_of: str = LAST_ALLOWED_END, legacy_union: bool =
     effective = {row[0]: row[1] for row in conn.execute(
         'select version_id, min(active_from) from price_quarter_coverage group by version_id')}
     periods = {row[0]: row[1] for row in conn.execute('select version_id, report_period from pool_versions')}
-    rows = conn.execute("""select ss.security_id as sid, ss.current_ticker as ticker, ss.version_id as version,
+    columns = {r[1] for r in conn.execute('pragma table_info(strategy_securities)')}
+    current = 'ss.current_security_id' if 'current_security_id' in columns else 'ss.security_id'
+    rows = conn.execute(f"""select ss.security_id as sid, ss.current_ticker as ticker, ss.version_id as version, coalesce(nullif({current}, ''), ss.security_id) as current_sid,
                                   ss.strategy_eligible as eligible, ss.issuer_id as issuer, coalesce(i.name, '') as name
                            from strategy_securities ss left join issuers i on i.issuer_id = ss.issuer_id
                            where ss.current_ticker <> ''""").fetchall()
+    if not legacy_union:
+        return _current_stock_list(rows, effective, periods, scoped, as_of)[0]
     ids_by_ticker: dict[str, set] = {}
     first: dict[str, tuple] = {}
     for row in rows:
@@ -81,6 +85,45 @@ def stock_list(db_path=None, as_of: str = LAST_ALLOWED_END, legacy_union: bool =
         out.append(dict(ticker=row['ticker'], security_id=sid, name=row['name'],
                         first_effective=entry[0], first_report_period=entry[1]))
     return sorted(out, key=lambda item: item['ticker'])
+
+
+def _current_stock_list(rows, effective, periods, scoped, as_of):
+    groups = {}
+    for row in rows:
+        if row['eligible']:
+            groups.setdefault(row['ticker'], []).append(row)
+    out, skipped = [], []
+    for ticker, group in sorted(groups.items()):
+        candidates = sorted({r['current_sid'] for r in group})
+        qualifying = [r for r in group if r['version'] in effective and effective[r['version']] <= as_of
+                      and (scoped is None or (r['version'], r['issuer']) in scoped)]
+        if not qualifying:
+            continue
+        if len(candidates) != 1:
+            skipped.append(dict(ticker=ticker, candidates=candidates))
+            continue
+        first = min((effective[r['version']], periods.get(r['version'], ''), r['version']) for r in qualifying)
+        latest = max(qualifying, key=lambda r: (effective[r['version']], r['version']))
+        out.append(dict(ticker=ticker, security_id=candidates[0], name=latest['name'],
+                        first_effective=first[0], first_report_period=first[1]))
+    return out, skipped
+
+
+def stock_list_skipped(db_path=None, as_of: str = LAST_ALLOWED_END, scope=None):
+    conn = api.connect(db_path)
+    scoped = None
+    if scope is not None:
+        api._scope_members(conn, '', scope)
+        scoped = {(r[0], r[1]) for r in conn.execute('select version_id, issuer_id from scope_members where scope=?', (scope,))}
+    effective = dict(conn.execute('select version_id,min(active_from) from price_quarter_coverage group by version_id'))
+    periods = dict(conn.execute('select version_id,report_period from pool_versions'))
+    cols = {r[1] for r in conn.execute('pragma table_info(strategy_securities)')}
+    current = 'ss.current_security_id' if 'current_security_id' in cols else 'ss.security_id'
+    rows = conn.execute(f"""select ss.security_id as sid, ss.current_ticker as ticker, ss.version_id as version,
+        coalesce(nullif({current},''),ss.security_id) as current_sid, ss.strategy_eligible as eligible,
+        ss.issuer_id as issuer, coalesce(i.name,'') as name from strategy_securities ss
+        left join issuers i on i.issuer_id=ss.issuer_id where ss.current_ticker<>''""").fetchall()
+    return _current_stock_list(rows, effective, periods, scoped, as_of)[1]
 
 
 # -- statistics ----------------------------------------------------------------------------------------------------

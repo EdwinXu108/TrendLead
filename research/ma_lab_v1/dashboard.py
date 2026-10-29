@@ -323,8 +323,14 @@ class Handler(BaseHTTPRequestHandler):
                 conn = api.connect(STORE.db)
                 rows = [dict(r) for r in conn.execute("""select sm.historical_rank as rank, sc.current_ticker as ticker, tc.issuer_name_at_period as company, tc.amount_cents/10000000000.0 as amount, tc.fund_weight_raw as weight from scope_members sm join pool_versions pv on pv.version_id=sm.version_id join strategy_companies sc on sc.version_id=sm.version_id and sc.issuer_id=sm.issuer_id join top200_companies tc on tc.version_id=sm.version_id and tc.issuer_id=sm.issuer_id where sm.scope='top50_v1' and pv.version_id=? order by sm.historical_rank""",(selected,))]
                 history = {}
+                links = {r['predecessor_issuer_id']: r['successor_issuer_id'] for r in api.issuer_continuity(STORE.db)}
+                def canonical(issuer):
+                    seen = set()
+                    while issuer in links and issuer not in seen:
+                        seen.add(issuer); issuer = links[issuer]
+                    return issuer
                 records = conn.execute("""select sc.issuer_id, sc.current_ticker, sc.strategy_eligible,
-                    pv.report_period, tc.issuer_name_at_period, coverage.effective
+                    pv.report_period, sc.version_id, tc.issuer_name_at_period, coverage.effective
                     from strategy_companies sc
                     join pool_versions pv on pv.version_id=sc.version_id
                     join top200_companies tc on tc.version_id=sc.version_id and tc.issuer_id=sc.issuer_id
@@ -332,13 +338,14 @@ class Handler(BaseHTTPRequestHandler):
                       on coverage.version_id=sc.version_id
                     where sc.historical_rank between 1 and 50 order by coverage.effective, sc.version_id""")
                 for record in records:
-                    sid = record['issuer_id']
+                    sid = canonical(record['issuer_id'])
                     item = history.setdefault(sid, dict(ticker=record['current_ticker'], company=record['issuer_name_at_period'],
-                        first=record['report_period'], last=record['report_period'], quarters=0, eligible=False, development=False))
+                        first=record['report_period'], last=record['report_period'], quarters=0, versions=set(), eligible=False, development=False))
                     item.update(ticker=record['current_ticker'], company=record['issuer_name_at_period'], last=record['report_period'])
-                    item['quarters'] += 1
+                    item['versions'].add(record['version_id'])
                     item['eligible'] = item['eligible'] or bool(record['strategy_eligible'])
                     item['development'] = item['development'] or (bool(record['strategy_eligible']) and record['effective'] <= '2024-06-28')
+                for item in history.values(): item['quarters'] = len(item.pop('versions'))
                 all_members = sorted(history.values(), key=lambda r: (r['ticker'], r['company']))
                 self._json(dict(quarters=quarters, selected=selected, members=rows, all_members=all_members,
                     total_companies=len(all_members), eligible_companies=sum(x['eligible'] for x in all_members),
@@ -361,6 +368,12 @@ class Handler(BaseHTTPRequestHandler):
                                     hint='python -X utf8 research/ma_lab_v1/build_leaderboard.py'), 404)
                 else:
                     payload = json.loads(path.read_text(encoding='utf8'))
+                    extra = ROOT / 'research/scope_top50_v1' / f"leaderboard_extra_{query.get('freq', 'daily')}_{query.get('cash', 'zero')}.json"
+                    if extra.exists():
+                        additions = json.loads(extra.read_text(encoding='utf8'))['stocks']
+                        existing = {r['ticker']: r for r in payload['stocks']}
+                        existing.update({r['ticker']: r for r in additions})
+                        payload['stocks'] = list(existing.values())
                     allowed = {x['security_id'] for x in STORE.stocks()}
                     payload['stocks'] = [x for x in payload['stocks'] if x['security_id'] in allowed]
                     self._json(payload)

@@ -42,12 +42,12 @@
   button.chip.off i { opacity: .35; }
   .chip i { display: inline-block; width: 16px; height: 0; border-top: 2px solid; }
   .chip i.dash { border-top-style: dashed; }
-  .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); border: 0; }
+  .chip .dot { width: 10px; height: 10px; border-radius: 50%; background: #fff; border: 2px solid #111; }
   .chip .sw { width: 13px; height: 11px; border: 0; border-radius: 2px; }
   .tip { position: absolute; pointer-events: none; background: rgba(31,35,40,.94); color: #fff; padding: 7px 9px;
          border-radius: 6px; font-size: 11.5px; line-height: 1.55; white-space: nowrap; opacity: 0;
          transition: opacity .08s; z-index: 5; }
-  .tip .z { color: #ffb37a; }
+  .tip .z { color: #FCD994; }
   .tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; padding: 6px 14px 14px; }
   .tile { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
   .tile .name { color: var(--muted); font-size: 11.5px; display: flex; align-items: center; gap: 6px; }
@@ -55,8 +55,8 @@
   .tile .name i.dash { border-top-style: dashed; }
   .tile .num { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
   .tile .cap { color: var(--muted); font-size: 11px; }
-  .tile.in { border-color: #f0b48a; background: #fdf3ec; }
-  .tile.in .cap { color: #a1460b; }
+  .tile.in { border-color: #F9B54C; background: #FFF0CF; }
+  .tile.in .cap { color: #7A3E00; font-weight: 600; }
   table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
   th, td { padding: 5px 8px; text-align: right; }
   th { color: var(--muted); font-weight: 500; font-size: 11px; border-bottom: 1px solid var(--line); }
@@ -148,7 +148,7 @@
       <b>月 K 线与季 K 线：</b>每个自然月（季度）最后一个交易日的收盘。月线用最近 20 根月 K 线的简单平均为中轨，
       σ 为这 20 根的总体标准差，下轨 = 中轨 − 2σ；季线同样算法，期数可选 20 或 8；不满期数的位置为空。<br>
       <b>每周用哪根线：</b>第 t 周用“日期 ≤ 这一周的最近一根月 K 线（季 K 线）”算出的中轨、下轨和 σ，
-      所以线在一个月（季）内不变，画出来是台阶状，不偷看未来。<br>
+      所以线在一个月（季）内不变，不偷看未来。图上为了好看把这些台阶画成平滑曲线（在每个新值生效的那一周打点，用不会冲过头的三次曲线连起来），只是画法；鼠标提示里的数和所有关注区判断都用真实的台阶值。<br>
       <b>关注区：</b>共四种——季线下轨、月线下轨、季线中轨、月线中轨。第 t 周的周收盘 ≤ 该线 + d × 该线所属周期的 σ，
       就算处在那种关注区；d 取 0、0.5、1，0 就是收盘碰到或跌破这条线；线为空的周不算。图上线旁的浅色带就是从线到线 + dσ 的范围。<br>
       <b>强弱：</b>最强 = 季线下轨；次强 = 月线下轨或季线中轨（两者同级）；较弱 = 月线中轨。价格图的底色取这一周所处的最强等级。<br>
@@ -165,14 +165,17 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const SHADE = { 3: 'rgba(213,94,0,0.30)', 2: 'rgba(213,94,0,0.17)', 1: 'rgba(213,94,0,0.07)' };
+// one hue, three clearly different lightness steps, so the strength reads without telling hues apart
+const SHADE = { 3: '#F9B54C', 2: '#FCD994', 1: '#FFF0CF' };
 const SHADE_LABEL = { 3: '最强：季线下轨', 2: '次强：月线下轨或季线中轨', 1: '较弱：月线中轨' };
 // zone lines in strength order; `sd` names the sigma line of the same period
 const ZONES = [
-  { key: 'q_lower', name: '季线下轨', color: '#009E73', dash: false, sd: 'q_sd' },
-  { key: 'm_lower', name: '月线下轨', color: '#CC79A7', dash: false, sd: 'm_sd' },
-  { key: 'q_mid',   name: '季线中轨', color: '#009E73', dash: true,  sd: 'q_sd' },
-  { key: 'm_mid',   name: '月线中轨', color: '#CC79A7', dash: true,  sd: 'm_sd' }
+  // blue against dark brown: different hue and very different lightness, safe for red-green colour weakness;
+  // lower bands are solid, mid lines dashed
+  { key: 'q_lower', name: '季线下轨', color: '#7A3E00', dash: false, sd: 'q_sd' },
+  { key: 'm_lower', name: '月线下轨', color: '#0072B2', dash: false, sd: 'm_sd' },
+  { key: 'q_mid',   name: '季线中轨', color: '#7A3E00', dash: true,  sd: 'q_sd' },
+  { key: 'm_mid',   name: '月线中轨', color: '#0072B2', dash: true,  sd: 'm_sd' }
 ];
 const state = { data: null, zoom: null, quarter: 20, width: 0.5,
                 show: { q_lower: true, m_lower: true, q_mid: false, m_mid: false, band: false } };
@@ -242,7 +245,7 @@ function drawChart(container, tip, cfg) {
   const cut = (arr) => arr ? arr.slice(z0, z1 + 1) : null;
   const dates = cut(cfg.dates);
   const n = dates.length;
-  const series = (cfg.series || []).map(s => ({ ...s, values: cut(s.values) }));
+  const series = (cfg.series || []).map(s => ({ ...s, values: cut(s.values), tipValues: cut(s.tipValues) }));
   const ribbons = (cfg.ribbons || []).map(r => ({ ...r, lo: cut(r.lo), hi: cut(r.hi) }));
   const bars = cut(cfg.bars);
   const shade = cut(cfg.shade);
@@ -304,13 +307,14 @@ function drawChart(container, tip, cfg) {
   }
   parts.push(`<g clip-path="url(#${clip})">`);
   for (const r of ribbons) {
-    // the "near" band: from the line up to line + d sigma, drawn with the same steps as the line
-    const tops = segments(r.hi.map((v, i) => ok(r.lo[i]) ? v : null), X, Y, true);
+    // the "near" band: from the line up to line + d sigma, drawn the same way as the line
+    const step = !r.smooth;
+    const tops = segments(r.hi.map((v, i) => ok(r.lo[i]) ? v : null), X, Y, step);
     for (const top of tops) {
       const a = top[0][2], b = top[top.length - 1][2];
-      const bottom = segments(r.lo.slice(a, b + 1), (k) => X(a + k), Y, true)[0] || [];
-      parts.push(`<path d="${pathOf(top.concat(bottom.slice().reverse()))} Z" fill="${r.color}" opacity="0.07"/>`);
-      parts.push(`<path d="${pathOf(top)}" fill="none" stroke="${r.color}" stroke-width="0.9" stroke-dasharray="2 3" opacity="0.8"/>`);
+      const bottom = segments(r.lo.slice(a, b + 1), (k) => X(a + k), Y, step)[0] || [];
+      parts.push(`<path d="${pathOf(top.concat(bottom.slice().reverse()))} Z" fill="${r.color}" opacity="0.10"/>`);
+      parts.push(`<path d="${pathOf(top)}" fill="none" stroke="${r.color}" stroke-width="1.2" stroke-dasharray="2 3"/>`);
     }
   }
   if (bars) {
@@ -350,13 +354,13 @@ function drawChart(container, tip, cfg) {
     const i = dates.indexOf(date);
     if (i < 0) continue;
     parts.push(`<line x1="${X(i).toFixed(1)}" x2="${X(i).toFixed(1)}" y1="${pad.t}" y2="${height - pad.b}" ` +
-               `stroke="#0072B2" stroke-width="1" opacity="0.45"/>`);
+               `stroke="#111111" stroke-width="1" opacity="0.55"/>`);
   }
   for (const dot of (cfg.dots || [])) {
     const i = dates.indexOf(dot.date);
     if (i < 0 || !ok(dot.value)) continue;
-    parts.push(`<circle cx="${X(i).toFixed(1)}" cy="${Y(dot.value).toFixed(1)}" r="4" fill="#0072B2" ` +
-               `stroke="#ffffff" stroke-width="1.4"/>`);
+    parts.push(`<circle cx="${X(i).toFixed(1)}" cy="${Y(dot.value).toFixed(1)}" r="5" fill="#ffffff" ` +
+               `stroke="#111111" stroke-width="2.2"/>`);
   }
   parts.push(`<line id="cross" x1="0" x2="0" y1="${pad.t}" y2="${height - pad.b}" stroke="#9aa1ab" ` +
              `stroke-dasharray="3 3" opacity="0"/>`);
@@ -380,7 +384,7 @@ function drawChart(container, tip, cfg) {
     const i = toIndex(event.clientX);
     cross.setAttribute('x1', X(i)); cross.setAttribute('x2', X(i)); cross.setAttribute('opacity', 1);
     const lines = [`<b>${dates[i]}</b>`].concat(series.filter(s => s.tip !== false).map(s =>
-      `${s.name}：${format(s.values[i])}`));
+      `${s.name}：${format((s.tipValues || s.values)[i])}`));
     if (bars) lines.push(`中轨变化：${ok(bars[i]) ? bars[i].toFixed(2) + '%' : '—'}`);
     if ((cfg.dots || []).some(d => d.date === dates[i])) lines.push('<b>预判点</b>');
     if (cfg.tipExtra) lines.push(...cfg.tipExtra(z0 + i));
@@ -421,6 +425,42 @@ function drawChart(container, tip, cfg) {
 }
 
 function setZoom(range) { state.zoom = range; renderCharts(); }
+
+// Display only: a monthly or quarterly line holds one value for a whole month (quarter), which draws as stairs.
+// Put a knot on the week each new value comes into force and join the knots with a monotone cubic curve
+// (Fritsch–Carlson), so the curve never overshoots between two values. The data itself stays stepped.
+function smoothSteps(values) {
+  const out = values.map(() => null);
+  const n = values.length;
+  let i = 0;
+  while (i < n) {
+    if (!ok(values[i])) { i++; continue; }
+    let j = i;
+    while (j + 1 < n && ok(values[j + 1])) j++;
+    const xs = [], ys = [];
+    for (let k = i; k <= j; k++) if (k === i || values[k] !== values[k - 1]) { xs.push(k); ys.push(values[k]); }
+    if (xs[xs.length - 1] !== j) { xs.push(j); ys.push(values[j]); }
+    if (xs.length === 1) { out[xs[0]] = ys[0]; i = j + 1; continue; }
+    const d = xs.slice(1).map((x, k) => (ys[k + 1] - ys[k]) / (x - xs[k]));
+    const m = xs.map((_, k) => k === 0 ? d[0] : (k === xs.length - 1 ? d[k - 1]
+      : (d[k - 1] * d[k] <= 0 ? 0 : (d[k - 1] + d[k]) / 2)));
+    d.forEach((dk, k) => {
+      if (dk === 0) { m[k] = 0; m[k + 1] = 0; return; }
+      const a = m[k] / dk, b = m[k + 1] / dk, s = a * a + b * b;
+      if (s > 9) { const t = 3 / Math.sqrt(s); m[k] = t * a * dk; m[k + 1] = t * b * dk; }
+    });
+    for (let s = 0; s < xs.length - 1; s++) {
+      const x0 = xs[s], x1 = xs[s + 1], h = x1 - x0;
+      for (let k = x0; k <= x1; k++) {
+        const t = (k - x0) / h, t2 = t * t, t3 = t2 * t;
+        out[k] = (2 * t3 - 3 * t2 + 1) * ys[s] + (t3 - 2 * t2 + t) * h * m[s] +
+                 (-2 * t3 + 3 * t2) * ys[s + 1] + (t3 - t2) * h * m[s + 1];
+      }
+    }
+    i = j + 1;
+  }
+  return out;
+}
 
 // -- render -------------------------------------------------------------------------------------------------------
 
@@ -476,15 +516,17 @@ function renderCharts() {
   });
 
   const series = [
-    { name: '周收盘价', values: data.close, color: '#9aa1ab', width: 1.1 },
-    { name: '去噪中轨', values: data.mid, color: '#1f2328', width: 2.4 }
+    { name: '周收盘价', values: data.close, color: '#6b7280', width: 1.2 },
+    { name: '去噪中轨', values: data.mid, color: '#111111', width: 2.6 }
   ];
   const ribbons = [];
   for (const zone of ZONES) {
     if (!state.show[zone.key]) continue;
-    series.push({ name: zone.name, values: data.lines[zone.key], color: zone.color, width: 1.6,
-                  dash: zone.dash ? '6 4' : null, step: true, extra: true });
-    if (state.width > 0) ribbons.push({ lo: data.lines[zone.key], hi: near(data, zone), color: zone.color });
+    // drawn as a smooth curve for the eye only; the tooltip and every judgement use the real stepped values
+    series.push({ name: zone.name, values: smoothSteps(data.lines[zone.key]), tipValues: data.lines[zone.key],
+                  color: zone.color, width: 2.2, dash: zone.dash ? '9 5' : null, extra: true });
+    if (state.width > 0) ribbons.push({ lo: smoothSteps(data.lines[zone.key]), hi: smoothSteps(near(data, zone)),
+                                        color: zone.color, smooth: true });
   }
   if (state.show.band) {
     series.push({ name: '标准布林上轨', values: data.band.upper, color: '#b9c0ca', width: 1.1, dash: '4 3', extra: true });
@@ -505,7 +547,7 @@ function renderCharts() {
   $('slopeLegend').innerHTML =
     `<span class="chip"><i class="sw" style="background:#56B4E9"></i>中轨上升</span>` +
     `<span class="chip"><i class="sw" style="background:#E69F00"></i>中轨下降</span>` +
-    `<span class="chip"><i style="border-color:#0072B2;width:2px;height:11px;border-top:0;border-left:2px solid #0072B2"></i>预判点那一周</span>`;
+    `<span class="chip"><i style="border-color:#111;width:2px;height:11px;border-top:0;border-left:2px solid #111"></i>预判点那一周</span>`;
   drawChart($('slopeChart'), $('slopeTip'), {
     dates: data.weeks, height: 160, zoom: state.zoom, zero: true,
     bars: data.s_pct, vlines: [...marks],

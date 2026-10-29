@@ -8,14 +8,22 @@ numpy, like the rest of the project.
     python -X utf8 research/boll_v1/dashboard.py --open
 
 Then open http://127.0.0.1:8766 (the browser opens by itself with --open).
+
+No restart is ever needed after a code change: the page is read from disk on every request, the
+calculation module is reloaded when its file changes, and launching the dashboard again while an older
+copy holds the port shuts that copy down and starts the current one.
 """
 from __future__ import annotations
 
 import argparse
 import errno
+import hashlib
+import importlib
 import json
 import sys
 import threading
+import time
+import urllib.request
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -32,6 +40,19 @@ from leadtrend_bt import boll_weekly, ma_walk  # noqa: E402
 DEFAULT_DB = boll_weekly.DEFAULT_DB
 DEFAULT_STOCK = 'META'
 PORT = 8766
+SERVER_FILE = Path(__file__).resolve()
+MODULE_FILE = Path(boll_weekly.__file__).resolve()
+
+
+def code_version() -> str:
+    """Fingerprint of the server and calculation code; a running copy with another one is out of date."""
+    h = hashlib.sha256()
+    for path in (SERVER_FILE, MODULE_FILE):
+        h.update(path.read_bytes())
+    return h.hexdigest()[:16]
+
+
+VERSION = code_version()
 
 
 def _round(values, digits=6):
@@ -66,6 +87,15 @@ class Store:
         self.cache: dict[tuple, dict] = {}
         self.lock = threading.Lock()
         self._stocks: list[dict] | None = None
+        self.module_mtime = MODULE_FILE.stat().st_mtime
+
+    def _fresh(self):
+        """Reload the calculation module when its file changed, so an edit shows up without a restart."""
+        mtime = MODULE_FILE.stat().st_mtime
+        if mtime != self.module_mtime:
+            importlib.reload(boll_weekly)
+            self.cache.clear()
+            self.module_mtime = mtime
 
     def stocks(self) -> list[dict]:
         if self._stocks is None:
@@ -79,6 +109,7 @@ class Store:
             raise ValueError(f'{ticker} is outside {boll_weekly.SCOPE}')
         key = (ticker, int(quarter_n), float(width))
         with self.lock:
+            self._fresh()
             if key not in self.cache:
                 if len(self.cache) > 12:
                     self.cache.clear()
@@ -103,6 +134,7 @@ class Store:
 
 
 STORE: Store
+SERVER: HTTPServer | None = None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -137,6 +169,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(STORE.boll(query.get('security', DEFAULT_STOCK),
                                       int(query.get('quarter', boll_weekly.DEFAULT_QUARTER_N)),
                                       float(query.get('d', boll_weekly.DEFAULT_WIDTH))))
+            elif parsed.path == '/api/version':
+                self._json(dict(version=VERSION))
+            elif parsed.path == '/api/shutdown':
+                # asked by a newer launch of this dashboard; the server only listens on 127.0.0.1
+                self._json(dict(ok=True))
+                if SERVER is not None:
+                    threading.Thread(target=SERVER.shutdown, daemon=True).start()
             else:
                 self._json(dict(error='not found'), 404)
         except KeyError as error:
@@ -145,8 +184,16 @@ class Handler(BaseHTTPRequestHandler):
             self._json(dict(error=f'{type(error).__name__}: {error}'), 400)
 
 
+def _get(url: str) -> dict | None:
+    try:
+        with urllib.request.urlopen(url, timeout=3) as response:
+            return json.loads(response.read().decode('utf8'))
+    except Exception:
+        return None
+
+
 def main():
-    global STORE
+    global STORE, SERVER
     parser = argparse.ArgumentParser(description='weekly Bollinger prediction-point dashboard')
     parser.add_argument('--port', type=int, default=PORT)
     parser.add_argument('--db', default=DEFAULT_DB)
@@ -159,17 +206,37 @@ def main():
         allow_reuse_address = False
 
     url = f'http://127.0.0.1:{args.port}/'
-    try:
-        server = Server(('127.0.0.1', args.port), Handler)
-    except OSError as error:
-        busy = getattr(error, 'winerror', None) == 10048 or error.errno in (errno.EADDRINUSE, 48)
-        if not busy:
+
+    def bind():
+        try:
+            return Server(('127.0.0.1', args.port), Handler)
+        except OSError as error:
+            if getattr(error, 'winerror', None) == 10048 or error.errno in (errno.EADDRINUSE, 48):
+                return None
             raise
-        # a second launch is not an error: the dashboard is already up, so just point the browser at it
-        print(f'port {args.port} is already in use; the dashboard is already running at {url}', flush=True)
-        if args.open:
-            webbrowser.open(url)
-        return
+
+    server = bind()
+    if server is None:
+        running = _get(url + 'api/version')
+        if running and running.get('version') == VERSION:
+            # the same code is already serving: just point the browser at it
+            print(f'the dashboard is already running at {url}', flush=True)
+            if args.open:
+                webbrowser.open(url)
+            return
+        # an older copy holds the port: ask it to stop, then take the port over
+        print(f'an older dashboard is running at {url}; replacing it', flush=True)
+        _get(url + 'api/shutdown')
+        for _ in range(50):
+            time.sleep(0.1)
+            server = bind()
+            if server is not None:
+                break
+        if server is None:
+            print(f'port {args.port} is held by a copy that cannot be stopped from here; close its window '
+                  f'(or end that python process) and run this again', flush=True)
+            return
+    SERVER = server
     print(f'boll dashboard on {url}  (Ctrl+C to stop)', flush=True)
     if args.open:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()

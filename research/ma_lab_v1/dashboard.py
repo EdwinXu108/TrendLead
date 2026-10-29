@@ -31,7 +31,7 @@ from leadtrend_db import api             # noqa: E402
 import winrate                           # noqa: E402
 import fast_rows                         # noqa: E402
 
-DEFAULT_DB = str(ROOT / 'data' / 'db' / 'leadtrend_db_v1.sqlite')
+DEFAULT_DB = str(ROOT / 'data' / 'db' / 'leadtrend_db_v2.sqlite')
 FULL_DB = str(ROOT / 'data' / 'db' / 'leadtrend_db_full_v1.sqlite')
 WF2 = ROOT / 'research' / 'wf_v2'
 TYPES = ('sma', 'ema', 'wma', 'dema', 'tema', 'hma', 'kama')
@@ -283,7 +283,7 @@ class Store:
             return self.walks2[key]
 
     def stocks(self) -> list[dict]:
-        return ma_walk.stock_list(self.db, as_of='2024-06-28')
+        return ma_walk.stock_list(self.db, as_of='2026-10-29', scope='top50_v1')
 
 
 STORE: Store
@@ -313,29 +313,25 @@ class Handler(BaseHTTPRequestHandler):
                 self._send((HERE / 'dashboard.html').read_bytes(), 'text/html; charset=utf-8')
             elif parsed.path == '/api/stocks':
                 self._json(dict(stocks=STORE.stocks(), types=TYPES, fasts=FASTS, slows=SLOWS))
-            elif parsed.path == '/api/wf2':
-                self._json(STORE.wf2(query.get('security', 'MSFT'), query.get('segment', 'dev')))
-            elif parsed.path == '/api/wf2board':
-                name = f"wf2_{query.get('segment', 'dev')}.json"
-                path = WF2 / name
-                if not path.exists():
-                    self._json(dict(error=f'wf_v2 缓存还没生成（{name}）',
-                                    hint='python -X utf8 research/wf_v2/run_wf2.py'), 404)
-                else:
-                    payload = json.loads(path.read_text(encoding='utf8'))
-                    current = {row['ticker'] for row in ma_walk.stock_list(STORE.db)}
-                    legacy = {row['ticker'] for row in ma_walk.stock_list(STORE.db, legacy_union=True)}
-                    payload['late_entrants'] = sorted(legacy - current)
-                    self._json(payload)
+            elif parsed.path == '/api/scope':
+                import csv
+                with (ROOT / 'research/scope_top50_v1/quarters.csv').open(encoding='utf8', newline='') as f:
+                    quarters = list(csv.DictReader(f))
+                day = query.get('quarter', '2026-06-30')
+                selected = query.get('version') or next((x['version_id'] for x in quarters if x['quarter'] == day), '')
+                conn = api.connect(STORE.db)
+                rows = [dict(r) for r in conn.execute("""select sm.historical_rank as rank, sc.current_ticker as ticker, tc.issuer_name_at_period as company, tc.amount_cents/10000000000.0 as amount, tc.fund_weight_raw as weight from scope_members sm join pool_versions pv on pv.version_id=sm.version_id join strategy_companies sc on sc.version_id=sm.version_id and sc.issuer_id=sm.issuer_id join top200_companies tc on tc.version_id=sm.version_id and tc.issuer_id=sm.issuer_id where sm.scope='top50_v1' and pv.version_id=? order by sm.historical_rank""",(selected,))]
+                self._json(dict(quarters=quarters, selected=selected, members=rows))
             elif parsed.path == '/api/pool_ma':
-                summary_path = ROOT / 'research' / 'pool_ma_v1' / 'summary.json'
-                curves_path = ROOT / 'work' / 'pool_ma_v1' / 'curves.json'
+                summary_path = ROOT / 'research' / 'scope_top50_v1' / 'summary.json'
+                curves_path = ROOT / 'work' / 'scope_top50_v1' / 'curves.json'
                 if not summary_path.exists() or not curves_path.exists():
                     self._json(dict(error='组合实验的结果还没生成',
                                     hint='python -X utf8 research/pool_ma_v1/run_pool_ma.py'), 404)
                 else:
                     self._json(dict(summary=json.loads(summary_path.read_text(encoding='utf8')),
-                                    curves=json.loads(curves_path.read_text(encoding='utf8'))))
+                                    curves=json.loads(curves_path.read_text(encoding='utf8')),
+                                    baseline=json.loads((ROOT / 'research/pool_ma_v1/summary.json').read_text(encoding='utf8'))))
             elif parsed.path == '/api/leaderboard':
                 name = f"leaderboard_{query.get('freq', 'daily')}_{query.get('cash', 'zero')}.json"
                 path = HERE / name
@@ -343,8 +339,12 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(dict(error=f'排行榜还没生成（{name}）',
                                     hint='python -X utf8 research/ma_lab_v1/build_leaderboard.py'), 404)
                 else:
-                    self._send(path.read_bytes(), 'application/json; charset=utf-8')
+                    payload = json.loads(path.read_text(encoding='utf8'))
+                    allowed = {x['security_id'] for x in STORE.stocks()}
+                    payload['stocks'] = [x for x in payload['stocks'] if x['security_id'] in allowed]
+                    self._json(payload)
             elif parsed.path == '/api/overview':
+                if query.get('security', 'MSFT') not in {r['ticker'] for r in STORE.stocks()}: raise ValueError('security is outside top50_v1')
                 lab = STORE.lab(query.get('security', 'MSFT'), query.get('start', DEFAULT_START),
                                 query.get('end', DEFAULT_END), query.get('cash', 'zero'),
                                 query.get('freq', 'daily'))
@@ -352,6 +352,7 @@ class Handler(BaseHTTPRequestHandler):
                                 price=dict(dates=lab.window_days, tri=_round(lab.window_values / lab.window_values[0]),
                                            close=_round(lab.closes))))
             elif parsed.path == '/api/combo':
+                if query.get('security', 'MSFT') not in {r['ticker'] for r in STORE.stocks()}: raise ValueError('security is outside top50_v1')
                 lab = STORE.lab(query.get('security', 'MSFT'), query.get('start', DEFAULT_START),
                                 query.get('end', DEFAULT_END), query.get('cash', 'zero'),
                                 query.get('freq', 'daily'))

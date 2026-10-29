@@ -180,3 +180,14 @@ python -X utf8 -m leadtrend_bt.ma_lab --security MSFT --start 2014-02-28 --end 2
 **组合实验 pool_ma_v1。** 每周最后一个交易日，按当天生效的前 200 名单重建池子，固定 SMA 50/200，比较五个组合：全部等权、看多 + 现金、看多满仓、随机同数量（100 个种子）、VOO。计算在 `leadtrend_bt/ma_pool.py`，运行 `python -X utf8 research/pool_ma_v1/run_pool_ma.py`（约 25 秒），结果在 `research/pool_ma_v1/summary.json` 与 `report.md`，登记见 `research/pool_ma_v1/spec.md`，三个信号周的手工核对在 `check_weeks.py`。
 
 **看板。** 按 `docs/LeadTrend_看板规范.md` 重做为五页：组合实验（首页）、单股均线、单股滚动验证、滚动验证汇总、全市场排行。wf_v1 的两个页面与 `/api/wf`、`/api/wfboard` 已删除；组合实验读 `work/pool_ma_v1/curves.json` 与已提交的 `summary.json`，缺失时页面提示先运行脚本。
+
+
+## 2026-10-29 前 50 研究入口
+
+后续研究使用 `data/db/leadtrend_db_v2.sqlite` 与 `scope='top50_v1'`。SHA256 `8cc753a6bbca589d13e391191f345ce095976391789978eb18c31da74bd18285`。范围只筛选历史排名 1–50 且可选的公司，不补位；其余数据仍保留。v1 仅用于旧结果复现。
+
+```powershell
+D:\Tools\miniconda3\python.exe -X utf8 -B -m leadtrend_db.scope_release --base data/db/leadtrend_db_v1.sqlite --out data/db/leadtrend_db_v2.sqlite --manifest data/db/leadtrend_db_v2_manifest.json
+```
+
+配置字段 `scope` 默认 `None` 保留旧行为；新研究必须显式指定 `top50_v1`。当前看板四页为前 50 名单、组合实验、单股均线、前 50 排行。

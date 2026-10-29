@@ -101,11 +101,10 @@
 <header>
   <h1>LeadTrend</h1>
   <div class="tabs" id="tabs">
-    <button data-view="pool" class="on">组合实验</button>
+    <button data-view="scope" class="on">前 50 名单</button>
+    <button data-view="pool">组合实验</button>
     <button data-view="single">单股均线</button>
-    <button data-view="wf2">单股滚动验证</button>
-    <button data-view="wf2board">滚动验证汇总</button>
-    <button data-view="board">全市场排行</button>
+    <button data-view="board">前 50 排行</button>
   </div>
   <div class="ctrl" id="ctl-stock" hidden><label>股票</label>
     <input id="stock" list="stockList" placeholder="代码" autocomplete="off">
@@ -132,8 +131,14 @@
   <button class="act" id="ctl-reload" hidden>重新计算</button>
 </header>
 
-<main id="view-pool">
-  <p class="lead">只买均线看多的股票，比随机买同样多只股票更好吗？</p>
+<main id="view-scope">
+  <p class="lead">每个季度 VOO 前 50 是哪些公司？</p>
+  <label>季度 <select id="scopeQuarter"></select></label><div id="scopeState"></div>
+  <div class="scroll-y"><table id="scopeQuarters"></table></div>
+  <p id="scopeNote"></p><div class="scroll-y"><table id="scopeMembers"></table></div>
+</main>
+<main id="view-pool" hidden>
+  <p class="lead">在前 50 里只买均线看多的，比随机买同样多只更好吗？</p>
   <div id="poolState"></div>
   <div id="poolBody" hidden>
     <div class="card">
@@ -153,6 +158,7 @@
     <div class="card">
       <h2>组合表现</h2>
       <div class="scroll-x"><table id="poolTable"></table></div>
+      <h2>前 200 对照</h2><div class="scroll-x"><table id="baselineTable"></table></div>
       <div class="note">随机线只报分位，不报谷底日期与年内回撤。</div>
     </div>
     <div class="card">
@@ -179,7 +185,7 @@
 </main>
 
 <main id="view-single" hidden>
-  <p class="lead">一只股票的均线组合，历史上哪组最好？</p>
+  <p class="lead">一只前 50 股票的均线组合，历史上哪组最好？</p>
   <div class="layout">
     <section>
       <div class="card">
@@ -242,72 +248,16 @@
   </details>
 </main>
 
-<main id="view-wf2" hidden>
-  <p class="lead">每年重挑一次参数，这只股票表现如何？</p>
-  <div id="wf2State"></div>
-  <div id="wf2Body" hidden>
-    <div class="kpis" id="wf2Kpis"></div>
-    <div class="card">
-      <h2>三条线（起点 = 100）</h2>
-      <div class="legend" id="wf2Legend"></div>
-      <div class="chart" id="wf2Chart"><div class="tip" id="wf2Tip"></div></div>
-      <div class="note" id="wf2Note"></div>
-    </div>
-    <div class="card">
-      <h2>挑选 / 冻结的组合 <span class="sub" id="wf2PickMeta"></span></h2>
-      <div class="scroll-y"><table id="wf2Table"></table></div>
-      <div class="note" id="wf2PickNote"></div>
-    </div>
-  </div>
-  <details>
-    <summary>这页怎么读</summary>
-    <div class="body">
-      本股挑选：每年最后一个交易日，只用之前的数据，从 462 组里按 年化÷回撤 挑一组，下一年用它。<br>
-      一直持有：同一区间买入并持有。<br>
-      同仓位：不择时，一直只拿与本股挑选相同的平均仓位，其余现金。<br>
-      其余三条（共同参数、借参数、固定 50/200）可以勾选查看，默认关闭。
-    </div>
-  </details>
-</main>
 
-<main id="view-wf2board" hidden>
-  <p class="lead">本股挑选比对照线好多少？</p>
-  <div class="banner" id="wf2Banner"></div>
-  <div id="wf2BoardState"></div>
-  <div id="wf2BoardBody" hidden>
-    <div class="card">
-      <h2>六条线的中位数</h2>
-      <div class="scroll-x"><table id="wf2LinesTable"></table></div>
-    </div>
-    <div class="card">
-      <h2>本股挑选与谁比</h2>
-      <div class="scroll-x"><table id="wf2PairsTable"></table></div>
-      <div class="note">胜 = 本股挑选更好；差 = 本股挑选减对照。平 = 差的绝对值小于 1e-9。</div>
-    </div>
-    <div class="card">
-      <h2>逐股明细 <span class="sub" id="wf2BoardMeta"></span></h2>
-      <div class="scroll-y"><table id="wf2StocksTable"></table></div>
-      <div class="note">点一行进入该股的单股滚动验证；点列头排序。</div>
-    </div>
-  </div>
-  <details>
-    <summary>这页怎么读</summary>
-    <div class="body">
-      本股挑选：每年按本股回看区间的 年化÷回撤 挑一组。<br>
-      共同参数：每年全市场共用一组（各股回看中位最好、且在 90% 的股票上可参选）。<br>
-      借参数：每年把各股挑出的组合随机分给别的股票，20 个种子取中位。<br>
-      固定 50/200：从头到尾不换参数。一直持有：买入并持有。同仓位：按本股挑选的平均仓位固定持有。<br>
-      开发段评估从 2016 年底开始；保留段把 2024-06-28 冻结的参数原样用到 2026-06-30。
-    </div>
-  </details>
-</main>
 
-<main id="view-board" hidden>
+
+
+<main id="view-board" hidden><p class="note">样本内最优</p>
   <p class="lead">每只股票最好的均线组合是什么？</p>
   <div id="boardState"></div>
   <div id="boardBody" hidden>
     <div class="card">
-      <h2>全市场排行 <span class="sub" id="boardMeta"></span></h2>
+      <h2>前 50 排行 <span class="sub" id="boardMeta"></span></h2>
       <div class="row2" style="padding-top:6px">
         <div class="tabs" id="boardTabs">
           <button data-metric="total_return">总收益</button>
@@ -335,7 +285,7 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const state = {
-  info: null, view: 'pool',
+  info: null, view: 'scope',
   single: { data: null, type: 'sma', fast: 20, slow: 100, zoom: null },
   wf2: { data: null, segment: 'dev', zoom: null, show: { a: true, b: false, c: false, d: false, e: true, f: true } },
   wf2board: { data: null, segment: 'dev', subset: 'all', sort: 'a_cagr', dir: -1 },
@@ -366,6 +316,7 @@ const params = () => `security=${encodeURIComponent($('stock').value)}&start=${$
                      `&end=${$('end').value}&cash=${$('cash').value}&freq=${$('freq').value}`;
 
 const CONTROLS = {
+  scope: [],
   pool: [],
   single: ['stock', 'dates', 'cash', 'freq', 'reload'],
   wf2: ['stock', 'segment'],
@@ -375,7 +326,7 @@ const CONTROLS = {
 
 function setView(view) {
   state.view = view;
-  for (const name of ['pool', 'single', 'wf2', 'wf2board', 'board']) $('view-' + name).hidden = view !== name;
+  for (const name of ['scope', 'pool', 'single', 'board']) $('view-' + name).hidden = view !== name;
   $('tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.view === view));
   const shown = CONTROLS[view] || [];
   for (const name of ['stock', 'dates', 'cash', 'freq', 'segment', 'subset', 'reload']) {
@@ -384,10 +335,9 @@ function setView(view) {
   const url = new URL(location.href);
   url.searchParams.set('view', view);
   history.replaceState(null, '', url);
+  if (view === 'scope') loadScope();
   if (view === 'pool') loadPool();
   if (view === 'single') loadOverview();
-  if (view === 'wf2') loadWf2();
-  if (view === 'wf2board') loadWf2Board();
   if (view === 'board') loadBoard();
 }
 
@@ -533,6 +483,22 @@ function drawChart(container, tip, cfg) {
   svg.addEventListener('dblclick', () => setZoom(null));
 }
 
+
+async function loadScope() {
+  try {
+    const q = $('scopeQuarter').value;
+    const data = await getJSON('/api/scope' + (q ? '?version=' + encodeURIComponent(q) : ''));
+    $('scopeQuarter').innerHTML = data.quarters.map(x => `<option value="${x.version_id}">${x.quarter} ${x.source}</option>`).join('');
+    $('scopeQuarter').value = data.selected;
+    $('scopeQuarter').onchange = loadScope;
+    const fields = ['quarter','source','effective','eligible','empty','entered','exited','rank1','rank50','rank50_amount_100m','fund_weight'];
+    const heads = ['季度','来源','生效日','可选家数','空位','新进','退出','第 1 名','第 50 名','第 50 名金额（亿美元）','占基金'];
+    $('scopeQuarters').innerHTML = '<thead><tr>' + heads.map(x=>`<th>${x}</th>`).join('') + '</tr></thead><tbody>' + data.quarters.map(r=>'<tr>'+fields.map(k=>`<td>${(k === 'fund_weight' ? (100*Number(r[k])).toFixed(1)+'%' : k === 'rank50_amount_100m' ? Number(r[k]).toFixed(1) : r[k])}</td>`).join('')+'</tr>').join('')+'</tbody>';
+    $('scopeMembers').innerHTML = '<thead><tr><th>名次</th><th>代码</th><th>公司</th><th>持仓金额（亿美元）</th><th>占基金</th></tr></thead><tbody>' + data.members.map(x=>`<tr><td>${x.rank}</td><td>${x.ticker}</td><td>${x.company}</td><td>${x.amount.toFixed(1)}</td><td>${(100*x.weight).toFixed(1)}%</td></tr>`).join('')+'</tbody>';
+    const row = data.quarters.find(x=>x.version_id===data.selected); $('scopeNote').textContent = row && +row.empty ? `本季度留空 ${row.empty} 家，不补位。` : '';
+  } catch(e) { setState('scopeState', e.message, 'err'); }
+}
+
 // -- pool experiment -----------------------------------------------------------------------------------------------
 
 const POOL_LINES = [
@@ -646,6 +612,9 @@ function renderPool() {
     }
   }
   $('poolTable').innerHTML = html + '</tbody>';
+  const baseline=state.pool.data.baseline;
+  const labels={all_equal:'全部等权',long_plus_cash:'看多 + 现金',long_full:'看多满仓',voo:'VOO'};
+  $('baselineTable').innerHTML='<thead><tr><th>组合</th><th>年化</th><th>最大回撤</th><th>平均家数</th></tr></thead><tbody>'+Object.entries(baseline.portfolios).map(([k,v])=>`<tr><td>${labels[k]}</td><td>${(v.cagr*100).toFixed(1)}%</td><td>${(v.max_drawdown*100).toFixed(1)}%</td><td>${v.average_holdings.toFixed(1)}</td></tr>`).join('')+`<tr><td>随机中位</td><td>${(100*baseline.random.metrics.cagr.median).toFixed(1)}%</td><td>${(100*baseline.random.metrics.max_drawdown.median).toFixed(1)}%</td><td>—</td></tr></tbody>`;
 
   const beats = summary.random.beats;
   $('beatsTable').innerHTML = '<thead><tr><th class="left">指标</th><th>胜过（条）</th></tr></thead><tbody>' +
@@ -1207,7 +1176,7 @@ async function boot() {
     if (link.get('slow')) state.single.slow = +link.get('slow');
     if (link.get('segment') === 'holdout') { state.wf2.segment = 'holdout'; state.wf2board.segment = 'holdout'; }
     if (link.get('subset') === 'current') state.wf2board.subset = 'current';
-    const views = ['pool', 'single', 'wf2', 'wf2board', 'board'];
+    const views = ['scope', 'pool', 'single', 'board'];
     if (views.includes(link.get('view'))) state.view = link.get('view');
     $('segTabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.segment === state.wf2.segment));
     $('subsetTabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.subset === state.wf2board.subset));

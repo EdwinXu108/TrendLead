@@ -125,6 +125,8 @@ def _serve(db):
             results['wf'] = get('/api/wf?security=MSFT&start=2014-02-28&end=2024-06-28&cash=zero&freq=daily')
             results['wfboard'] = get('/api/wfboard?freq=daily&cash=zero')
             results['wf2board'] = get('/api/wf2board?segment=dev')
+            results['wf2'] = get('/api/wf2?security=MSFT')
+            results['scope'] = get('/api/scope')
         finally:
             server.shutdown()
 
@@ -142,16 +144,17 @@ def test_the_pool_endpoint_and_the_removed_wf_v1_endpoints():
     from leadtrend_db import api
     if not api.DB_PATH.exists():
         pytest.skip('released database is not present')
-    cache = ROOT / 'work' / 'pool_ma_v1' / 'curves.json'
+    cache = ROOT / 'work' / 'scope_top50_v1' / 'curves.json'
     if not cache.exists():
         pytest.skip('the pool experiment has not been run')
-    results = _serve(api.DB_PATH)
+    results = _serve(api.DB_V2_PATH)
     status, pool = results['pool']
     assert status == 200 and {'summary', 'curves'} <= set(pool)
     assert pool['curves']['dates'] and pool['curves']['weekly']
     assert pool['summary']['random']['beats']['cagr'] <= pool['summary']['random']['seeds']
     assert results['wf'][0] == 404 and results['wfboard'][0] == 404
-    status, board = results['wf2board']
-    assert status == 200 and board['stocks'] and len(board['late_entrants']) == 39
-    first = board['stocks'][0]
-    assert {'ticker', 'lines', 'diffs'} <= set(first)
+    assert results['wf2board'][0] == 404 and results['wf2'][0] == 404
+    assert results['scope'][0] == 200 and len(results['scope'][1]['quarters']) == 52
+    html = (ROOT / 'research/ma_lab_v1/dashboard.html').read_text(encoding='utf8')
+    for view in ('scope','pool','single','board'): assert f'id="view-{view}"' in html
+    for view in ('wf2','wf2board'): assert f'id="view-{view}"' not in html

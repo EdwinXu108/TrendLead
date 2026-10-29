@@ -166,9 +166,10 @@ def load(db_path=None, scope: str = SCOPE, start: str = START, end: str = END,
     bench_returns = np.full(bench_closes.size, np.nan)
     bench_returns[1:] = bench_closes[1:] / bench_closes[:-1] - 1
 
-    zone = boll_weekly.market_zone(db_path, quarter_n=8, width=0.5, end=end)
+    zone = boll_weekly.market_zone(db_path, quarter_n=8, width=0.5, end=end,
+                                   allow_holdout=allow_holdout, batch=batch)
     levels = [int(zone['level'].get(day, 0)) for day in weeks]
-    permit = voo_permission(weeks, db_path, end)
+    permit = voo_permission(weeks, db_path, end, allow_holdout=allow_holdout, batch=batch)
     concentrated_c, armed = armed_concentrated(levels, permit)
 
     versions: dict[str, list[dict]] = {}

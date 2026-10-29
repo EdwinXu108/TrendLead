@@ -1,0 +1,9 @@
+﻿run_id,portfolio,normal,concentrated
+PF3_VOO,VOO,VOO 买入持有,—
+PF3_EW10,EW10,前 10 等权,同平时
+PF3_TILT_B,TILT_B*,前 10 等权,前 10 里贝塔最高的 5 只
+PF3_WGT5,WGT5,权重名次最小的 5 只,同平时
+PF3_WB5,WB5,前 10 里权重名次+贝塔名次最小的 5 只,同平时
+PF3_EW10_VOL,EW10_VOL,前 10 等权,前 20 里 52 周波动最高的 10 只
+PF3_WGT5_VOL,WGT5_VOL,权重名次最小的 5 只,前 20 里 52 周波动最高的 10 只
+PF3_WB5_VOL,WB5_VOL,前 10 里权重名次+贝塔名次最小的 5 只,前 20 里 52 周波动最高的 10 只

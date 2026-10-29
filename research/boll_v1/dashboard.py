@@ -1,8 +1,9 @@
-"""Local dashboard for the weekly Bollinger prediction points.
+"""Local dashboard for the weekly Bollinger prediction points and monthly/quarterly zones.
 
 A copy of `research/ma_lab_v1/dashboard.py` cut down to one page: for every stock in the top 50 the weekly
-close, the 20-week Hann mid line and the weeks where the mid line is predicted to stop falling. Only the
-standard library and numpy, like the rest of the project.
+close, the 20-week Hann mid line, the weeks where the mid line is predicted to stop falling, and the four
+monthly/quarterly zone lines with the weeks that sit near or below them. Only the standard library and
+numpy, like the rest of the project.
 
     python -X utf8 research/boll_v1/dashboard.py --open
 
@@ -62,7 +63,7 @@ def clean(value):
 class Store:
     def __init__(self, db_path: str):
         self.db = db_path
-        self.cache: dict[str, dict] = {}
+        self.cache: dict[tuple, dict] = {}
         self.lock = threading.Lock()
         self._stocks: list[dict] | None = None
 
@@ -71,16 +72,18 @@ class Store:
             self._stocks = ma_walk.stock_list(self.db, scope=boll_weekly.SCOPE)
         return self._stocks
 
-    def boll(self, ticker: str) -> dict:
-        key = ticker.upper()
-        if key not in {row['ticker'].upper() for row in self.stocks()}:
+    def boll(self, ticker: str, quarter_n: int = boll_weekly.DEFAULT_QUARTER_N,
+             width: float = boll_weekly.DEFAULT_WIDTH) -> dict:
+        ticker = ticker.upper()
+        if ticker not in {row['ticker'].upper() for row in self.stocks()}:
             raise ValueError(f'{ticker} is outside {boll_weekly.SCOPE}')
+        key = (ticker, int(quarter_n), float(width))
         with self.lock:
             if key not in self.cache:
                 if len(self.cache) > 12:
                     self.cache.clear()
-                data = boll_weekly.series(key, self.db)
-                name = next((row['name'] for row in self.stocks() if row['ticker'].upper() == key), '')
+                data = boll_weekly.series(ticker, self.db, quarter_n=int(quarter_n), width=float(width))
+                name = next((row['name'] for row in self.stocks() if row['ticker'].upper() == ticker), '')
                 data['meta']['name'] = name
                 data['s_pct'] = _round(data['s_pct'])
                 for field in ('close', 'mid', 's'):
@@ -90,6 +93,11 @@ class Store:
                 for mark in data['marks']:
                     mark['mid'] = round(mark['mid'], 6)
                     mark['close'] = round(mark['close'], 6)
+                for field, values in data['lines'].items():
+                    data['lines'][field] = _round(values)
+                for row in data['zone_rows']:
+                    row['start_close'] = round(row['start_close'], 6)
+                    row['min_close'] = round(row['min_close'], 6)
                 self.cache[key] = data
             return self.cache[key]
 
@@ -121,9 +129,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._send((HERE / 'dashboard.html').read_bytes(), 'text/html; charset=utf-8')
             elif parsed.path == '/api/stocks':
                 self._json(dict(stocks=STORE.stocks(), default=DEFAULT_STOCK,
-                                start=boll_weekly.DEV_START, end=boll_weekly.DEV_END))
+                                start=boll_weekly.DEV_START, end=boll_weekly.DEV_END,
+                                quarters=list(boll_weekly.QUARTER_NS), widths=list(boll_weekly.WIDTHS),
+                                default_quarter=boll_weekly.DEFAULT_QUARTER_N,
+                                default_width=boll_weekly.DEFAULT_WIDTH))
             elif parsed.path == '/api/boll':
-                self._json(STORE.boll(query.get('security', DEFAULT_STOCK)))
+                self._json(STORE.boll(query.get('security', DEFAULT_STOCK),
+                                      int(query.get('quarter', boll_weekly.DEFAULT_QUARTER_N)),
+                                      float(query.get('d', boll_weekly.DEFAULT_WIDTH))))
             else:
                 self._json(dict(error='not found'), 404)
         except KeyError as error:

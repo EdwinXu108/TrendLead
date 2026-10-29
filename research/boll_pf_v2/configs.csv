@@ -1,0 +1,2 @@
+﻿run_id,portfolio,name,rule
+PF2_TILT_C,TILT_C,前 10 + 等 VOO 周线再集中（持有满 52 周）,每段市场关注区第一周起准备；VOO 周线 s≥0 或预判点时开始集中并计时；满 52 周且市场已离开关注区时结束；其余同 TILT_B

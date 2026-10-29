@@ -1,0 +1,7 @@
+﻿run_id,portfolio,name,rule
+PF_VOO,VOO,VOO 买入持有,BENCH:VOO 总回报买入持有
+PF_EW50,EW50,前 50 等权,当周池子里全部代表证券各 1/M
+PF_EW10,EW10,前 10 等权,historical_rank 1-10 的公司各取代表证券，各 1/10
+PF_CW10,CW10,前 10 按市值,前 10 按公司金额（pool_company_amounts）加权
+PF_TILT_A,TILT_A,前 10 + 关注区集中（市场离开就恢复）,市场关注区周用高贝塔的一半等权，其他周同 EW10
+PF_TILT_B,TILT_B,前 10 + 关注区集中（持有满 52 周）,集中状态从每段市场关注区第一周起，直到满 52 周且市场已离开；集中周每周重选高贝塔的一半

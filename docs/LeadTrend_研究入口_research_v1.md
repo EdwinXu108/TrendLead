@@ -194,4 +194,4 @@ D:\Tools\miniconda3\python.exe -X utf8 -B -m leadtrend_db.scope_release --base d
 
 配置字段 `scope` 默认 `None` 保留旧行为；新研究必须显式指定 `top50_v1`。当前看板四页为前 50 名单、组合实验、单股均线、前 50 排行。
 
-**周线布林预判点 boll_v1。** 前 50 的 83 只股票，每周收盘做 20 周余弦加权中轨，用一阶导 `s` 与二阶导 `a` 标出“中轨还在下降、但按这一周的减速速度再推一周就止跌”的周（`s < 0` 且 `s + a ≥ 0`），并统计从预判到回正的相隔周数、期间最多再跌与回正那周的涨幅。计算在 `leadtrend_bt/boll_weekly.py`，登记见 `research/boll_v1/spec.md`。看板是原看板的复制品、只留这一页：`python -X utf8 research/boll_v1/dashboard.py --open`，端口 8766，原看板 8765 不受影响。
+**周线布林预判点 boll_v1。** 前 50 的 83 只股票，每周收盘做 20 周余弦加权中轨，用一阶导 `s` 与二阶导 `a` 标出“中轨还在下降、但按这一周的减速速度再推一周就止跌”的周（`s < 0` 且 `s + a ≥ 0`），并统计从预判到回正的相隔周数、期间最多再跌与回正那周的涨幅。计算在 `leadtrend_bt/boll_weekly.py`，登记见 `research/boll_v1/spec.md`。看板是原看板的复制品、只留这一页：双击仓库根目录的 `boll_dashboard.bat`（或运行 `python -X utf8 research/boll_v1/dashboard.py --open`），端口 8766，原看板 8765 不受影响。

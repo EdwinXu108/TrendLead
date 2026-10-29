@@ -1,8 +1,8 @@
 {
   "authorized_by": "investor",
-  "date": "2026-10-29",
-  "scope": "wf_v2",
+  "date": "2026-10-30",
+  "scope": ["wf_v2", "boll_pf_v1", "boll_pf_v2", "boll_pf_v3", "pick_v1"],
   "window": ["2024-07-01", "2026-06-30"],
-  "database": "data/db/leadtrend_db_full_v1.sqlite",
-  "rule": "保留段只检验截至 2024-06-28 冻结的参数与对照，不参与选参；登记后只跑一次"
+  "database": "wf_v2 用 data/db/leadtrend_db_full_v1.sqlite；其余四批用 data/db/leadtrend_db_full_v2.sqlite",
+  "rule": "保留段已部分看过，结果只作参考、不作检验；参数全部冻结为开发段登记的样子，登记后只跑一次"
 }

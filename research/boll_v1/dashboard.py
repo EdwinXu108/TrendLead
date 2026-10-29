@@ -87,6 +87,7 @@ class Store:
         self.cache: dict[tuple, dict] = {}
         self.lock = threading.Lock()
         self._stocks: list[dict] | None = None
+        self.depths: dict[int, dict] = {}
         self.module_mtime = MODULE_FILE.stat().st_mtime
 
     def _fresh(self):
@@ -95,7 +96,34 @@ class Store:
         if mtime != self.module_mtime:
             importlib.reload(boll_weekly)
             self.cache.clear()
+            self.depths.clear()
             self.module_mtime = mtime
+
+    def rank(self, week: str, quarter_n: int) -> dict:
+        """Every stock's depth below its own quarterly mid line in one week, deepest first."""
+        key = int(quarter_n)
+        with self.lock:
+            self._fresh()
+            if key not in self.depths:
+                self.depths[key] = {row['ticker']: boll_weekly.depth_series(row['ticker'], self.db, quarter_n=key)
+                                    for row in self.stocks()}
+            table = self.depths[key]
+        rows = []
+        for row in self.stocks():
+            item = table[row['ticker']]
+            try:
+                k = item['weeks'].index(week)
+            except ValueError:
+                continue
+            if item['depth'][k] is None:
+                continue
+            rows.append(dict(ticker=row['ticker'], name=row['name'], depth=round(item['depth'][k], 4),
+                             gap=None if item['gap'][k] is None else round(item['gap'][k], 6),
+                             trend=item['trend'][k]))
+        rows.sort(key=lambda r: (r['depth'], r['ticker']))
+        for k, row in enumerate(rows, 1):
+            row['rank'] = k
+        return dict(week=week, quarter_n=key, count=len(rows), rows=rows)
 
     def stocks(self) -> list[dict]:
         if self._stocks is None:
@@ -169,6 +197,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(STORE.boll(query.get('security', DEFAULT_STOCK),
                                       int(query.get('quarter', boll_weekly.DEFAULT_QUARTER_N)),
                                       float(query.get('d', boll_weekly.DEFAULT_WIDTH))))
+            elif parsed.path == '/api/rank':
+                self._json(STORE.rank(query['week'], int(query.get('quarter', boll_weekly.DEFAULT_QUARTER_N))))
             elif parsed.path == '/api/version':
                 self._json(dict(version=VERSION))
             elif parsed.path == '/api/shutdown':

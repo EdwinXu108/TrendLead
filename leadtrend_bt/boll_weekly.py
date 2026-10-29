@@ -37,14 +37,17 @@ BAND_K = 2.0
 MONTHLY_N = 20
 QUARTER_NS = (20, 8)
 WIDTHS = (0.0, 0.5, 1.0)
-DEFAULT_QUARTER_N = 20
+# 8 quarters by default: with prices from 2012-12 the standard 20 only exists from late 2017, and in the
+# development segment just 11 of the 83 stocks ever closed below the 20-quarter lower band
+DEFAULT_QUARTER_N = 8
 DEFAULT_WIDTH = 0.5
+MARKET = 'VOO'
 
-# (key, Chinese name, strength, strength name); 3 最强, 2 次强, 1 较弱
+# (key, Chinese name, strength, strength name); 3 最强, 2 次强. The monthly mid line is no longer a zone:
+# on its own it was followed by the same returns as weeks outside every zone (2026-10-29 statistics).
 ZONES = (('q_lower', '季线下轨', 3, '最强'),
          ('m_lower', '月线下轨', 2, '次强'),
-         ('q_mid', '季线中轨', 2, '次强'),
-         ('m_mid', '月线中轨', 1, '较弱'))
+         ('q_mid', '季线中轨', 2, '次强'))
 
 
 def weights(n: int = WINDOW) -> np.ndarray:
@@ -224,6 +227,88 @@ def details(weeks: list[str], closes, s, a, start: str = DEV_START, end: str = D
     return rows
 
 
+def trend_states(s, a) -> list[str]:
+    """Weekly mid line: 'up' (not falling), 'turning' (prediction point), 'down'."""
+    pred = is_prediction(s, a)
+    return ['up' if np.isfinite(x) and x >= 0 else ('turning' if p else 'down') for x, p in zip(s, pred)]
+
+
+_MARKET: dict = {}
+
+
+def market_zone(db_path: str | None = None, quarter_n: int = DEFAULT_QUARTER_N,
+                width: float = DEFAULT_WIDTH, end: str = DEV_END) -> dict:
+    """The market's own zones: VOO weekly closes against its monthly and quarterly bands, same rules as a stock.
+
+    This is the switch for *when* to look for buys; a stock's depth below its own quarterly mid then says *which*.
+    `level` maps every VOO week (last session of the week) to 3, 2 or 0.
+    """
+    db = db_path or DEFAULT_DB
+    key = (db, int(quarter_n), float(width), end)
+    if key not in _MARKET:
+        bars = api.benchmark_bars('1900-01-01', end, db)
+        days = sorted(bars)
+        values = [bars[d]['close'] for d in days]
+        weeks, closes = weekly_closes(days, values)
+        month = dict(zip(('days', 'values'), period_closes(days, values, 'month')))
+        quarter = dict(zip(('days', 'values'), period_closes(days, values, 'quarter')))
+        month.update(band_stats(month.pop('values'), MONTHLY_N))
+        quarter.update(band_stats(quarter.pop('values'), int(quarter_n)))
+        flags = zone_flags(weeks, closes, month, quarter, float(width))
+        levels = zone_levels(flags)
+        _MARKET[key] = dict(weeks=weeks, level={w: int(v) for w, v in zip(weeks, levels)},
+                            names={w: zone_names(flags, k) for k, w in enumerate(weeks)})
+    return _MARKET[key]
+
+
+def market_episodes(market: dict, start: str = DEV_START, end: str = DEV_END) -> list[dict]:
+    """Uninterrupted runs of weeks with the market in a zone, with the strongest level reached."""
+    weeks = [w for w in market['weeks'] if start <= w <= end]
+    rows, first = [], None
+    for k, week in enumerate(weeks + [None]):
+        on = week is not None and market['level'][week] >= 2
+        if on and first is None:
+            first = k
+        elif not on and first is not None:
+            run = weeks[first:k]
+            rows.append(dict(start=run[0], end=run[-1], weeks=len(run),
+                             strongest=max(market['level'][w] for w in run)))
+            first = None
+    return rows
+
+
+def depth(close, quarterly: dict) -> np.ndarray:
+    """How far each weekly close sits from the quarterly mid line, in quarterly sigmas (negative = below)."""
+    close = np.asarray(close, dtype=float)
+    mid, sd = quarterly['mid'], quarterly['sd']
+    out = np.full(close.size, np.nan)
+    ok = np.isfinite(mid) & np.isfinite(sd) & (sd > 0)
+    out[ok] = (close[ok] - mid[ok]) / sd[ok]
+    return out
+
+
+def depth_series(security: str, db_path: str | None = None, quarter_n: int = DEFAULT_QUARTER_N,
+                 end: str = DEV_END, start: str = DEV_START) -> dict:
+    """A light version of `series` for ranking all stocks in one week: depth and weekly trend per week."""
+    db = db_path or DEFAULT_DB
+    sid = ma_lab.resolve_security(security, db)
+    rows = api.tri_series([sid], '1900-01-01', end, db)[sid]
+    days, values = [r[0] for r in rows], [r[1] for r in rows]
+    weeks_all, closes_all = weekly_closes(days, values)
+    s_all, a_all = derivatives(hann_mid(closes_all))
+    states = trend_states(s_all, a_all)
+    quarter = dict(zip(('days', 'values'), period_closes(days, values, 'quarter')))
+    quarter.update(band_stats(quarter.pop('values'), int(quarter_n)))
+    keep = [i for i, week in enumerate(weeks_all) if start <= week <= end]
+    weeks = [weeks_all[i] for i in keep]
+    close = np.asarray([closes_all[i] for i in keep], dtype=float)
+    q = line_for(weeks, quarter['days'], quarter)
+    d = depth(close, q)
+    return dict(weeks=weeks, depth=[float(x) if np.isfinite(x) else None for x in d],
+                gap=[float(c / m - 1) if np.isfinite(m) and m > 0 else None for c, m in zip(close, q['mid'])],
+                trend=[states[i] for i in keep])
+
+
 def series(security: str, db_path: str | None = None, end: str = DEV_END, start: str = DEV_START,
            quarter_n: int = DEFAULT_QUARTER_N, width: float = DEFAULT_WIDTH) -> dict:
     """One security's weekly closes, mid line, prediction points and the four zone lines.
@@ -292,6 +377,11 @@ def series(security: str, db_path: str | None = None, end: str = DEV_END, start:
     def line_out(values):
         return [None if not np.isfinite(v) else float(v) * factor for v in values]
 
+    market = market_zone(db, int(quarter_n), float(width), end)
+    market_level = [market['level'].get(week, 0) for week in weeks]
+    stock_depth = depth(close_raw, quarterly_line)
+    states = trend_states(s_all, a_all)
+
     return dict(
         meta=dict(ticker=security.upper(), security_id=sid, start=start, end=end, weeks=len(weeks),
                   first_week=weeks[0] if weeks else None, last_week=weeks[-1] if weeks else None,
@@ -309,6 +399,12 @@ def series(security: str, db_path: str | None = None, end: str = DEV_END, start:
                    q_lower=line_out(quarterly_line['lower']), q_mid=line_out(quarterly_line['mid']),
                    m_sd=line_out(monthly_line['sd']), q_sd=line_out(quarterly_line['sd'])),
         levels=[int(x) for x in levels],
+        market_level=market_level,
+        market_names=[market['names'].get(week, []) for week in weeks],
+        market_episodes=market_episodes(market, start, end),
+        stock_only=[bool(lv >= 2 and m < 2) for lv, m in zip(levels, market_level)],
+        depth=[float(x) if np.isfinite(x) else None for x in stock_depth],
+        trend=[states[i] for i in keep],
         zone_weeks=[zone_names(flags, k) for k in range(len(weeks))],
         zone_rows=rows_zones,
         zone_summary={key: dict(name=name, strength=strength, strength_name=label,

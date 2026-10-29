@@ -97,7 +97,8 @@ def test_api_returns_meta_and_both_quarter_lengths():
     results = _serve(api.DB_V2_PATH, {
         'default': '/api/boll?security=META',
         'q20': '/api/boll?security=META&quarter=20&d=0.5',
-        'q8': '/api/boll?security=META&quarter=8&d=0.5'})
+        'q8': '/api/boll?security=META&quarter=8&d=0.5',
+        'rank': '/api/rank?week=2023-10-27&quarter=8'})
     status, data = results['default']
     assert status == 200
     assert data['meta']['ticker'] == 'META' and data['meta']['weeks'] == len(data['weeks'])
@@ -105,14 +106,26 @@ def test_api_returns_meta_and_both_quarter_lengths():
     assert [p['date'] for p in data['points']] == ['2014-07-03', '2017-02-10', '2018-06-08', '2019-02-15',
                                                    '2019-11-22', '2020-05-29', '2021-04-01', '2023-01-27']
     assert [m['date'] for m in data['marks']] == [p['date'] for p in data['points']]
-    assert (data['params']['quarter_n'], data['params']['width']) == (20, 0.5)
-    # the four zones over the 540-week development window, checked against the reference table
-    for name, expected in (('q20', {'q_lower': 6, 'm_lower': 52, 'q_mid': 75, 'm_mid': 119}),
-                           ('q8', {'q_lower': 39, 'm_lower': 52, 'q_mid': 112, 'm_mid': 119})):
+    assert (data['params']['quarter_n'], data['params']['width']) == (8, 0.5)
+    # the three zones over the 540-week development window, checked against the reference table; the monthly
+    # mid line is no longer a zone
+    for name, expected in (('q20', {'q_lower': 6, 'm_lower': 52, 'q_mid': 75}),
+                           ('q8', {'q_lower': 39, 'm_lower': 52, 'q_mid': 112})):
         assert results[name][0] == 200
         zones = results[name][1]['zone_summary']
         assert {key: item['weeks'] for key, item in zones.items()} == expected
         assert results[name][1]['params']['quarter_n'] == int(name[1:])
+    # the market switch: VOO in a zone on 104 of the 540 weeks (99 次强, 5 最强), in 10 runs
+    q8 = results['q8'][1]
+    assert sum(level >= 2 for level in q8['market_level']) == 104
+    assert sum(level == 3 for level in q8['market_level']) == 5
+    assert len(q8['market_episodes']) == 10
+    assert all(not only or (own >= 2 and market < 2)
+               for only, own, market in zip(q8['stock_only'], q8['levels'], q8['market_level']))
+    status, rank = results['rank']
+    assert status == 200 and rank['count'] == 83
+    depths = [row['depth'] for row in rank['rows']]
+    assert depths == sorted(depths) and [row['rank'] for row in rank['rows']] == list(range(1, 84))
 
 
 def _synthetic_months(n_months: int = 72):

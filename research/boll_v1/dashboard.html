@@ -94,11 +94,11 @@
 </header>
 
 <main>
-  <p class="lead">价格什么时候进入月线、季线的关注区？周线中轨什么时候被预判止跌？</p>
+  <p class="lead">市场（VOO）什么时候进入关注区？那时哪些股票跌得最深？</p>
   <div id="pageState" class="state">正在读取…</div>
   <div id="pageBody" hidden>
     <div class="card">
-      <h2>最新一周离各条线有多远 <span class="sub" id="tilesMeta"></span></h2>
+      <h2>最新一周 <span class="sub" id="tilesMeta"></span></h2>
       <div class="tiles" id="tiles"></div>
     </div>
 
@@ -106,7 +106,21 @@
       <h2>周线价格与关注区 <span class="sub" id="priceMeta"></span></h2>
       <div class="legend" id="priceLegend"></div>
       <div class="chart" id="priceChart"><div class="tip" id="priceTip"></div></div>
-      <div class="note">底色越深，这一周所处的关注区越强；线旁的浅色带就是“附近”的范围。拖动可放大，双击复位，下方导数图跟着一起缩放。</div>
+      <div class="note">橙色底色 = 市场（VOO）在关注区，这是找买点的总开关；灰色底色 = 只有这只股票自己跌进关注区、市场正常，统计上和平常差不多，要看基本面。线旁的浅色带是“附近”的范围。拖动可放大，双击复位，下方两张图跟着一起缩放。</div>
+    </div>
+
+    <div class="card">
+      <h2>离自己季线中轨多远（σ） <span class="sub" id="depthMeta"></span></h2>
+      <div class="legend" id="depthLegend"></div>
+      <div class="chart" id="depthChart"><div class="tip" id="depthTip"></div></div>
+      <div class="note">负数 = 价格在自己季线中轨下方，越负跌得越深。市场在关注区时，越深的股票之后表现越好（统计见“这页怎么读”）。</div>
+    </div>
+
+    <div class="card">
+      <h2>市场在关注区的那一周：83 只股票谁跌得最深 <span class="sub" id="rankMeta"></span></h2>
+      <div class="legend"><span class="title">选一周</span><select id="rankWeek" style="width:auto"></select>
+        <span class="title">点一行就切换到那只股票</span></div>
+      <div class="scroll-y"><table id="rankTable"></table></div>
     </div>
 
     <div class="card">
@@ -149,10 +163,18 @@
       σ 为这 20 根的总体标准差，下轨 = 中轨 − 2σ；季线同样算法，期数可选 20 或 8；不满期数的位置为空。<br>
       <b>每周用哪根线：</b>第 t 周用“日期 ≤ 这一周的最近一根月 K 线（季 K 线）”算出的中轨、下轨和 σ，
       所以线在一个月（季）内不变，不偷看未来。图上为了好看把这些台阶画成平滑曲线（在每个新值生效的那一周打点，用不会冲过头的三次曲线连起来），只是画法；鼠标提示里的数和所有关注区判断都用真实的台阶值。<br>
-      <b>关注区：</b>共四种——季线下轨、月线下轨、季线中轨、月线中轨。第 t 周的周收盘 ≤ 该线 + d × 该线所属周期的 σ，
-      就算处在那种关注区；d 取 0、0.5、1，0 就是收盘碰到或跌破这条线；线为空的周不算。图上线旁的浅色带就是从线到线 + dσ 的范围。<br>
-      <b>强弱：</b>最强 = 季线下轨；次强 = 月线下轨或季线中轨（两者同级）；较弱 = 月线中轨。价格图的底色取这一周所处的最强等级。<br>
-      <b>最新一周：</b>开发段最后一周的周收盘比各条线高（正）或低（负）多少；卡片变色表示这一周处在那种关注区。<br>
+      <b>关注区：</b>三种——季线下轨、月线下轨、季线中轨。第 t 周的周收盘 ≤ 该线 + d × 该线所属周期的 σ，
+      就算处在那种关注区；d 取 0、0.5、1，0 就是收盘碰到或跌破这条线；线为空的周不算。图上线旁的浅色带就是从线到线 + dσ 的范围。
+      月线中轨不再算关注区（统计上只碰月线中轨，之后和不在关注区一样），只作为一条可勾选的线。<br>
+      <b>强弱：</b>最强 = 季线下轨；次强 = 月线下轨或季线中轨。<br>
+      <b>市场关注区（总开关）：</b>VOO 的周收盘按同样的月线、季线规则判断，等级 ≥ 次强就算市场在关注区，图上是橙色底色（碰季线下轨更深）。
+      2026-10-29 的统计（83 只股票、开发段 44046 个周）：市场在关注区的周，不挑股票全部买入，12 个月比平常多 9.4 个百分点、上涨 77%；
+      只看个股自己的关注区，是多 7.9、上涨 72%，而且之后再跌超 15% 的更多。<br>
+      <b>只有个股在关注区（灰色底色）：</b>市场正常、只有这只股票自己跌进关注区。统计上 12 个月上涨 70%，和平常一样，结果很分散；
+      最差的几次多是公司自己出了问题（PYPL 2021、GE 2017、BA 2019），或者比大盘先跌（META、AMZN、NFLX 2022 年 1 月）。用价格分不出好坏，要看基本面。<br>
+      <b>离自己季线中轨多远：</b>（周收盘 − 季线中轨）÷ 季线 σ，用的是当周有效的季线。市场在关注区时，季线中轨下方 1σ 以上的股票，
+      12 个月比平常多 24.7 个百分点；在中轨上方的只多 1–3 个百分点。排序表就是按这个数从深到浅排。<br>
+      <b>最新一周：</b>开发段最后一周的市场状态、这只股票离各条线有多远、在 83 只里的深度排名。<br>
       纵轴按价格与去噪中轨定范围；离价格太远的线不硬塞进图里，会在图底部标出“在图下方”。<br>
       <b>下轨为什么会是负数：</b>下轨 = 中轨 − 2σ。如果一只股票 20 个月（季）里涨了好几倍，这 20 个收盘价差得很远，σ 会超过中轨的一半，
       下轨就算到 0 以下。这是布林线公式本身的结果，看盘软件用同样的公式也会这样；负的下轨意味着价格不可能碰到它，所以那几周不算进这种关注区。
@@ -165,19 +187,21 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-// one hue, three clearly different lightness steps, so the strength reads without telling hues apart
-const SHADE = { 3: '#F9B54C', 2: '#FCD994', 1: '#FFF0CF' };
-const SHADE_LABEL = { 3: '最强：季线下轨', 2: '次强：月线下轨或季线中轨', 1: '较弱：月线中轨' };
-// zone lines in strength order; `sd` names the sigma line of the same period
-const ZONES = [
-  // blue against dark brown: different hue and very different lightness, safe for red-green colour weakness;
-  // lower bands are solid, mid lines dashed
+// background: the market switch in one orange hue (darker = VOO at its quarterly lower band), and a neutral
+// grey for weeks where only this stock sits in a zone; told apart by lightness, not by hue
+const SHADE = { m3: '#F9B54C', m2: '#FCD994', s: '#E2E4E8' };
+const SHADE_LABEL = { m3: '市场最强：VOO 碰季线下轨', m2: '市场（VOO）在关注区', s: '只有这只股票在关注区（市场正常）' };
+// the lines on the price chart; `sd` names the sigma line of the same period. Blue against dark brown differ
+// in hue and strongly in lightness, safe for red-green colour weakness; lower bands solid, mid lines dashed
+const LINES = [
   { key: 'q_lower', name: '季线下轨', color: '#7A3E00', dash: false, sd: 'q_sd' },
   { key: 'm_lower', name: '月线下轨', color: '#0072B2', dash: false, sd: 'm_sd' },
   { key: 'q_mid',   name: '季线中轨', color: '#7A3E00', dash: true,  sd: 'q_sd' },
   { key: 'm_mid',   name: '月线中轨', color: '#0072B2', dash: true,  sd: 'm_sd' }
 ];
-const state = { data: null, zoom: null, quarter: 20, width: 0.5,
+const ZONES = LINES.filter(z => z.key !== 'm_mid');      // the monthly mid line is drawn but no longer a zone
+const TREND = { up: '上升', turning: '预判到 0', down: '下降' };
+const state = { data: null, zoom: null, quarter: 8, width: 0.5, rank: null, rankWeek: null,
                 show: { q_lower: true, m_lower: true, q_mid: false, m_mid: false, band: false } };
 const busy = (on) => $('loading').classList.toggle('on', on);
 const setState = (id, html, kind = '') => {
@@ -326,7 +350,7 @@ function drawChart(container, tip, cfg) {
       const y = Y(v);
       parts.push(`<rect x="${(X(i) - barWidth / 2).toFixed(1)}" y="${Math.min(y, zero).toFixed(1)}" ` +
                  `width="${barWidth.toFixed(1)}" height="${Math.max(0.6, Math.abs(zero - y)).toFixed(1)}" ` +
-                 `fill="${v >= 0 ? '#56B4E9' : '#E69F00'}"/>`);
+                 `fill="${cfg.barColor ? cfg.barColor(v) : (v >= 0 ? '#56B4E9' : '#E69F00')}"/>`);
     }
     parts.push(`<line x1="${pad.l}" x2="${width - pad.r}" y1="${zero}" y2="${zero}" stroke="#c9ced6"/>`);
   }
@@ -385,7 +409,7 @@ function drawChart(container, tip, cfg) {
     cross.setAttribute('x1', X(i)); cross.setAttribute('x2', X(i)); cross.setAttribute('opacity', 1);
     const lines = [`<b>${dates[i]}</b>`].concat(series.filter(s => s.tip !== false).map(s =>
       `${s.name}：${format((s.tipValues || s.values)[i])}`));
-    if (bars) lines.push(`中轨变化：${ok(bars[i]) ? bars[i].toFixed(2) + '%' : '—'}`);
+    if (bars && !cfg.barColor) lines.push(`中轨变化：${ok(bars[i]) ? bars[i].toFixed(2) + '%' : '—'}`);
     if ((cfg.dots || []).some(d => d.date === dates[i])) lines.push('<b>预判点</b>');
     if (cfg.tipExtra) lines.push(...cfg.tipExtra(z0 + i));
     tip.innerHTML = lines.join('<br>');
@@ -469,14 +493,29 @@ const near = (data, zone) => data.lines[zone.key].map((v, i) => {
   return ok(v) && ok(sd) ? v + state.width * sd : null;
 });
 
-function renderTiles() {
+const sigma = (v) => !ok(v) ? '—' : (v > 0 ? '+' : (v < 0 ? '−' : '')) + Math.abs(v).toFixed(2) + 'σ';
+
+function shadeOf(data) {
+  return data.market_level.map((m, i) => m >= 3 ? 'm3' : (m >= 2 ? 'm2' : (data.stock_only[i] ? 's' : 0)));
+}
+
+async function renderTiles() {
   const data = state.data;
   let k = data.close.length - 1;
   while (k > 0 && !ok(data.close[k])) k--;
   const close = data.close[k];
-  $('tilesMeta').textContent = `${data.weeks[k]} · 周收盘 ${money(close)} · 正数 = 价格在线上方`;
-  const names = data.zone_weeks[k] || [];
-  const tiles = ZONES.map(zone => {
+  const week = data.weeks[k];
+  $('tilesMeta').textContent = `${week} · 周收盘 ${money(close)} · 百分比为正 = 价格在线上方`;
+  const market = data.market_level[k] >= 2;
+  const mNames = data.market_names[k] || [];
+  const tiles = [
+    `<div class="tile${market ? ' in' : ''}"><div class="name">市场（VOO）</div>` +
+    `<div class="num" style="font-size:15px;padding-top:4px">${market ? '在关注区' : '不在关注区'}</div>` +
+    `<div class="cap">${market ? mNames.join('、') : '总开关关着'}</div></div>`,
+    `<div class="tile"><div class="name">离自己季线中轨</div><div class="num">${sigma(data.depth[k])}</div>` +
+    `<div class="cap" id="tileRank">83 只里的深度排名：读取中…</div></div>`
+  ];
+  tiles.push(...ZONES.filter(z => z.key !== 'q_mid').map(zone => {
     const line = data.lines[zone.key][k];
     const top = near(data, zone)[k];
     const inside = ok(line) && ok(top) && close <= top;
@@ -487,11 +526,55 @@ function renderTiles() {
     return `<div class="tile${inside ? ' in' : ''}"><div class="name"><i class="${zone.dash ? 'dash' : ''}" ` +
       `style="border-color:${zone.color}"></i>离${zone.name}</div>` +
       `<div class="num">${ok(value) ? sgn(value) : '—'}</div><div class="cap">${cap}</div></div>`;
-  });
-  tiles.push(`<div class="tile${names.length ? ' in' : ''}"><div class="name">这一周的关注区</div>` +
+  }));
+  const names = data.zone_weeks[k] || [];
+  tiles.push(`<div class="tile${names.length ? ' in' : ''}"><div class="name">这只股票自己的关注区</div>` +
     `<div class="num" style="font-size:15px;padding-top:4px">${names.length ? names[0] : '不在关注区'}</div>` +
     `<div class="cap">${names.length > 1 ? '另有 ' + names.slice(1).join('、') : (names.length ? '最强的一种' : '')}</div></div>`);
   $('tiles').innerHTML = tiles.join('');
+  try {
+    const rank = await getJSON(`/api/rank?week=${week}&quarter=${state.quarter}`);
+    const row = rank.rows.find(r => r.ticker === data.meta.ticker);
+    $('tileRank').textContent = row ? `83 只里第 ${row.rank} 深（共 ${rank.count} 只有值）` : '这一周没有值';
+  } catch (error) { $('tileRank').textContent = '排名读取失败：' + error.message; }
+}
+
+async function renderRank() {
+  const week = $('rankWeek').value;
+  if (!week) return;
+  state.rankWeek = week;
+  try {
+    const rank = await getJSON(`/api/rank?week=${week}&quarter=${state.quarter}`);
+    $('rankMeta').textContent = `${week} · 季线 ${rank.quarter_n} 期 · ${rank.count} 只有值 · 从深到浅`;
+    const mine = state.data ? state.data.meta.ticker : '';
+    $('rankTable').innerHTML = '<thead><tr><th>排名</th><th class="left">代码</th><th class="left">公司</th>' +
+      '<th>离季线中轨（σ）</th><th>比季线中轨</th><th class="left">周线中轨</th></tr></thead><tbody>' +
+      rank.rows.map(r => `<tr data-t="${r.ticker}" style="cursor:pointer${r.ticker === mine ? ';background:#FFF0CF;font-weight:600' : ''}">` +
+        `<td>${r.rank}</td><td class="left">${r.ticker}</td><td class="left">${r.name}</td>` +
+        `<td class="${r.depth < 0 ? 'bad' : ''}">${sigma(r.depth)}</td><td>${sgn(r.gap)}</td>` +
+        `<td class="left">${TREND[r.trend] || '—'}</td></tr>`).join('') + '</tbody>';
+    $('rankTable').querySelectorAll('tr[data-t]').forEach(tr => {
+      tr.onclick = () => { $('stock').value = tr.dataset.t; loadStock(false); };
+    });
+  } catch (error) {
+    $('rankTable').innerHTML = `<tbody><tr><td class="left">读取失败：${error.message}</td></tr></tbody>`;
+  }
+}
+
+function fillRankWeeks() {
+  // every week the market sat in a zone, newest first, grouped by episode; plus the last development week
+  const data = state.data;
+  const keep = state.rankWeek;
+  const options = [`<option value="${data.weeks[data.weeks.length - 1]}">最新一周 ${data.weeks[data.weeks.length - 1]}</option>`];
+  for (const ep of [...data.market_episodes].reverse()) {
+    const weeks = data.weeks.filter((w, i) => w >= ep.start && w <= ep.end && data.market_level[i] >= 2).reverse();
+    options.push(`<optgroup label="市场关注区 ${ep.start} 至 ${ep.end}（${ep.weeks} 周）">` +
+      weeks.map(w => `<option value="${w}">${w}</option>`).join('') + '</optgroup>');
+  }
+  $('rankWeek').innerHTML = options.join('');
+  const latestZone = data.market_episodes.length ? data.market_episodes[data.market_episodes.length - 1].end : null;
+  $('rankWeek').value = keep && data.weeks.includes(keep) ? keep : (latestZone || data.weeks[data.weeks.length - 1]);
+  $('rankWeek').onchange = renderRank;
 }
 
 function renderCharts() {
@@ -506,9 +589,9 @@ function renderCharts() {
     `<span class="group"><span class="chip"><i style="border-color:#9aa1ab"></i>周收盘价</span>` +
     `<span class="chip"><i style="border-color:#1f2328;border-top-width:3px"></i>去噪中轨</span>` +
     `<span class="chip"><i class="dot"></i>预判点</span></span>` +
-    `<span class="group"><span class="title">线（点击开关）</span>` + ZONES.map(z => chip(z.key, z)).join('') +
+    `<span class="group"><span class="title">线（点击开关）</span>` + LINES.map(z => chip(z.key, z)).join('') +
     chip('band', { name: '标准布林上下轨', color: '#b9c0ca', dash: true }) + `</span>` +
-    `<span class="group"><span class="title">底色</span>` + [3, 2, 1].map(level =>
+    `<span class="group"><span class="title">底色</span>` + ['m3', 'm2', 's'].map(level =>
       `<span class="chip"><i class="sw" style="background:${SHADE[level]}"></i>${SHADE_LABEL[level]}</span>`).join('') +
     `</span>`;
   $('priceLegend').querySelectorAll('button.chip').forEach(btn => {
@@ -520,7 +603,7 @@ function renderCharts() {
     { name: '去噪中轨', values: data.mid, color: '#111111', width: 2.6 }
   ];
   const ribbons = [];
-  for (const zone of ZONES) {
+  for (const zone of LINES) {
     if (!state.show[zone.key]) continue;
     // drawn as a smooth curve for the eye only; the tooltip and every judgement use the real stepped values
     series.push({ name: zone.name, values: smoothSteps(data.lines[zone.key]), tipValues: data.lines[zone.key],
@@ -534,13 +617,28 @@ function renderCharts() {
   }
   drawChart($('priceChart'), $('priceTip'), {
     dates: data.weeks, height: 400, log: true, zoom: state.zoom,
-    series: series, ribbons: ribbons, shade: data.levels,
+    series: series, ribbons: ribbons, shade: shadeOf(data),
     dots: data.marks.map(m => ({ date: m.date, value: m.mid })),
     yFormat: axisMoney, tipFormat: money,
     tipExtra: (i) => {
       const names = data.zone_weeks[i] || [];
-      return [names.length ? `<span class="z">关注区：${names.join('、')}</span>` : '不在关注区'];
+      const mNames = data.market_names[i] || [];
+      return [data.market_level[i] >= 2 ? `<span class="z">市场在关注区：VOO ${mNames.join('、')}</span>` : '市场不在关注区',
+              names.length ? `这只股票：${names.join('、')}` : '这只股票不在关注区',
+              `离自己季线中轨：${sigma(data.depth[i])}`, `周线中轨：${TREND[data.trend[i]] || '—'}`];
     }
+  });
+
+  $('depthMeta').textContent = `${data.meta.ticker} · 季线 ${data.params.quarter_n} 期 · 底色同上图`;
+  $('depthLegend').innerHTML =
+    `<span class="chip"><i class="sw" style="background:#7A3E00"></i>在季线中轨下方</span>` +
+    `<span class="chip"><i class="sw" style="background:#B8BEC7"></i>在季线中轨上方</span>`;
+  drawChart($('depthChart'), $('depthTip'), {
+    dates: data.weeks, height: 170, zoom: state.zoom, zero: true, shade: shadeOf(data),
+    bars: data.depth, barColor: (v) => v < 0 ? '#7A3E00' : '#B8BEC7',
+    yFormat: (v) => (v > 0 ? '+' : '') + v.toFixed(1) + 'σ',
+    tipExtra: (i) => [`离自己季线中轨：${sigma(data.depth[i])}`,
+                      data.market_level[i] >= 2 ? '<span class="z">市场在关注区</span>' : '市场不在关注区']
   });
 
   $('slopeMeta').textContent = `正值 ${data.s_pct.filter(v => v > 0).length} 周，负值 ${data.s_pct.filter(v => v < 0).length} 周`;
@@ -612,9 +710,11 @@ async function loadStock(keepZoom = false) {
     $('pageState').hidden = true;
     $('pageBody').hidden = false;
     syncUrl();
-    renderTiles();
     renderCharts();
     renderTables();
+    fillRankWeeks();
+    renderTiles();
+    renderRank();
   } catch (error) {
     $('pageBody').hidden = true;
     setState('pageState', error.message, 'err');

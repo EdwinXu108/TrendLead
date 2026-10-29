@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LeadTrend · 周线布林预判点</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --line: #e3e6ea; --ink: #1f2328; --muted: #6b7280;
+    --good: #0072B2; --bad: #D55E00; --accent-soft: #e7f1f9;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 13px/1.55 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  header { display: flex; align-items: center; gap: 14px; padding: 10px 18px; background: var(--card);
+           border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20; flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0 8px 0 0; font-weight: 650; }
+  .ctrl { display: flex; align-items: center; gap: 6px; }
+  .ctrl label { color: var(--muted); font-size: 12px; }
+  select { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px;
+           background: #fff; color: var(--ink); }
+  #stock { width: 104px; text-transform: uppercase; }
+  .check { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12px;
+           cursor: pointer; }
+  main { padding: 16px 18px 30px; max-width: 1360px; margin: 0 auto; }
+  .lead { font-size: 17px; font-weight: 650; margin: 2px 0 14px; line-height: 1.45; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 12px; }
+  .card h2 { font-size: 12px; font-weight: 650; color: var(--muted); margin: 0; padding: 10px 14px 4px; }
+  .sub { color: var(--muted); font-size: 11.5px; }
+  .chart { position: relative; padding: 2px 10px 8px; }
+  .chart svg { display: block; width: 100%; }
+  .legend { display: flex; gap: 14px; padding: 2px 14px 6px; color: var(--muted); font-size: 11.5px;
+            flex-wrap: wrap; align-items: center; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; }
+  .legend .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+  .tip { position: absolute; pointer-events: none; background: rgba(31,35,40,.94); color: #fff; padding: 6px 8px;
+         border-radius: 6px; font-size: 11.5px; line-height: 1.5; white-space: nowrap; opacity: 0;
+         transition: opacity .08s; z-index: 5; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { padding: 5px 8px; text-align: right; }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; border-bottom: 1px solid var(--line); }
+  td { border-bottom: 1px solid #f0f1f3; }
+  td.left, th.left { text-align: left; }
+  .scroll-x { overflow-x: auto; padding: 0 14px 12px; }
+  .scroll-y { max-height: 360px; overflow: auto; padding: 0 14px 12px; }
+  .scroll-y thead th { position: sticky; top: 0; background: var(--card); }
+  .note { color: var(--muted); font-size: 11.5px; padding: 2px 14px 10px; line-height: 1.6; }
+  .bad { color: var(--bad); } .good { color: var(--good); }
+  .state { margin: 0 0 12px; padding: 12px; border: 1px solid var(--line); background: #fff; border-radius: 8px;
+           color: var(--muted); }
+  .state.err { border-color: #f3cdb0; background: #fdf5ee; color: #8a4b16; }
+  details { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  details .body { color: var(--muted); font-size: 12px; line-height: 1.8; padding-top: 8px; }
+  #loading { position: fixed; inset: 0; background: rgba(246,247,249,.5); display: none; align-items: center;
+             justify-content: center; z-index: 50; font-size: 13px; color: var(--muted); }
+  #loading.on { display: flex; }
+  @media (max-width: 1100px) { main { padding: 12px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>LeadTrend · 周线布林预判点</h1>
+  <div class="ctrl"><label>股票</label><select id="stock"></select></div>
+  <label class="check"><input type="checkbox" id="showBand"> 显示标准布林上下轨</label>
+</header>
+
+<main>
+  <p class="lead">每只前 50 股票的周线中轨，什么时候被预判即将止跌？</p>
+  <div id="pageState" class="state">正在读取…</div>
+  <div id="pageBody" hidden>
+    <div class="card">
+      <h2>周线价格与去噪中轨 <span class="sub" id="priceMeta"></span></h2>
+      <div class="legend" id="priceLegend"></div>
+      <div class="chart" id="priceChart"><div class="tip" id="priceTip"></div></div>
+      <div class="note">拖动可放大，双击复位。</div>
+    </div>
+    <div class="card">
+      <h2>中轨每周变化（%） <span class="sub" id="slopeMeta"></span></h2>
+      <div class="legend" id="slopeLegend"></div>
+      <div class="chart" id="slopeChart"><div class="tip" id="slopeTip"></div></div>
+    </div>
+    <div class="card">
+      <h2>预判点明细 <span class="sub" id="tableMeta"></span></h2>
+      <div class="scroll-y"><table id="pointsTable"></table></div>
+      <div class="note">回正 = 中轨的一阶导回到 0 或以上；期间最多再跌与回正那周比预判价都以预判那周的收盘价为基准。</div>
+    </div>
+  </div>
+  <details>
+    <summary>这页怎么读</summary>
+    <div class="body">
+      数据：正式库 v2 的前 50 名单，共 83 只股票；价格用含分红的总回报指数，开发段 2014-02-28 至 2024-06-28，
+      绘图前从库里最早的日期取数，只用于预热。图上与表里的价格按开发段第一周的实际收盘价折算过，形状与指数完全一致。<br>
+      周线收盘：每周最后一个交易日的收盘，周五休市时用该周最后一个交易日，横轴标实际日期。<br>
+      去噪中轨：20 周余弦（Hann）加权平均，权重 w<sub>i</sub> = sin²(π(i+1)/21)，i = 0 是最老的一周、i = 19 是最新一周，
+      再除以总和；不满 20 周的位置为空。<br>
+      一阶导 s<sub>t</sub> = m<sub>t</sub> − m<sub>t−1</sub>，二阶导 a<sub>t</sub> = s<sub>t</sub> − s<sub>t−1</sub>。
+      下图画的是 s<sub>t</sub> ÷ m<sub>t−1</sub> × 100，即中轨每周变化的百分比。<br>
+      预判点：s<sub>t</sub> &lt; 0 且 s<sub>t</sub> + a<sub>t</sub> ≥ 0。意思是中轨还在下降，但按这一周的减速速度再推一周，
+      导数就会回到 0。图上画在中轨上，下图用蓝色竖线标出。<br>
+      明细里的回正：从预判那周往后找第一个 s ≥ 0 的周；开发段结束前都没有回正，几格写 —。<br>
+      标准布林线：20 周简单平均为中轨，上下轨为中轨 ± 2 倍 20 周总体标准差，只作对照，默认不显示。<br>
+      所有量只用当周及以前的数据算，中轨本身就是加权平均，不做任何事后重新拟合。
+    </div>
+  </details>
+</main>
+
+<div id="loading">正在读取…</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { data: null, zoom: null, showBand: false, stocks: [] };
+const busy = (on) => $('loading').classList.toggle('on', on);
+const setState = (id, html, kind = '') => {
+  const el = $(id); el.hidden = false; el.className = 'state ' + kind; el.innerHTML = html;
+};
+const money = (v) => (v === null || v === undefined) ? '—' : '$' + v.toFixed(2);
+const axisMoney = (v) => (v === null || v === undefined) ? '—' : '$' + (v >= 10 ? v.toFixed(0) : v.toFixed(2));
+const pct = (v, d = 1) => (v === null || v === undefined) ? '—' : (v * 100).toFixed(d) + '%';
+const sgn = (v, d = 1) => (v === null || v === undefined) ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(d) + '%';
+const cls = (v) => (v === null || v === undefined) ? '' : (v >= 0 ? 'good' : 'bad');
+
+async function getJSON(url) {
+  const response = await fetch(url);
+  const body = await response.json();
+  if (!response.ok || body.error) throw new Error(body.error || response.statusText);
+  return body;
+}
+
+// -- chart --------------------------------------------------------------------------------------------------------
+
+function niceTicks(min, max, count) {
+  const span = max - min || 1;
+  const step = Math.pow(10, Math.floor(Math.log10(span / count)));
+  const mult = [1, 2, 2.5, 5, 10].find(k => span / (step * k) <= count) || 10;
+  const size = step * mult;
+  const ticks = [];
+  for (let v = Math.ceil(min / size) * size; v <= max + 1e-9; v += size) ticks.push(v);
+  return ticks;
+}
+
+function logTicks(lo, hi) {
+  const out = [];
+  for (let k = Math.floor(lo); k <= Math.ceil(hi); k++) {
+    for (const m of [1, 2, 5]) {
+      const t = Math.log10(m) + k;
+      if (t >= lo && t <= hi) out.push(Math.pow(10, t));
+    }
+  }
+  return out;
+}
+
+function drawChart(container, tip, cfg) {
+  const box = container.getBoundingClientRect();
+  const width = Math.max(320, box.width - 20);
+  const height = cfg.height;
+  const pad = { l: 58, r: 12, t: 10, b: 22 };
+  const all = cfg.dates.length;
+  const [z0, z1] = cfg.zoom ? [Math.max(0, cfg.zoom[0]), Math.min(all - 1, cfg.zoom[1])] : [0, all - 1];
+  const dates = cfg.dates.slice(z0, z1 + 1);
+  const n = dates.length;
+  const series = (cfg.series || []).map(s => ({ ...s, values: s.values.slice(z0, z1 + 1) }));
+  const band = cfg.band ? { upper: cfg.band.upper.slice(z0, z1 + 1), lower: cfg.band.lower.slice(z0, z1 + 1) } : null;
+  const bars = cfg.bars ? cfg.bars.slice(z0, z1 + 1) : null;
+  const finite = series.flatMap(s => s.values).concat(band ? band.upper.concat(band.lower) : [])
+    .concat(bars || []).filter(v => v !== null && Number.isFinite(v));
+  const positive = finite.filter(v => v > 0);
+  const spread = positive.length ? Math.max(...positive) / Math.max(Math.min(...positive), 1e-9) : 1;
+  const useLog = !!cfg.log && positive.length > 0 && spread > 3;
+  const raw = useLog ? positive : finite;
+  if (!raw.length) { container.querySelectorAll('svg').forEach(s => s.remove()); return; }
+  const T = (v) => useLog ? Math.log10(Math.max(v, 1e-9)) : v;
+  let lo = Math.min(...raw.map(T)), hi = Math.max(...raw.map(T));
+  if (cfg.zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+  const padY = (hi - lo) * 0.06 || 1;
+  lo -= padY; hi += padY;
+  const X = (i) => pad.l + (n <= 1 ? 0 : (i / (n - 1)) * (width - pad.l - pad.r));
+  const Y = (v) => pad.t + (1 - (T(v) - lo) / (hi - lo)) * (height - pad.t - pad.b);
+  const parts = [`<svg viewBox="0 0 ${width} ${height}" height="${height}" preserveAspectRatio="none">`];
+  for (const tick of (useLog ? logTicks(lo, hi) : niceTicks(lo, hi, 5))) {
+    const y = Y(tick);
+    parts.push(`<line x1="${pad.l}" x2="${width - pad.r}" y1="${y}" y2="${y}" stroke="#eceef1"/>`);
+    parts.push(`<text x="${pad.l - 8}" y="${y + 3.5}" text-anchor="end" font-size="10.5" fill="#8b929c">` +
+               cfg.yFormat(tick) + `</text>`);
+  }
+  const byMonth = n < 500;
+  let lastMark = '';
+  for (let i = 0; i < n; i++) {
+    const mark = byMonth ? dates[i].slice(0, 7) : dates[i].slice(0, 4);
+    if (mark !== lastMark) {
+      lastMark = mark;
+      parts.push(`<line x1="${X(i)}" x2="${X(i)}" y1="${pad.t}" y2="${height - pad.b}" stroke="#f4f5f7"/>`);
+      parts.push(`<text x="${X(i)}" y="${height - 6}" font-size="10.5" fill="#8b929c">${mark}</text>`);
+    }
+  }
+  if (band) {
+    for (const [key, dash] of [['upper', '4 3'], ['lower', '4 3']]) {
+      let path = '', started = false;
+      for (let i = 0; i < n; i++) {
+        const v = band[key][i];
+        if (v === null || !Number.isFinite(v)) { started = false; continue; }
+        path += (started ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' ';
+        started = true;
+      }
+      parts.push(`<path d="${path}" fill="none" stroke="#b9c0ca" stroke-width="1.1" stroke-dasharray="${dash}"/>`);
+    }
+  }
+  if (bars) {
+    const barWidth = Math.max(1, (width - pad.l - pad.r) / Math.max(n - 1, 1) * 0.8);
+    const zero = Y(0);
+    for (let i = 0; i < n; i++) {
+      const v = bars[i];
+      if (v === null || !Number.isFinite(v)) continue;
+      const y = Y(v);
+      parts.push(`<rect x="${(X(i) - barWidth / 2).toFixed(1)}" y="${Math.min(y, zero).toFixed(1)}" ` +
+                 `width="${barWidth.toFixed(1)}" height="${Math.max(0.6, Math.abs(zero - y)).toFixed(1)}" ` +
+                 `fill="${v >= 0 ? '#56B4E9' : '#E69F00'}"/>`);
+    }
+    parts.push(`<line x1="${pad.l}" x2="${width - pad.r}" y1="${zero}" y2="${zero}" stroke="#c9ced6"/>`);
+  }
+  for (const s of series) {
+    let path = '', started = false;
+    for (let i = 0; i < n; i++) {
+      const v = s.values[i];
+      if (v === null || !Number.isFinite(v)) { started = false; continue; }
+      path += (started ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' ';
+      started = true;
+    }
+    parts.push(`<path d="${path}" fill="none" stroke="${s.color}" stroke-width="${s.width || 1.7}"` +
+               `${s.dash ? ` stroke-dasharray="${s.dash}"` : ''}/>`);
+  }
+  for (const date of (cfg.vlines || [])) {
+    const i = dates.indexOf(date);
+    if (i < 0) continue;
+    parts.push(`<line x1="${X(i).toFixed(1)}" x2="${X(i).toFixed(1)}" y1="${pad.t}" y2="${height - pad.b}" ` +
+               `stroke="#0072B2" stroke-width="1" opacity="0.45"/>`);
+  }
+  for (const dot of (cfg.dots || [])) {
+    const i = dates.indexOf(dot.date);
+    if (i < 0 || dot.value === null || !Number.isFinite(dot.value)) continue;
+    parts.push(`<circle cx="${X(i).toFixed(1)}" cy="${Y(dot.value).toFixed(1)}" r="3.6" fill="#0072B2" ` +
+               `stroke="#ffffff" stroke-width="1.2"/>`);
+  }
+  parts.push(`<line id="cross" x1="0" x2="0" y1="${pad.t}" y2="${height - pad.b}" stroke="#b9c0ca" ` +
+             `stroke-dasharray="3 3" opacity="0"/>`);
+  parts.push(`<rect id="brush" x="${pad.l}" y="${pad.t}" width="0" height="${height - pad.t - pad.b}" ` +
+             `fill="#0072B2" opacity="0" pointer-events="none"/>`);
+  parts.push(`<rect x="${pad.l}" y="${pad.t}" width="${width - pad.l - pad.r}" height="${height - pad.t - pad.b}" ` +
+             `fill="transparent" class="hover" style="cursor:crosshair"/></svg>`);
+  container.querySelectorAll('svg').forEach(s => s.remove());
+  container.insertAdjacentHTML('beforeend', parts.join(''));
+
+  const svg = container.querySelector('svg');
+  const cross = svg.querySelector('#cross');
+  svg.querySelector('.hover').addEventListener('mousemove', (event) => {
+    const rect = svg.getBoundingClientRect();
+    const px = (event.clientX - rect.left) * (width / rect.width);
+    const i = Math.max(0, Math.min(n - 1, Math.round((px - pad.l) / (width - pad.l - pad.r) * (n - 1))));
+    cross.setAttribute('x1', X(i)); cross.setAttribute('x2', X(i)); cross.setAttribute('opacity', 1);
+    const format = cfg.tipFormat || cfg.yFormat;
+    const lines = [`<b>${dates[i]}</b>`].concat(series.map(s => {
+      const v = s.values[i];
+      return `${s.name}：${v === null || !Number.isFinite(v) ? '—' : format(v)}`;
+    }));
+    if (bars) lines.push(`中轨变化：${bars[i] === null || !Number.isFinite(bars[i]) ? '—' : bars[i].toFixed(2) + '%'}`);
+    if ((cfg.dots || []).some(d => d.date === dates[i])) lines.push('预判点');
+    tip.innerHTML = lines.join('<br>');
+    tip.style.opacity = 1;
+    tip.style.left = Math.min(rect.width - tip.offsetWidth - 8, Math.max(4, event.clientX - rect.left + 12)) + 'px';
+    tip.style.top = Math.max(4, event.clientY - rect.top - 10) + 'px';
+  });
+  svg.querySelector('.hover').addEventListener('mouseleave', () => {
+    cross.setAttribute('opacity', 0); tip.style.opacity = 0;
+  });
+  const brush = svg.querySelector('#brush');
+  const toIndex = (clientX) => {
+    const rect = svg.getBoundingClientRect();
+    const px = (clientX - rect.left) * (width / rect.width);
+    return Math.max(0, Math.min(n - 1, Math.round((px - pad.l) / (width - pad.l - pad.r) * (n - 1))));
+  };
+  let anchor = null;
+  svg.addEventListener('mousedown', (event) => {
+    if (event.button !== 0) return;
+    anchor = toIndex(event.clientX);
+    brush.setAttribute('x', X(anchor)); brush.setAttribute('width', 0); brush.setAttribute('opacity', 0.18);
+    event.preventDefault();
+  });
+  svg.addEventListener('mousemove', (event) => {
+    if (anchor === null) return;
+    const i = toIndex(event.clientX);
+    brush.setAttribute('x', X(Math.min(anchor, i)));
+    brush.setAttribute('width', Math.max(0, X(Math.max(anchor, i)) - X(Math.min(anchor, i))));
+  });
+  svg.addEventListener('mouseup', (event) => {
+    if (anchor === null) return;
+    const i = toIndex(event.clientX);
+    brush.setAttribute('opacity', 0);
+    const a = Math.min(anchor, i), b = Math.max(anchor, i);
+    anchor = null;
+    if (b - a < 3) return;
+    setZoom([z0 + a, z0 + b]);
+  });
+  svg.addEventListener('mouseleave', () => { anchor = null; brush.setAttribute('opacity', 0); });
+  svg.addEventListener('dblclick', () => setZoom(null));
+}
+
+function setZoom(range) { state.zoom = range; renderCharts(); }
+
+// -- render -------------------------------------------------------------------------------------------------------
+
+function renderCharts() {
+  const data = state.data;
+  if (!data) return;
+  const marks = new Set(data.marks.map(m => m.date));
+  $('priceMeta').textContent = `${data.meta.ticker} · ${data.meta.weeks} 周`;
+  $('priceLegend').innerHTML =
+    `<span><i style="background:#9aa1ab"></i>周收盘价</span>` +
+    `<span><i style="background:#1f2328;height:4px"></i>去噪中轨</span>` +
+    `<span><span class="dot"></span>预判点</span>` +
+    (state.showBand ? `<span><i style="background:#b9c0ca"></i>标准布林上下轨</span>` : '') +
+    `<span>${data.marks.length} 个预判点</span>`;
+  drawChart($('priceChart'), $('priceTip'), {
+    dates: data.weeks, height: 340, log: true, zoom: state.zoom,
+    band: state.showBand ? data.band : null,
+    series: [
+      { name: '周收盘价', values: data.close, color: '#9aa1ab', width: 1.1 },
+      { name: '去噪中轨', values: data.mid, color: '#1f2328', width: 2.4 }
+    ],
+    dots: data.marks.map(m => ({ date: m.date, value: m.mid })),
+    yFormat: axisMoney, tipFormat: money
+  });
+
+  $('slopeMeta').textContent = `${data.meta.ticker} · 正值 ${data.s_pct.filter(v => v > 0).length} 周，负值 ${data.s_pct.filter(v => v < 0).length} 周`;
+  $('slopeLegend').innerHTML =
+    `<span><i style="background:#56B4E9"></i>中轨上升</span>` +
+    `<span><i style="background:#E69F00"></i>中轨下降</span>` +
+    `<span><i style="background:#0072B2;width:2px"></i>预判点那一周</span>`;
+  drawChart($('slopeChart'), $('slopeTip'), {
+    dates: data.weeks, height: 170, zoom: state.zoom, zero: true,
+    bars: data.s_pct, vlines: [...marks],
+    yFormat: (v) => v.toFixed(1) + '%'
+  });
+}
+
+function renderTable() {
+  const data = state.data;
+  const rows = data.points.map(p =>
+    `<tr><td class="left">${p.date}</td><td>${money(p.close)}</td><td class="left">${p.recover_date || '—'}</td>` +
+    `<td>${p.gap_weeks === null ? '—' : p.gap_weeks}</td>` +
+    `<td class="${cls(p.max_drop)}">${sgn(p.max_drop)}</td>` +
+    `<td class="${cls(p.recover_gain)}">${sgn(p.recover_gain)}</td></tr>`).join('');
+  $('pointsTable').innerHTML = '<thead><tr><th class="left">预判日期</th><th>当周收盘</th><th class="left">回正日期</th>' +
+    '<th>相隔周数</th><th>期间最多再跌</th><th>回正那周比预判价</th></tr></thead><tbody>' +
+    (rows || '<tr><td colspan="6">这只股票在开发段内没有预判点</td></tr>') + '</tbody>';
+  $('tableMeta').textContent = `${data.points.length} 个`;
+}
+
+async function loadStock() {
+  busy(true);
+  setState('pageState', '正在读取…');
+  try {
+    const ticker = $('stock').value;
+    const data = await getJSON('/api/boll?security=' + encodeURIComponent(ticker));
+    state.data = data;
+    state.zoom = null;
+    $('pageState').hidden = true;
+    $('pageBody').hidden = false;
+    const url = new URL(location.href);
+    url.searchParams.set('security', data.meta.ticker);
+    history.replaceState(null, '', url);
+    renderCharts();
+    renderTable();
+  } catch (error) {
+    $('pageBody').hidden = true;
+    setState('pageState', error.message, 'err');
+  } finally { busy(false); }
+}
+
+async function boot() {
+  try {
+    const info = await getJSON('/api/stocks');
+    state.stocks = info.stocks;
+    $('stock').innerHTML = info.stocks.map(s => `<option value="${s.ticker}">${s.ticker}</option>`).join('');
+    const asked = new URLSearchParams(location.search).get('security');
+    $('stock').value = info.stocks.some(s => s.ticker === (asked || '').toUpperCase())
+      ? asked.toUpperCase() : info.default;
+    $('stock').onchange = loadStock;
+    $('showBand').onchange = () => { state.showBand = $('showBand').checked; renderCharts(); };
+    await loadStock();
+  } catch (error) {
+    setState('pageState', error.message, 'err');
+  }
+}
+
+window.addEventListener('resize', () => { if (state.data) renderCharts(); });
+boot();
+</script>
+</body>
+</html>

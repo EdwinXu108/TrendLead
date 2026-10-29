@@ -309,6 +309,17 @@ def depth_series(security: str, db_path: str | None = None, quarter_n: int = DEF
                 trend=[states[i] for i in keep])
 
 
+def members_by_week(weeks, db_path: str | None = None, scope: str = SCOPE) -> dict[str, set]:
+    """{week: security ids in the scope's pool version in force that week} (old and current ids both)."""
+    db = db_path or DEFAULT_DB
+    out = {}
+    for week in weeks:
+        pool = api.pool_at(week, db, scope=scope)
+        out[week] = ({s['security_id'] for s in pool['securities']} |
+                     {s['current_security_id'] for s in pool['securities'] if s['current_security_id']})
+    return out
+
+
 def attention(depth_value, week_depths, market_level: int) -> float:
     """关注度 of one stock in one week, 0 to 100, with no fitted weight.
 

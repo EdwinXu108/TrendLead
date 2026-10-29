@@ -113,11 +113,11 @@
       <h2>关注度（0–100） <span class="sub" id="depthMeta"></span></h2>
       <div class="legend" id="depthLegend"></div>
       <div class="chart" id="depthChart"><div class="tip" id="depthTip"></div></div>
-      <div class="note">市场（VOO）不在关注区时关注度为 0；在关注区时，等于这只股票当周在 83 只里的深度排名，最深 100、最浅 0。灰色底色 = 市场正常、只有这只股票自己跌进关注区，不给分，需要你看基本面。</div>
+      <div class="note">市场（VOO）不在关注区时关注度为 0；在关注区时，等于这只股票在当周前 50 里的深度排名，最深 100、最浅 0；当周还不在前 50 的股票不参与排名。灰色底色 = 市场正常、只有这只股票自己跌进关注区，不给分，需要你看基本面。</div>
     </div>
 
     <div class="card">
-      <h2>市场在关注区的那一周：83 只股票谁跌得最深 <span class="sub" id="rankMeta"></span></h2>
+      <h2>市场在关注区的那一周：当周前 50 谁跌得最深 <span class="sub" id="rankMeta"></span></h2>
       <div class="legend"><span class="title">选一周</span><select id="rankWeek" style="width:auto"></select>
         <span class="title">点一行就切换到那只股票</span></div>
       <div class="scroll-y"><table id="rankTable"></table></div>
@@ -149,7 +149,7 @@
   <details>
     <summary>这页怎么读</summary>
     <div class="body">
-      数据：正式库 v2 的前 50 名单，共 83 只股票；价格用含分红的总回报指数，开发段 2014-02-28 至 2024-06-28，
+      数据：正式库 v2 的前 50 名单（开发段里进过前 50 的 83 只可以选）；价格用含分红的总回报指数，开发段 2014-02-28 至 2024-06-28，
       绘图前从库里最早的日期取数，只用于预热。图上与表里的价格按开发段最后一周（2024-06-28）的实际收盘价折算，和看盘软件的前复权价格同一个量级；拆股前的价格也已按拆股折算，形状与指数完全一致。<br>
       周线收盘：每周最后一个交易日的收盘，周五休市时用该周最后一个交易日，横轴标实际日期。<br>
       去噪中轨：20 周余弦（Hann）加权平均，权重 w<sub>i</sub> = sin²(π(i+1)/21)，i = 0 是最老的一周、i = 19 是最新一周，
@@ -167,14 +167,11 @@
       就算处在那种关注区；d 取 0、0.5、1，0 就是收盘碰到或跌破这条线；线为空的周不算。图上线旁的浅色带就是从线到线 + dσ 的范围。
       月线中轨不再算关注区（统计上只碰月线中轨，之后和不在关注区一样），只作为一条可勾选的线。<br>
       <b>强弱：</b>最强 = 季线下轨；次强 = 月线下轨或季线中轨。<br>
-      <b>市场关注区（总开关）：</b>VOO 的周收盘按同样的月线、季线规则判断，等级 ≥ 次强就算市场在关注区，图上是橙色底色（碰季线下轨更深）。
-      2026-10-29 的统计（83 只股票、开发段 44046 个周）：市场在关注区的周，不挑股票全部买入，12 个月比平常多 9.4 个百分点、上涨 77%；
-      只看个股自己的关注区，是多 7.9、上涨 72%，而且之后再跌超 15% 的更多。<br>
-      <b>只有个股在关注区（灰色底色）：</b>市场正常、只有这只股票自己跌进关注区。统计上 12 个月上涨 70%，和平常一样，结果很分散；
-      最差的几次多是公司自己出了问题（PYPL 2021、GE 2017、BA 2019），或者比大盘先跌（META、AMZN、NFLX 2022 年 1 月）。用价格分不出好坏，要看基本面。<br>
-      <b>离自己季线中轨多远：</b>（周收盘 − 季线中轨）÷ 季线 σ，用的是当周有效的季线。市场在关注区时，季线中轨下方 1σ 以上的股票，
-      12 个月比平常多 24.7 个百分点；在中轨上方的只多 1–3 个百分点。排序表就是按这个数从深到浅排。<br>
-      <b>关注度：</b>市场（VOO）不在关注区 → 0；在关注区 → 这只股票当周离自己季线中轨的深度，在 83 只里的排名换算成 0–100（最深 100、最浅 0）。没有任何拟合出来的权重。2026-10-29 试过用数据拟合“市场深度、个股深度”的加权公式：权重逐年变号，按年留一检验 6 个月的效果甚至反过来，所以不用；而“市场在关注区时按个股深度排名”在每一段持续多周的市场关注区里都成立（最深五分之一减最浅五分之一，12 个月平均多 13.5 个百分点，83% 的周为正）。市场正常时这个排名不可靠（只有 58% 的周为正，逐年来回翻），所以不给分。<br><b>最新一周：</b>开发段最后一周的关注度、市场状态、这只股票离各条线有多远。<br>
+      <b>市场关注区（总开关）：</b>VOO 的周收盘按同样的月线、季线规则判断，等级 ≥ 次强就算市场在关注区。<br>
+      <b>只有个股在关注区（关注度图上的灰色底色）：</b>市场正常、只有这只股票自己跌进关注区，不给分，要看基本面。<br>
+      <b>离自己季线中轨多远：</b>（周收盘 − 季线中轨）÷ 季线 σ，用的是当周有效的季线。排序表就是按这个数从深到浅排。<br>
+      <b>关注度：</b>市场（VOO）不在关注区 → 0；在关注区 → 这只股票当周离自己季线中轨的深度，在当周前 50 里的排名换算成 0–100（最深 100、最浅 0）。只排当周就在前 50 的股票，后来才进前 50 的股票不会被放进更早的周。没有任何拟合出来的权重（拟合“市场深度、个股深度”的加权公式时，权重逐年变号，所以不用）。<br>
+      <b>统计（2026-10-29，已改正为“当周在前 50”的口径、与 VOO 同期比较）：</b>开发段市场在关注区的 104 周里，关注度最高的五分之一，12 个月比 VOO 平均多 11.0 个百分点，但中位只多 5.6，跑赢 VOO 的只有 58%，平均值靠少数大赢家撑着；它们 12 个月的绝对涨幅中位 +26%，84% 上涨。最深五分之一减最浅五分之一：12 个月平均 +11.8、75% 的周为正，3 个月和 6 个月只有 57% 和 52% 的周为正。市场正常时按深度挑反而更差。所以关注度主要是“抄底时机”的提示，挑股的作用较弱。2025 年 4 月（已看过的保留段数据，只作参照）关注度最高的一档里，AMD 大涨，ADBE、ACN、UNH 大幅跑输。<br><b>最新一周：</b>开发段最后一周的关注度、市场状态、这只股票离各条线有多远。<br>
       纵轴按价格与去噪中轨定范围；离价格太远的线不硬塞进图里，会在图底部标出“在图下方”。<br>
       <b>下轨为什么会是负数：</b>下轨 = 中轨 − 2σ。如果一只股票 20 个月（季）里涨了好几倍，这 20 个收盘价差得很远，σ 会超过中轨的一半，
       下轨就算到 0 以下。这是布林线公式本身的结果，看盘软件用同样的公式也会这样；负的下轨意味着价格不可能碰到它，所以那几周不算进这种关注区。
@@ -499,7 +496,7 @@ function shadeOf(data) {
   return data.market_level.map((m, i) => m >= 3 ? 'm3' : (m >= 2 ? 'm2' : (data.stock_only[i] ? 's' : 0)));
 }
 
-const attentionCap = (data, i) => data.market_level[i] >= 2
+const attentionCap = (data, i) => !data.in_scope[i] ? '这一周还不在前 50，不参与排名' : data.market_level[i] >= 2
   ? `市场在关注区 · 离自己季线中轨 ${sigma(data.depth[i])}`
   : (data.stock_only[i] ? '市场正常；这只股票自己跌进了关注区，不给分，需看基本面' : '市场不在关注区');
 
@@ -520,7 +517,7 @@ async function renderTiles() {
     `<div class="num" style="font-size:15px;padding-top:4px">${market ? '在关注区' : '不在关注区'}</div>` +
     `<div class="cap">${market ? mNames.join('、') : '总开关关着'}</div></div>`,
     `<div class="tile"><div class="name">离自己季线中轨</div><div class="num">${sigma(data.depth[k])}</div>` +
-    `<div class="cap" id="tileRank">83 只里的深度排名：读取中…</div></div>`
+    `<div class="cap" id="tileRank">当周前 50 里的深度排名：读取中…</div></div>`
   ];
   tiles.push(...ZONES.filter(z => z.key === 'q_lower').map(zone => {
     const line = data.lines[zone.key][k];
@@ -542,7 +539,7 @@ async function renderTiles() {
   try {
     const rank = await getJSON(`/api/rank?week=${week}&quarter=${state.quarter}&d=${state.width}`);
     const row = rank.rows.find(r => r.ticker === data.meta.ticker);
-    $('tileRank').textContent = row ? `83 只里第 ${row.rank} 深（共 ${rank.count} 只有值）` : '这一周没有值';
+    $('tileRank').textContent = row ? `当周前 50 里第 ${row.rank} 深（共 ${rank.count} 只）` : '这一周不在前 50';
   } catch (error) { $('tileRank').textContent = '排名读取失败：' + error.message; }
 }
 
@@ -553,7 +550,7 @@ async function renderRank() {
   try {
     const rank = await getJSON(`/api/rank?week=${week}&quarter=${state.quarter}&d=${state.width}`);
     $('rankMeta').textContent = `${week} · 市场${rank.market_level >= 2 ? '在关注区' : '不在关注区，关注度全为 0'} · ` +
-      `季线 ${rank.quarter_n} 期 · ${rank.count} 只有值 · 从深到浅`;
+      `季线 ${rank.quarter_n} 期 · 当周在前 50 的 ${rank.count} 只 · 从深到浅`;
     const mine = state.data ? state.data.meta.ticker : '';
     $('rankTable').innerHTML = '<thead><tr><th>排名</th><th>关注度</th><th class="left">代码</th><th class="left">公司</th>' +
       '<th>离季线中轨（σ）</th><th>比季线中轨</th><th class="left">周线中轨</th></tr></thead><tbody>' +

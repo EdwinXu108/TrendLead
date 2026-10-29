@@ -88,6 +88,7 @@ class Store:
         self.lock = threading.Lock()
         self._stocks: list[dict] | None = None
         self.depths: dict[int, dict] = {}
+        self._week_members: dict[str, set] | None = None
         self.module_mtime = MODULE_FILE.stat().st_mtime
 
     def _fresh(self):
@@ -99,16 +100,32 @@ class Store:
             self.depths.clear()
             self.module_mtime = mtime
 
+    def _members(self) -> dict[str, set]:
+        """Securities in the top 50 on each development week, from the pool version in force that week."""
+        if self._week_members is None:
+            weeks = boll_weekly.depth_series(DEFAULT_STOCK, self.db)['weeks']
+            self._week_members = boll_weekly.members_by_week(weeks, self.db)
+        return self._week_members
+
     def _depth_table(self, quarter_n: int) -> dict:
-        """{ticker: depth series} plus {week: every stock's depth that week}, built once per quarter length."""
+        """{ticker: depth series} plus {week: the depths of the stocks in the top 50 that week}.
+
+        A stock enters a week's ranking only if it was in the top 50 that week: ranking every stock that was
+        ever in the top 50 would let a name that only joined later, after a rise, into the earlier weeks.
+        """
         key = int(quarter_n)
         if key not in self.depths:
-            table = {row['ticker']: boll_weekly.depth_series(row['ticker'], self.db, quarter_n=key)
-                     for row in self.stocks()}
+            members = self._members()
+            table = {}
+            for row in self.stocks():
+                item = boll_weekly.depth_series(row['ticker'], self.db, quarter_n=key)
+                item['in_scope'] = [row['security_id'] in members.get(w, ()) for w in item['weeks']]
+                table[row['ticker']] = item
             by_week: dict[str, list] = {}
             for item in table.values():
-                for week, value in zip(item['weeks'], item['depth']):
-                    by_week.setdefault(week, []).append(value)
+                for week, value, inside in zip(item['weeks'], item['depth'], item['in_scope']):
+                    if inside:
+                        by_week.setdefault(week, []).append(value)
             self.depths[key] = dict(table=table, by_week=by_week)
         return self.depths[key]
 
@@ -129,7 +146,7 @@ class Store:
                 k = item['weeks'].index(week)
             except ValueError:
                 continue
-            if item['depth'][k] is None:
+            if item['depth'][k] is None or not item['in_scope'][k]:
                 continue
             rows.append(dict(ticker=row['ticker'], name=row['name'], depth=round(item['depth'][k], 4),
                              gap=None if item['gap'][k] is None else round(item['gap'][k], 6),
@@ -173,9 +190,13 @@ class Store:
                 for row in data['zone_rows']:
                     row['start_close'] = round(row['start_close'], 6)
                     row['min_close'] = round(row['min_close'], 6)
-                by_week = self._depth_table(int(quarter_n))['by_week']
-                data['attention'] = [round(boll_weekly.attention(d, by_week.get(w, []), m), 1)
-                                     for w, d, m in zip(data['weeks'], data['depth'], data['market_level'])]
+                depths = self._depth_table(int(quarter_n))
+                by_week = depths['by_week']
+                inside = dict(zip(depths['table'][ticker]['weeks'], depths['table'][ticker]['in_scope']))
+                data['in_scope'] = [bool(inside.get(w, False)) for w in data['weeks']]
+                data['attention'] = [round(boll_weekly.attention(d, by_week.get(w, []), m), 1) if i else 0.0
+                                     for w, d, m, i in zip(data['weeks'], data['depth'], data['market_level'],
+                                                           data['in_scope'])]
                 self.cache[key] = data
             return self.cache[key]
 

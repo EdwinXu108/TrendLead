@@ -98,7 +98,8 @@ def test_api_returns_meta_and_both_quarter_lengths():
         'default': '/api/boll?security=META',
         'q20': '/api/boll?security=META&quarter=20&d=0.5',
         'q8': '/api/boll?security=META&quarter=8&d=0.5',
-        'rank': '/api/rank?week=2023-10-27&quarter=8'})
+        'rank': '/api/rank?week=2023-10-27&quarter=8',
+        'amd': '/api/boll?security=AMD&quarter=8&d=0.5'})
     status, data = results['default']
     assert status == 200
     assert data['meta']['ticker'] == 'META' and data['meta']['weeks'] == len(data['weeks'])
@@ -123,14 +124,20 @@ def test_api_returns_meta_and_both_quarter_lengths():
     assert all(not only or (own >= 2 and market < 2)
                for only, own, market in zip(q8['stock_only'], q8['levels'], q8['market_level']))
     status, rank = results['rank']
-    assert status == 200 and rank['count'] == 83
+    # only the stocks in the top 50 that week are ranked, never a name that joined later
+    # (Alphabet's two share classes are both listed, so 50 companies can be 51 rows)
+    assert status == 200 and 45 <= rank['count'] <= 51
     depths = [row['depth'] for row in rank['rows']]
-    assert depths == sorted(depths) and [row['rank'] for row in rank['rows']] == list(range(1, 84))
+    assert depths == sorted(depths) and [row['rank'] for row in rank['rows']] == list(range(1, rank['count'] + 1))
     # 关注度 in a market-zone week: the deepest stock 100, the shallowest 0
     assert rank['market_level'] >= 2
     assert rank['rows'][0]['attention'] == 100.0 and rank['rows'][-1]['attention'] == 0.0
     # outside the market's zones every week scores 0
     assert all(score == 0 for score, level in zip(q8['attention'], q8['market_level']) if level < 2)
+    # AMD joined the top 50 years after the 2016 market zone: it has no score in those weeks
+    amd = results['amd'][1]
+    k = amd['weeks'].index('2016-02-12')
+    assert amd['market_level'][k] >= 2 and not amd['in_scope'][k] and amd['attention'][k] == 0
 
 
 def test_attention_is_the_depth_rank_only_when_the_market_is_in_a_zone():
